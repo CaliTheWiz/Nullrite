@@ -1157,6 +1157,7 @@ class Game {
       if (h[0] <= 0) { this.haptic(h[1], h[2]); this.hapticQueue.splice(i, 1); }
     }
     p.move_dir = ctl.moveDir; p.move_mag = ctl.moveMag; p.sprint_req = ctl.sprint; p.aim_dir = ctl.aimDir;
+    p.lookX = b.gx; p.lookY = b.gy; p.lookOn = b.state !== S_DEAD && this.outcome === null;   // his eyes follow the boss
     p.charging = (ctl.heavyHeld >= CHARGE_START && p.alive) ? ctl.heavyHeld : 0;
     if (this.stamDeny > 0) this.stamDeny -= dt;
     if (this.outcome !== null) this.outcome_t += dt;

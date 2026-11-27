@@ -16,12 +16,13 @@ const BIND = {
 };
 const FWD = [0, 1, 0], UP = [0, 0, 1];
 /** Bone frames from a joint set (bind arrays or the rig's {s,f,z} joints). */
-function boneFrames(J, out) {
+function boneFrames(J, out, headYaw) {
+  const hy = headYaw || 0, headFwd = [-Math.sin(hy), Math.cos(hy), 0], neckFwd = [-Math.sin(hy * 0.45), Math.cos(hy * 0.45), 0];
   const g = (n) => { const q = J[n]; return Array.isArray(q) ? q : [q.s, q.f, q.z]; };
   const F = (i, o, a, ref) => frameFrom(out[i], g(o), v3.sub(g(a), g(o)), ref);
   F(B.pelvis, 'pelvis', 'waist', FWD); F(B.spine, 'waist', 'neck', FWD);
-  frameFrom(out[B.neck], g('neck'), v3.sub(g('head'), g('neck')), FWD);
-  frameFrom(out[B.head], g('head'), v3.sub(g('head'), g('neck')), FWD);
+  frameFrom(out[B.neck], g('neck'), v3.sub(g('head'), g('neck')), neckFwd);
+  frameFrom(out[B.head], g('head'), v3.sub(g('head'), g('neck')), headFwd);
   for (const [sd, S] of [['R', 1], ['L', -1]]) {
     const side = [S, 0, 0];
     F(B['upper' + sd], 'sh' + sd, 'el' + sd, side); F(B['fore' + sd], 'el' + sd, 'wr' + sd, side); F(B['hand' + sd], 'wr' + sd, 'hand' + sd, side);
@@ -403,7 +404,7 @@ class CharGL {
     const g = this.g, gl = g.gl, R = p.rig, J = R.j;
     g.begin(Math.round(L.w * s), Math.round(L.h * s), [L.ox, L.oy, L.w, L.h]);
     gl.uniform2f(g.u.yaw, Math.cos(R.yaw), Math.sin(R.yaw));
-    boneFrames(J, this.cur);
+    boneFrames(J, this.cur, R.headYaw);
     // weapon: grip at the right hand, x along the blade
     const G = R.grip, Bd = R.blade, wsc = p.sword_scale || 1;
     // keep the flat of the blade turned toward the camera so it always reads at full width

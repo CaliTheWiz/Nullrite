@@ -106,8 +106,8 @@ class Rig {
     const w = o.walk, cr = o.crouch;
     // ---- legs + pelvis (3D)
     const bob = -1.6 * w.amp / 11 * Math.pow(Math.sin(w.phase), 2);
-    J.pelvis.s = 0; J.pelvis.f = 0; J.pelvis.z = RIG.HIP_Z - cr + bob;
-    J.hipL.s = -RIG.HIP_W; J.hipR.s = RIG.HIP_W;
+    J.pelvis.s = o.sway || 0; J.pelvis.f = 0; J.pelvis.z = RIG.HIP_Z - cr + bob;
+    J.hipL.s = J.pelvis.s - RIG.HIP_W; J.hipR.s = J.pelvis.s + RIG.HIP_W;
     for (const h of [J.hipL, J.hipR]) { h.f = 0; h.z = J.pelvis.z; }
     const feet = o.feet;
     for (const side of [-1, 1]) {
@@ -124,8 +124,10 @@ class Rig {
     J.waist.s = 0; J.waist.f = 0.5; J.waist.z = J.pelvis.z + (RIG.WAIST_Z - RIG.HIP_Z);
     J.neck.s = 0; J.neck.f = 1.0 + o.hunch; J.neck.z = J.pelvis.z + (RIG.NECK_Z - RIG.HIP_Z);
     J.head.s = 0; J.head.f = 1.5 + o.hunch; J.head.z = J.neck.z + 9;
-    J.shL.s = -RIG.SHOULDER_W; J.shR.s = RIG.SHOULDER_W;
-    for (const sh of [J.shL, J.shR]) { sh.f = 0.5 + o.hunch * 0.6; sh.z = J.pelvis.z + (RIG.SHOULDER_Z - RIG.HIP_Z); }
+    const br = o.breath || 0, sw = (o.sway || 0) * 0.55;                  // breathing lifts the chest; the torso rides the hip shift
+    J.waist.s = sw; J.neck.s = sw * 0.6; J.head.s = sw * 0.5; J.neck.z += br * 0.7; J.head.z += br * 0.8;
+    this.headYaw = o.headYaw || 0;
+    for (const sh of [J.shL, J.shR]) { sh.f = 0.5 + o.hunch * 0.6; sh.z = J.pelvis.z + (RIG.SHOULDER_Z - RIG.HIP_Z) + br; sh.s = (sh === J.shL ? -RIG.SHOULDER_W : RIG.SHOULDER_W) + sw * 0.6; }
     J.holster.s = -8.4; J.holster.f = -0.8; J.holster.z = J.pelvis.z + 1.5;
     J.flaskProp.s = 7.9; J.flaskProp.f = 2.2; J.flaskProp.z = J.pelvis.z + 3;
     if (o.roll) {
@@ -293,7 +295,15 @@ function poseRig(p, dt, t) {
   _walk.amp = p.walkAmp; _walk.phase = p.walkPhase; _walk.ms = _walk.ms || 0;
   // ---- defaults: relaxed stance
   _feet.spread = 0.5; _feet.f = -1.5; _feet.fwd = 0; _feet.z = 0;
-  let crouch = 0.6 + 0.4 * Math.sin(t * 2.2), hunch = 0, lean = p.bodyRot, tilt = 0, spin = 0;
+  let crouch = 0.6, hunch = 0, lean = p.bodyRot, tilt = 0, spin = 0;
+  // ---- life: breathing, a slow weight shift when standing, settling after a dash
+  const idle = loco ? clamp(1 - spd / 60, 0, 1) : 0;
+  o.breath = Math.sin(t * 2.0) * 0.55 * (0.4 + 0.6 * idle) + (p.sprinting ? Math.sin(t * 5.5) * 0.4 : 0);
+  p.swayAmt = dt > 0 ? smooth(p.swayAmt || 0, idle, 2, dt) : idle;
+  o.sway = Math.sin(t * 0.55) * 1.2 * p.swayAmt;
+  if (p._lastSt === S_DODGE && st !== S_DODGE) p.landT = 0;
+  p._lastSt = st; p.landT = (p.landT === undefined ? 9 : p.landT) + dt;
+  if (p.landT < 0.3 && st !== S_DODGE) { const k = Math.sin(Math.PI * p.landT / 0.3); crouch += 4.5 * k; hunch += 2 * k; }
   const swingL = -Math.sin(p.walkPhase) * p.walkAmp * 0.75;
   _lr.s = -9; _lr.f = swingL + 1; _lr.z = 34;
   o.leftTarget = null; o.twoHand = null;
@@ -340,7 +350,14 @@ function poseRig(p, dt, t) {
   }
   // lean into the direction of travel (a roll toward the side he is moving to)
   const roll = loco || st === S_DODGE ? clamp(_walk.ms * Math.min(1.4, spd / PLAYER_SPEED), -1.4, 1.4) * 0.1 : 0;
-  o.crouch = crouch; o.hunch = hunch; o.roll = roll; o.tilt = st === S_DEAD ? Math.abs(tilt) : 0; o.spin = 0; o.lean = 0;
+  // ---- the head leads: into a turn while moving, otherwise toward the boss when he's in view (neck limit ~60 deg)
+  let look = 0;
+  if (loco && p.move_dir !== null && p.move_dir !== undefined && spd > 20) look = wrap(p.move_dir - p.facing);
+  else if (loco && p.lookOn) { const rel = wrap(Math.atan2(p.lookY - p.gy, p.lookX - p.gx) - p.facing); if (Math.abs(rel) < 1.9) look = rel; }
+  look = clamp(look, -1.05, 1.05);
+  p.headYaw = dt > 0 ? smooth(p.headYaw || 0, look, 7, dt) : look;
+  o.headYaw = st === S_DEAD ? 0 : p.headYaw;
+  o.crouch = crouch; o.hunch = hunch; o.roll = roll - o.sway * 0.012; o.tilt = st === S_DEAD ? Math.abs(tilt) : 0; o.spin = 0; o.lean = 0;
   void lean; void spin;
   // ---- the weapon in 3D: grip position and blade direction from the weapon animation, in the char frame
   const ga = p.sword_angle, gr = p.sword_r, gX = Math.cos(ga) * gr, gY = Math.sin(ga) * gr;
@@ -359,8 +376,8 @@ function poseRig(p, dt, t) {
   R.pose(o);
   for (const name in p.cloths) p.cloths[name].step(p, dt);
   // visor: front of the head, fades as he turns away
-  const H = R.j.head, fwd = -sy;
-  p.visorX = H.x + cy * 5.6; p.visorY = H.y + sy * 5.6 * K - 0.5;
+  const H = R.j.head, hy = yaw + (o.headYaw || 0), hc = Math.cos(hy), hs = Math.sin(hy), fwd = -hs;
+  p.visorX = H.x + hc * 5.6; p.visorY = H.y + hs * 5.6 * K - 0.5;
   p.visorSX = Math.max(0.25, Math.abs(fwd)); p.visorAlpha = st === S_DEAD ? 0 : clamp((fwd + 0.25) * 1.8, 0, 1);
 }
 

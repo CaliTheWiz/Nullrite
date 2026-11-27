@@ -219,11 +219,21 @@ class Renderer {
       q.live = true; q.t0 = this.g.t; q.gx = p.gx; q.gy = p.gy;
     }
     // shadow stays solid; the body fades as one piece
-    this.entityFrame(p.gx, p.gy); this.local(ART.shadow, 0, 0, 50, 30);
+    this.entityFrame(p.gx, p.gy); this.contactShadow(p);
     main.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); main.globalAlpha = p.bodyAlpha; main.globalCompositeOperation = 'source-over';
     main.drawImage(o.c, this.snap(this.sx(p.gx) - L.ox * CAMERA_ZOOM), this.snap(this.sy(p.gy * K) - L.oy * CAMERA_ZOOM), o.c.width / this.dpr, o.c.height / this.dpr);
     main.globalAlpha = 1;
     if (this.gl3d) { this.entityFrame(p.gx, p.gy); this.drawPlayerGlows(p); }
+  }
+  /** Soft wide shadow, a darker core under him, and a small shadow under each foot that fades as it lifts. */
+  contactShadow(p) {
+    const J = p.rig.j;
+    this.local(ART.shadow, 0, 0, 46, 27, { alpha: 0.75 });
+    this.local(ART.shadow, J.pelvis.x * 0.6, 0, 26, 13, { alpha: 0.55 });
+    for (const A of [J.ankleL, J.ankleR]) {
+      const lift = clamp((A.z - 3.5) / 10, 0, 1);
+      this.local(ART.shadow, A.x, A.y - A.z - 1, 13 * (1 - 0.3 * lift), 6 * (1 - 0.3 * lift), { alpha: 0.6 * (1 - lift) });
+    }
   }
   snap(v) { return Math.round(v * this.dpr) / this.dpr; }       // to a whole device pixel
   /** Draw the player's body into his layer canvas (3D if available, else the 2D pictures). Returns {c}. */
@@ -240,7 +250,7 @@ class Renderer {
   /** The player at the current transform's origin (title screen, pose sheets). */
   drawRigImage(p) {
     const L = PLAYER_LAYER, o = this.renderLayer(p);
-    this.local(ART.shadow, 0, 0, 50, 30);
+    this.contactShadow(p);
     this.ctx.drawImage(o.c, -L.ox, -L.oy, L.w, L.h);
     if (this.gl3d) this.drawPlayerGlows(p);
   }
