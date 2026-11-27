@@ -311,8 +311,17 @@ function poseRig(p, dt, t) {
   const tool = p.kind === 'shoot' || p.kind === 'item' || p.kind === 'flask';
   const heft = attacking ? mv.heft : 0;
   if (p.sprinting) { hunch = 3; crouch += 1.5; }
+  // ---- pistol: gp 0 = holstered, 0.5 = hand on the holster, 1 = drawn and aimed down the arm
+  let gp = p.gunReady, gunDir = p.facing;
+  if (p.kind === 'shoot' && attacking) {
+    gunDir = p.attack_dir;
+    if (st === S_WINDUP) { const q = clamp(p.state_t / mv.windup, 0, 1); gp = mv.windup < 0.06 ? 1 : (q < 0.45 ? 0.5 * q / 0.45 : 0.5 + 0.5 * Math.sin(Math.PI / 2 * (q - 0.45) / 0.55)); }
+    else if (st === S_ACTIVE) gp = 1;
+    else { const q = clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1); gp = p.aimHold ? 1 : q < 0.35 ? 1 : q < 0.85 ? 1 - 0.5 * (q - 0.35) / 0.5 : 0.5 * (1 - (q - 0.85) / 0.15); }
+  }
+  p.gunDrawn = gp >= 0.5;
   const bothHands = W.stance && W.stance.hands === 2;
-  if (bothHands && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }      // 2h: both hands, always
+  if (bothHands && gp < 0.05 && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }  // 2h: both hands unless the left is busy
   if (attacking && !tool && p.kind !== 'visceral') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
     crouch += (2 + 5 * heft) * ph; hunch = 1.5 + 2.5 * heft * ph;
@@ -324,11 +333,21 @@ function poseRig(p, dt, t) {
     const c = clamp((p.charging - CHARGE_START) / (CHARGE_FULL - CHARGE_START), 0, 1);
     crouch += 2 + 5 * c; hunch = 2 + 2 * c; _feet.f = -3 - 2 * c; _feet.spread = 2 + c; o.twoHand = _two; _two.gap = W.handGap || 8;
   }
-  if (tool && attacking) {
+  if (gp > 0.001) {
+    // draw from the left hip, then up into the aim; recoil kicks the hand back and up and tips the muzzle
+    const rel = gunDir - yaw, ds = -Math.sin(rel), df = Math.cos(rel), k = p.gunKick;
+    const shZ = RIG.SHOULDER_Z - 0.6 * crouch;
+    const Hs = -8.8, Hf = 1.6, Hz = RIG.HIP_Z - crouch + 4.5;                       // the holster grip
+    const As = -RIG.SHOULDER_W + ds * 24 - ds * 2 * k, Af = 0.8 + df * 24 - df * 2 * k, Az = shZ - 1.5 + 1.2 * k;
+    if (gp < 0.5) { const u = gp / 0.5; _lr.s += (Hs - _lr.s) * u; _lr.f += (Hf - _lr.f) * u; _lr.z += (Hz - _lr.z) * u; }
+    else { const u = (gp - 0.5) / 0.5, arc = Math.sin(Math.PI * u) * 4; _lr.s = Hs + (As - Hs) * u; _lr.f = Hf + (Af - Hf) * u; _lr.z = Hz + (Az - Hz) * u + arc; }
+    _feet.f = Math.min(_feet.f, -2 * Math.max(0, gp - 0.5) * 2);
+    p.gunPitch = 0.36 * k;                                                       // muzzle flip ~20 deg (wrist extension)
+  } else p.gunPitch = 0;
+  if (tool && attacking && p.kind !== 'shoot') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
     const rel = p.attack_dir - yaw, ds = -Math.sin(rel), df = Math.cos(rel);
     if (p.kind === 'flask') { _lr.s = -2 + 1 * (1 - ph); _lr.f = 4 + 3 * ph; _lr.z = 40 + 26 * ph; hunch = -1 * ph; }
-    else if (p.kind === 'shoot') { _lr.s = -RIG.SHOULDER_W * 0.6 + ds * 24 * ph; _lr.f = 1 + df * 24 * ph; _lr.z = 34 + 22 * ph; _feet.f = -2 * ph; }
     else { // thrown item: up and back, then forward
       const back = st === S_WINDUP ? ph : 0, fwd = st === S_WINDUP ? 0 : ph;
       _lr.s = -6 + ds * 18 * fwd; _lr.f = -6 * back + df * 20 * fwd; _lr.z = 34 + 36 * back + 18 * fwd; hunch = 2 * fwd;
@@ -375,6 +394,10 @@ function poseRig(p, dt, t) {
   o.tabardDepth = p.cloths.tabard && p.cloths.tabard.live ? p.cloths.tabard.lowDepth() : undefined;
   R.pose(o);
   for (const name in p.cloths) p.cloths[name].step(p, dt);
+  // pistol muzzle (world) for the flash and the tracer: from the left fist along the forearm, tipped by recoil
+  { const J = R.j; let fs = J.wrL.s - J.elL.s, ff = J.wrL.f - J.elL.f, fz = J.wrL.z - J.elL.z; const l = Math.hypot(fs, ff, fz) || 1;
+    fs /= l; ff /= l; fz = fz / l + Math.tan(p.gunPitch); const ms = J.handL.s + fs * 15, mf = J.handL.f + ff * 15, mz = J.handL.z + fz * 15 + 1.4;
+    p.muzzleX = p.gx + ms * sy + mf * cy; p.muzzleY = p.gy - ms * cy + mf * sy; p.muzzleZ = mz; }
   // visor: front of the head, fades as he turns away
   const H = R.j.head, hy = yaw + (o.headYaw || 0), hc = Math.cos(hy), hs = Math.sin(hy), fwd = -hs;
   p.visorX = H.x + hc * 5.6; p.visorY = H.y + hs * 5.6 * K - 0.5;

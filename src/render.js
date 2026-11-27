@@ -94,9 +94,16 @@ class Renderer {
       }
     }
     for (const sh of g.proj.shots) if (sh.live) {
-      const x = this.sx(sh.gx), y = this.sy(sh.gy * K + g.proj.SHOT_H), Z = CAMERA_ZOOM;
-      this.img(ART.glow, x, y, 26 * Z, 26 * Z, { color: CRIMSON, blend: 'add' });
-      this.img(ART.spark, x, y, 38 * Z, 7 * Z, { color: '#ffd0c0', blend: 'add', rot: sh.rot });
+      // tracer: a hot streak from behind the round (never past the muzzle) to the round itself
+      const Z = CAMERA_ZOOM, h = sh.h, dx = sh.gx - sh.ox, dy = sh.gy - sh.oy, d = Math.hypot(dx, dy) || 1, tl = Math.min(d, 120);
+      const tx = sh.gx - dx / d * tl, ty = sh.gy - dy / d * tl;
+      const x = this.sx(sh.gx), y = this.sy(sh.gy * K + h), x0 = this.sx(tx), y0 = this.sy(ty * K + h + (1 - tl / Math.max(d, 1)) * 0);
+      const c = this.ctx; c.save(); c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.globalCompositeOperation = 'lighter';
+      c.lineCap = 'round';
+      c.globalAlpha = 0.35; c.strokeStyle = CRIMSON; c.lineWidth = 5 * Z; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x, y); c.stroke();
+      c.globalAlpha = 0.9; c.strokeStyle = '#ffd8b8'; c.lineWidth = 1.6 * Z; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x, y); c.stroke();
+      c.restore();
+      this.img(ART.glow, x, y, 22 * Z, 22 * Z, { color: '#ffb070', blend: 'add' });
     }
     this.drawHUD(g, ui, t);
     this.drawOverlay(g, ui);
@@ -277,7 +284,7 @@ class Renderer {
       if (part.quad) { this.drawClothQuad(part); continue; }
       if (part.kind === 'weapon') { this.drawWeapon(p, R); continue; }
       if (part.kind === 'offhand') {
-        if (p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY)) {
+        if (p.gunDrawn) {
           const J = R.j, a = Math.atan2(J.wrL.y - J.elL.y, J.wrL.x - J.elL.x);
           this.local(ART.rig.props.pistol, J.handL.x, J.handL.y, 15, 7, { ax: 0.2, ay: 0.35, rot: a, sy: Math.cos(a) < 0 ? -1 : 1 });
         }
@@ -329,7 +336,7 @@ class Renderer {
     c.strokeStyle = cl.hem; c.lineWidth = 1.2; c.stroke(); c.restore();
   }
   drawProp(p, part) {
-    const P = ART.rig.props, drawn = p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
+    const P = ART.rig.props, drawn = p.gunDrawn;
     if (part.name === 'holster') this.local(drawn ? P.holsterEmpty : P.holster, part.x, part.y, 7, 13, { ax: 0.5, ay: 0.75, rot: part.rot });
     else this.local(p.flasks > 0 ? P.flask : P.flaskEmpty, part.x, part.y, 5, 9, { ax: 0.5, ay: 0.9, rot: part.rot });
   }

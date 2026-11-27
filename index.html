@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = 'e53a5e';
+const BUILD = 'c624c0';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -139,8 +139,12 @@ const FLASK_MOVE = move({ windup: 0.62, active: 0.05, recovery: 0.32, cancel: 0.
 // ---- build slot: Ember Pistol
 const BULLETS_MAX = 10, BULLET_SPEED = 1100, BULLET_RANGE = 560, BULLET_DAMAGE = 18, BULLET_POISE = 3;
 const PARRY_WINDOW = 0.35;
-const GUN_MOVE = move({ windup: 0.07, active: 0.05, recovery: 0.24, cancel: 0.12, stamina: 8, damage: 0, poise: 0,
+// tap: draw from the hip and fire (the draw is the wind-up); holding the button draws and aims first,
+// so the release fires almost at once (GUN_MOVE_READY)
+const GUN_MOVE = move({ windup: 0.15, active: 0.05, recovery: 0.28, cancel: 0.12, stamina: 8, damage: 0, poise: 0,
                         lunge: -160, hitbox: null, motion: ['rest'], slash: null, sfx: null, haptic: ['rigid', 0.5] });
+const GUN_MOVE_READY = Object.assign({}, GUN_MOVE, { windup: 0.03 });
+const GUN_AIM = { draw: 0.2, holster: 0.25, walk: 0.5 };      // seconds to draw / put away while held, walk speed while aiming
 
 // ---- item slot
 const ITEMS = {
@@ -584,8 +588,17 @@ function poseRig(p, dt, t) {
   const tool = p.kind === 'shoot' || p.kind === 'item' || p.kind === 'flask';
   const heft = attacking ? mv.heft : 0;
   if (p.sprinting) { hunch = 3; crouch += 1.5; }
+  // ---- pistol: gp 0 = holstered, 0.5 = hand on the holster, 1 = drawn and aimed down the arm
+  let gp = p.gunReady, gunDir = p.facing;
+  if (p.kind === 'shoot' && attacking) {
+    gunDir = p.attack_dir;
+    if (st === S_WINDUP) { const q = clamp(p.state_t / mv.windup, 0, 1); gp = mv.windup < 0.06 ? 1 : (q < 0.45 ? 0.5 * q / 0.45 : 0.5 + 0.5 * Math.sin(Math.PI / 2 * (q - 0.45) / 0.55)); }
+    else if (st === S_ACTIVE) gp = 1;
+    else { const q = clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1); gp = p.aimHold ? 1 : q < 0.35 ? 1 : q < 0.85 ? 1 - 0.5 * (q - 0.35) / 0.5 : 0.5 * (1 - (q - 0.85) / 0.15); }
+  }
+  p.gunDrawn = gp >= 0.5;
   const bothHands = W.stance && W.stance.hands === 2;
-  if (bothHands && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }      // 2h: both hands, always
+  if (bothHands && gp < 0.05 && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }  // 2h: both hands unless the left is busy
   if (attacking && !tool && p.kind !== 'visceral') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
     crouch += (2 + 5 * heft) * ph; hunch = 1.5 + 2.5 * heft * ph;
@@ -597,11 +610,21 @@ function poseRig(p, dt, t) {
     const c = clamp((p.charging - CHARGE_START) / (CHARGE_FULL - CHARGE_START), 0, 1);
     crouch += 2 + 5 * c; hunch = 2 + 2 * c; _feet.f = -3 - 2 * c; _feet.spread = 2 + c; o.twoHand = _two; _two.gap = W.handGap || 8;
   }
-  if (tool && attacking) {
+  if (gp > 0.001) {
+    // draw from the left hip, then up into the aim; recoil kicks the hand back and up and tips the muzzle
+    const rel = gunDir - yaw, ds = -Math.sin(rel), df = Math.cos(rel), k = p.gunKick;
+    const shZ = RIG.SHOULDER_Z - 0.6 * crouch;
+    const Hs = -8.8, Hf = 1.6, Hz = RIG.HIP_Z - crouch + 4.5;                       // the holster grip
+    const As = -RIG.SHOULDER_W + ds * 24 - ds * 2 * k, Af = 0.8 + df * 24 - df * 2 * k, Az = shZ - 1.5 + 1.2 * k;
+    if (gp < 0.5) { const u = gp / 0.5; _lr.s += (Hs - _lr.s) * u; _lr.f += (Hf - _lr.f) * u; _lr.z += (Hz - _lr.z) * u; }
+    else { const u = (gp - 0.5) / 0.5, arc = Math.sin(Math.PI * u) * 4; _lr.s = Hs + (As - Hs) * u; _lr.f = Hf + (Af - Hf) * u; _lr.z = Hz + (Az - Hz) * u + arc; }
+    _feet.f = Math.min(_feet.f, -2 * Math.max(0, gp - 0.5) * 2);
+    p.gunPitch = 0.36 * k;                                                       // muzzle flip ~20 deg (wrist extension)
+  } else p.gunPitch = 0;
+  if (tool && attacking && p.kind !== 'shoot') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
     const rel = p.attack_dir - yaw, ds = -Math.sin(rel), df = Math.cos(rel);
     if (p.kind === 'flask') { _lr.s = -2 + 1 * (1 - ph); _lr.f = 4 + 3 * ph; _lr.z = 40 + 26 * ph; hunch = -1 * ph; }
-    else if (p.kind === 'shoot') { _lr.s = -RIG.SHOULDER_W * 0.6 + ds * 24 * ph; _lr.f = 1 + df * 24 * ph; _lr.z = 34 + 22 * ph; _feet.f = -2 * ph; }
     else { // thrown item: up and back, then forward
       const back = st === S_WINDUP ? ph : 0, fwd = st === S_WINDUP ? 0 : ph;
       _lr.s = -6 + ds * 18 * fwd; _lr.f = -6 * back + df * 20 * fwd; _lr.z = 34 + 36 * back + 18 * fwd; hunch = 2 * fwd;
@@ -648,6 +671,10 @@ function poseRig(p, dt, t) {
   o.tabardDepth = p.cloths.tabard && p.cloths.tabard.live ? p.cloths.tabard.lowDepth() : undefined;
   R.pose(o);
   for (const name in p.cloths) p.cloths[name].step(p, dt);
+  // pistol muzzle (world) for the flash and the tracer: from the left fist along the forearm, tipped by recoil
+  { const J = R.j; let fs = J.wrL.s - J.elL.s, ff = J.wrL.f - J.elL.f, fz = J.wrL.z - J.elL.z; const l = Math.hypot(fs, ff, fz) || 1;
+    fs /= l; ff /= l; fz = fz / l + Math.tan(p.gunPitch); const ms = J.handL.s + fs * 15, mf = J.handL.f + ff * 15, mz = J.handL.z + fz * 15 + 1.4;
+    p.muzzleX = p.gx + ms * sy + mf * cy; p.muzzleY = p.gy - ms * cy + mf * sy; p.muzzleZ = mz; }
   // visor: front of the head, fades as he turns away
   const H = R.j.head, hy = yaw + (o.headYaw || 0), hc = Math.cos(hy), hs = Math.sin(hy), fwd = -hs;
   p.visorX = H.x + hc * 5.6; p.visorY = H.y + hs * 5.6 * K - 0.5;
@@ -906,7 +933,29 @@ class FX {
         size: [uniform(10, 20), 3], color: CRIMSON, drag: 5, s0: 1, s1: 0.2, align: true });
     }
   }
-  ghost(p) { p.ghostSeq = (p.ghostSeq || 0) + 1; }          // the renderer snapshots the body as an afterimage
+  ghost(p) { p.ghostSeq = (p.ghostSeq || 0) + 1; }
+  /** Pistol fired: flash at the real muzzle, a few sparks down the barrel line, a puff of smoke. */
+  muzzle(p) {
+    const a = p.attack_dir, x = p.muzzleX, y = p.muzzleY * K + p.muzzleZ;
+    this.glows.spawn({ x, y, life: 0.07, size: [64, 64], color: '#ffe0b0', alpha: 1, s0: 0.7, s1: 1.3 });
+    this.glows.spawn({ x, y, life: 0.14, size: [120, 120], color: CRIMSON, alpha: 0.55, s0: 0.5, s1: 1.4 });
+    const sa = groundToScreenAngle(a);
+    for (let i = 0; i < 6; i++) {
+      const d = sa + uniform(-0.35, 0.35), sp = uniform(260, 620);
+      this.sparks.spawn({ x, y, vx: Math.cos(d) * sp, vy: Math.sin(d) * sp, life: uniform(0.06, 0.16), size: [uniform(10, 18), 2.5],
+        color: choice(['#ffe0b0', '#ffb070', CRIMSON]), drag: 4, s0: 1, s1: 0.3, align: true });
+    }
+    this.smoke.spawn({ x: x + Math.cos(sa) * 6, y: y + Math.sin(sa) * 6, vx: Math.cos(sa) * 40, vy: Math.sin(sa) * 20 + 22, life: 0.6,
+      size: [26, 26], color: '#5c5766', alpha: 0.35, drag: 2.5, s0: 0.5, s1: 1.8 });
+  }
+  /** A shot that ends without hitting the boss: a spark and a little dust where it stops. */
+  shotEnd(x, y) {
+    for (let i = 0; i < 5; i++) {
+      const d = uniform(0, TAU), sp = uniform(80, 220);
+      this.sparks.spawn({ x, y, vx: Math.cos(d) * sp, vy: Math.sin(d) * sp, life: uniform(0.08, 0.2), size: [7, 2], color: '#ffb070', drag: 5, s0: 1, s1: 0.2, align: true });
+    }
+    this.smoke.spawn({ x, y, vx: 0, vy: 18, life: 0.45, size: [22, 22], color: '#524d5c', alpha: 0.3, drag: 2, s0: 0.4, s1: 1.5 });
+  }          // the renderer snapshots the body as an afterimage
   slash(p) {
     const m = p.move, sl = m.slash;
     if (!sl) return;
@@ -1052,6 +1101,7 @@ class Player {
     this.hp = PLAYER_MAX_HP; this.hp_lag = PLAYER_MAX_HP; this.hp_lag_hold = 0;
     this.stamina = STAM_MAX; this.stam_delay = 0; this.stam_lag = STAM_MAX; this.stam_lag_hold = 0;
     this.flasks = FLASK_CHARGES; this.bullets = BULLETS_MAX; this.item_key = 'firebomb';
+    this.gunReady = 0; this.aimHold = false; this.gunKick = 0; this.gunDrawn = false; this.gunPitch = 0;
     this.items = {}; for (const k in ITEMS) this.items[k] = 0;
     this.kind = null; this.move = null; this.attack_dir = this.facing; this.combo = -1; this.combo_expire_t = -1;
     this.dodge_end_t = -10; this.hit_done = false; this.dodge_dir = 0; this.ghost_t = 0; this.invuln = false;
@@ -1163,11 +1213,16 @@ class Player {
     this.state_t += dt;
     if (this.hurt_iframes > 0) this.hurt_iframes -= dt;
     const st = this.state, mv = this.move;
+    // holding the pistol button: draw and aim (left stick steers the aim while he walks slowly)
+    const aiming = this.aimHold && this.bullets > 0 && (st === S_IDLE || st === S_MOVE || (this.kind === 'shoot' && st === S_RECOVERY));
+    this.gunReady = aiming ? Math.min(1, this.gunReady + dt / GUN_AIM.draw) : Math.max(0, this.gunReady - dt / GUN_AIM.holster);
+    this.gunKick *= Math.exp(-dt * 11);
     if (st === S_IDLE || st === S_MOVE) {
       if (this.sprint_block && this.stamina >= SPRINT_MIN) this.sprint_block = false;
       this.sprinting = this.sprint_req && this.move_dir !== null && this.charging <= 0 && !this.sprint_block && this.stamina > 0;
       if (this.move_dir !== null) {
-        let spd = PLAYER_SPEED * this.weapon.speed * this.move_mag;
+        if (aiming) this.sprinting = false;
+        let spd = PLAYER_SPEED * this.weapon.speed * this.move_mag * (aiming ? GUN_AIM.walk : 1);
         if (this.sprinting) spd = PLAYER_SPEED * this.weapon.speed * SPRINT_MULT;
         else if (this.charging > 0) spd *= CHARGE_WALK;
         this.vx = smooth(this.vx, Math.cos(this.move_dir) * spd, 18, dt);
@@ -1623,8 +1678,10 @@ class Projectiles {
   fire(p) {
     for (const sh of this.shots) if (!sh.live) {
       const a = p.attack_dir;
+      const mx = p.muzzleX === undefined ? p.gx : p.muzzleX, my = p.muzzleY === undefined ? p.gy : p.muzzleY;
       Object.assign(sh, { live: true, gx: p.gx + Math.cos(a) * 22, gy: p.gy + Math.sin(a) * 22,
-        vx: Math.cos(a) * BULLET_SPEED, vy: Math.sin(a) * BULLET_SPEED, dist: 0, rot: groundToScreenAngle(a) });
+        vx: Math.cos(a) * BULLET_SPEED, vy: Math.sin(a) * BULLET_SPEED, dist: 0, rot: groundToScreenAngle(a),
+        ox: mx, oy: my, h: p.muzzleZ === undefined ? this.SHOT_H : p.muzzleZ });
       return;
     }
   }
@@ -1645,9 +1702,9 @@ class Projectiles {
       let gone = sh.dist >= BULLET_RANGE || Math.abs(sh.gx) > ARENA_HALF || Math.abs(sh.gy) > ARENA_HALF;
       for (const pil of g.pillars) if (hypot(sh.gx - pil.gx, sh.gy - pil.gy) <= pil.RADIUS) gone = true;
       if (!gone && b.alive && b.elev < 40 && hypot(sh.gx - b.gx, sh.gy - b.gy) <= b.RADIUS + 6) {
-        g.onShotHit(Math.atan2(sh.vy, sh.vx), sh.gx, sh.gy); gone = true;
+        g.onShotHit(Math.atan2(sh.vy, sh.vx), sh.gx, sh.gy); gone = true; sh.hit = true;
       }
-      if (gone) sh.live = false;
+      if (gone) { if (sh.live && !sh.hit) g.fx.shotEnd(sh.gx, sh.gy * K + sh.h); sh.live = false; sh.hit = false; }
     }
     for (const bm of this.bombs) {
       if (!bm.live) continue;
@@ -1713,7 +1770,7 @@ class Game {
     if (d === null || d === undefined) d = this.defaultDir();
     if (kind === 'shoot') {
       if (p.bullets <= 0) return this.deny();
-      p.bullets -= 1; p.startMove('shoot', GUN_MOVE, d); return;
+      p.bullets -= 1; p.startMove('shoot', p.gunReady > 0.8 ? GUN_MOVE_READY : GUN_MOVE, d); return;
     }
     if (kind === 'item') {
       if (p.items[p.item_key] <= 0) return this.deny();
@@ -1741,9 +1798,8 @@ class Game {
     const mv = p.move;
     if (p.kind === 'shoot') {
       this.proj.fire(p); this.sfx('shot', 0.9); this.haptic('rigid', 0.5);
-      const a = p.attack_dir;
-      this.fx.glows.spawn({ x: p.gx + Math.cos(a) * 26, y: (p.gy + Math.sin(a) * 26) * K + this.proj.SHOT_H, life: 0.08,
-        size: [60, 60], color: '#ffd0a0', alpha: 1, s0: 0.6, s1: 1.2 });
+      p.gunKick = 1; this.addShake(p.attack_dir + Math.PI, 2.5);
+      this.fx.muzzle(p);
       return;
     }
     if (p.kind === 'item') {
@@ -3116,7 +3172,7 @@ const C3 = (h) => hexRGB(h);
 const MAT = {
   suit: C3('#18161f'), cloth: C3('#1d1a25'), clothD: C3('#121019'), plate: C3('#3a3c4a'), plateD: C3('#24252f'),
   leather: C3('#1c140f'), leatherL: C3('#3a2a1c'), gold: C3('#a8823c'), crimson: C3('#ff2a45'), crimsonD: C3('#8A2432'),
-  black: C3('#050407'), steel: C3('#3a3b48'), steelD: C3('#1c1d25'), iron: C3('#5c6070'), wood: C3('#3a2a1c'), glass: C3('#3a0b12'), skin: C3('#1a1820'),
+  black: C3('#050407'), steel: C3('#3a3b48'), steelD: C3('#1c1d25'), iron: C3('#7a7e90'), wood: C3('#3a2a1c'), glass: C3('#3a0b12'), skin: C3('#1a1820'),
 };
 /** Ring-based tube along a list of samples { p, r:[ru, rv], bones:[b0, b1, w], col | colFn(theta) , emit, spec }. */
 function tube(mb, S, refFn, n, capStart, capEnd, skip) {
@@ -3407,13 +3463,19 @@ const WEAPON3D = {
     ellipsoid(mb, [2.2, 0, 0], [2.0, 2.0, 2.9], [bo, bo, 1], () => [MAT.crimson, 0.75, 0.9], 10, 8);
     tube(mb, chainSamples([[2.2, 0, 2.6], [2.2, 0, 4.6]], [bo], 1, () => [0.9, 0.9], MAT.wood, 1), fwdRef, 8, false, true);
   },
-  pistol(mb) {
-    const bo = B.offhand;
-    box(mb, [6, 0, 1.0], 6, 0.9, 0.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.iron, bo, 0, 0.8);                    // barrel
-    box(mb, [0.5, 0, -1.6], 1.4, 0.9, 2.6, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.wood, bo, 0, 0.2);               // grip
-    box(mb, [1.2, 0, 1.0], 1.6, 1.0, 1.1, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.plateD, bo, 0, 0.6);               // lock
-    box(mb, [2.4, 0, -0.8], 0.8, 0.4, 0.6, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.gold, bo, 0, 0.5);                // trigger guard
+  pistol(mb) {                                       // flintlock: long iron barrel, brass bands, dark wood, crimson inlay
+    const bo = B.offhand, X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
+    tube(mb, chainSamples([[0.5, 0, 1.4], [15, 0, 1.4]], [bo], 3, (u) => [1.15 - 0.15 * u, 1.15 - 0.15 * u], MAT.iron, 1, () => ({ spec: 0.9 })), upRef, 10, false, true);
+    for (const x of [6, 14.2]) tube(mb, chainSamples([[x, 0, 1.4], [x + 0.9, 0, 1.4]], [bo], 1, () => [1.45, 1.45], MAT.gold, 1, () => ({ spec: 0.8 })), upRef, 10, false, false);
+    box(mb, [3.2, 0, 0.6], 3.8, 1.05, 1.0, X, Y, Z, C3('#4a2e1c'), bo, 0, 0.25);                               // stock under the barrel
+    box(mb, [-0.2, 0, -1.6], 1.5, 1.0, 2.8, X, v3.norm([0, 1, 0]), v3.norm([0.25, 0, 1]), C3('#4a2e1c'), bo, 0, 0.25);   // grip
+    box(mb, [-0.6, 0, -4.2], 1.3, 1.15, 0.6, X, Y, Z, MAT.gold, bo, 0, 0.8);                                   // butt cap
+    box(mb, [1.4, 0, 2.6], 1.2, 0.5, 0.9, X, Y, Z, MAT.plateD, bo, 0, 0.7);                                     // hammer
+    box(mb, [2.2, 0, -0.9], 0.9, 0.35, 0.7, X, Y, Z, MAT.gold, bo, 0, 0.7);                                     // trigger guard
+    box(mb, [3.2, 1.08, 0.6], 1.2, 0.05, 0.45, X, Y, Z, MAT.crimson, bo, 1, 0);                                 // inlay (both sides)
+    box(mb, [3.2, -1.08, 0.6], 1.2, 0.05, 0.45, X, Y, Z, MAT.crimson, bo, 1, 0);
   },
+
 };
 function propsMesh(mb, which) {
   if (which === 'holster' || which === 'holsterEmpty') {
@@ -3493,7 +3555,9 @@ class CharGL {
     frameFrom(this.cur[B.weapon], [G.s, G.f, G.z], [Bd.s, Bd.f, Bd.z], ref);
     for (let k = 0; k < 12; k++) if (k % 4 !== 3) this.cur[B.weapon][k] *= wsc;
     // off-hand item: at the left fist, pointing along the forearm
-    frameFrom(this.cur[B.offhand], [J.handL.s, J.handL.f, J.handL.z], [J.wrL.s - J.elL.s, J.wrL.f - J.elL.f, J.wrL.z - J.elL.z], [0, 0, 1]);
+    { const fl = Math.hypot(J.wrL.s - J.elL.s, J.wrL.f - J.elL.f, J.wrL.z - J.elL.z) || 1, tp = Math.tan(p.gunPitch || 0);
+      frameFrom(this.cur[B.offhand], [J.handL.s, J.handL.f, J.handL.z],
+        [(J.wrL.s - J.elL.s) / fl, (J.wrL.f - J.elL.f) / fl, (J.wrL.z - J.elL.z) / fl + tp], [0, 0, 1]); }
     const I = this.cur[B.world]; I.fill(0); I[0] = I[5] = I[10] = I[15] = 1;
     for (let i = 0; i < GL_BONES; i++) {
       mat4Mul(this._tmp, this.cur[i], this.bindInv[i]);
@@ -3505,7 +3569,7 @@ class CharGL {
     gl.uniform3f(g.u.back, 0.05, 0.04, 0.06); gl.uniform1f(g.u.backMix, 0.6); gl.uniform1f(g.u.emitGain, 1.5);
     g.draw(this.base);
     for (const slot of GEAR_SLOTS) { const id = p.gear[slot]; if (id && this.gear[id]) g.draw(this.gear[id]); }
-    const drawn = p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
+    const drawn = p.gunDrawn;
     const drinking = p.kind === 'flask' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
     g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
     if (!drinking) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
@@ -3863,9 +3927,16 @@ class Renderer {
       }
     }
     for (const sh of g.proj.shots) if (sh.live) {
-      const x = this.sx(sh.gx), y = this.sy(sh.gy * K + g.proj.SHOT_H), Z = CAMERA_ZOOM;
-      this.img(ART.glow, x, y, 26 * Z, 26 * Z, { color: CRIMSON, blend: 'add' });
-      this.img(ART.spark, x, y, 38 * Z, 7 * Z, { color: '#ffd0c0', blend: 'add', rot: sh.rot });
+      // tracer: a hot streak from behind the round (never past the muzzle) to the round itself
+      const Z = CAMERA_ZOOM, h = sh.h, dx = sh.gx - sh.ox, dy = sh.gy - sh.oy, d = Math.hypot(dx, dy) || 1, tl = Math.min(d, 120);
+      const tx = sh.gx - dx / d * tl, ty = sh.gy - dy / d * tl;
+      const x = this.sx(sh.gx), y = this.sy(sh.gy * K + h), x0 = this.sx(tx), y0 = this.sy(ty * K + h + (1 - tl / Math.max(d, 1)) * 0);
+      const c = this.ctx; c.save(); c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.globalCompositeOperation = 'lighter';
+      c.lineCap = 'round';
+      c.globalAlpha = 0.35; c.strokeStyle = CRIMSON; c.lineWidth = 5 * Z; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x, y); c.stroke();
+      c.globalAlpha = 0.9; c.strokeStyle = '#ffd8b8'; c.lineWidth = 1.6 * Z; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x, y); c.stroke();
+      c.restore();
+      this.img(ART.glow, x, y, 22 * Z, 22 * Z, { color: '#ffb070', blend: 'add' });
     }
     this.drawHUD(g, ui, t);
     this.drawOverlay(g, ui);
@@ -4046,7 +4117,7 @@ class Renderer {
       if (part.quad) { this.drawClothQuad(part); continue; }
       if (part.kind === 'weapon') { this.drawWeapon(p, R); continue; }
       if (part.kind === 'offhand') {
-        if (p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY)) {
+        if (p.gunDrawn) {
           const J = R.j, a = Math.atan2(J.wrL.y - J.elL.y, J.wrL.x - J.elL.x);
           this.local(ART.rig.props.pistol, J.handL.x, J.handL.y, 15, 7, { ax: 0.2, ay: 0.35, rot: a, sy: Math.cos(a) < 0 ? -1 : 1 });
         }
@@ -4098,7 +4169,7 @@ class Renderer {
     c.strokeStyle = cl.hem; c.lineWidth = 1.2; c.stroke(); c.restore();
   }
   drawProp(p, part) {
-    const P = ART.rig.props, drawn = p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
+    const P = ART.rig.props, drawn = p.gunDrawn;
     if (part.name === 'holster') this.local(drawn ? P.holsterEmpty : P.holster, part.x, part.y, 7, 13, { ax: 0.5, ay: 0.75, rot: part.rot });
     else this.local(p.flasks > 0 ? P.flask : P.flaskEmpty, part.x, part.y, 5, 9, { ax: 0.5, ay: 0.9, rot: part.rot });
   }
@@ -4413,6 +4484,7 @@ class Controls {
     this.flask.dim = p.flasks > 0 ? 1 : 0.4;
     this.item.dim = p.items[p.item_key] > 0 ? 1 : 0.4;
     this.shoot.dim = p.bullets > 0 ? 1 : 0.4;
+    p.aimHold = this.shoot.id !== null;                    // held: draw and aim; release fires
     for (const b of this.buttons) b.updateVisual(dt);
     this.ui.stick = this.stick.visual();
     return { moveDir, moveMag, sprint, aimDir, heavyHeld: this.heavy.id !== null ? g.t - this.heavy.start_t : -1 };
@@ -4505,7 +4577,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, THROW_MOVE, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD } }, start() { screen = 'play'; game.resetRound(); } };
+window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD } }, start() { screen = 'play'; game.resetRound(); } };
 
 }
 </script>

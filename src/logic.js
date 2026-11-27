@@ -89,7 +89,29 @@ class FX {
         size: [uniform(10, 20), 3], color: CRIMSON, drag: 5, s0: 1, s1: 0.2, align: true });
     }
   }
-  ghost(p) { p.ghostSeq = (p.ghostSeq || 0) + 1; }          // the renderer snapshots the body as an afterimage
+  ghost(p) { p.ghostSeq = (p.ghostSeq || 0) + 1; }
+  /** Pistol fired: flash at the real muzzle, a few sparks down the barrel line, a puff of smoke. */
+  muzzle(p) {
+    const a = p.attack_dir, x = p.muzzleX, y = p.muzzleY * K + p.muzzleZ;
+    this.glows.spawn({ x, y, life: 0.07, size: [64, 64], color: '#ffe0b0', alpha: 1, s0: 0.7, s1: 1.3 });
+    this.glows.spawn({ x, y, life: 0.14, size: [120, 120], color: CRIMSON, alpha: 0.55, s0: 0.5, s1: 1.4 });
+    const sa = groundToScreenAngle(a);
+    for (let i = 0; i < 6; i++) {
+      const d = sa + uniform(-0.35, 0.35), sp = uniform(260, 620);
+      this.sparks.spawn({ x, y, vx: Math.cos(d) * sp, vy: Math.sin(d) * sp, life: uniform(0.06, 0.16), size: [uniform(10, 18), 2.5],
+        color: choice(['#ffe0b0', '#ffb070', CRIMSON]), drag: 4, s0: 1, s1: 0.3, align: true });
+    }
+    this.smoke.spawn({ x: x + Math.cos(sa) * 6, y: y + Math.sin(sa) * 6, vx: Math.cos(sa) * 40, vy: Math.sin(sa) * 20 + 22, life: 0.6,
+      size: [26, 26], color: '#5c5766', alpha: 0.35, drag: 2.5, s0: 0.5, s1: 1.8 });
+  }
+  /** A shot that ends without hitting the boss: a spark and a little dust where it stops. */
+  shotEnd(x, y) {
+    for (let i = 0; i < 5; i++) {
+      const d = uniform(0, TAU), sp = uniform(80, 220);
+      this.sparks.spawn({ x, y, vx: Math.cos(d) * sp, vy: Math.sin(d) * sp, life: uniform(0.08, 0.2), size: [7, 2], color: '#ffb070', drag: 5, s0: 1, s1: 0.2, align: true });
+    }
+    this.smoke.spawn({ x, y, vx: 0, vy: 18, life: 0.45, size: [22, 22], color: '#524d5c', alpha: 0.3, drag: 2, s0: 0.4, s1: 1.5 });
+  }          // the renderer snapshots the body as an afterimage
   slash(p) {
     const m = p.move, sl = m.slash;
     if (!sl) return;
@@ -235,6 +257,7 @@ class Player {
     this.hp = PLAYER_MAX_HP; this.hp_lag = PLAYER_MAX_HP; this.hp_lag_hold = 0;
     this.stamina = STAM_MAX; this.stam_delay = 0; this.stam_lag = STAM_MAX; this.stam_lag_hold = 0;
     this.flasks = FLASK_CHARGES; this.bullets = BULLETS_MAX; this.item_key = 'firebomb';
+    this.gunReady = 0; this.aimHold = false; this.gunKick = 0; this.gunDrawn = false; this.gunPitch = 0;
     this.items = {}; for (const k in ITEMS) this.items[k] = 0;
     this.kind = null; this.move = null; this.attack_dir = this.facing; this.combo = -1; this.combo_expire_t = -1;
     this.dodge_end_t = -10; this.hit_done = false; this.dodge_dir = 0; this.ghost_t = 0; this.invuln = false;
@@ -346,11 +369,16 @@ class Player {
     this.state_t += dt;
     if (this.hurt_iframes > 0) this.hurt_iframes -= dt;
     const st = this.state, mv = this.move;
+    // holding the pistol button: draw and aim (left stick steers the aim while he walks slowly)
+    const aiming = this.aimHold && this.bullets > 0 && (st === S_IDLE || st === S_MOVE || (this.kind === 'shoot' && st === S_RECOVERY));
+    this.gunReady = aiming ? Math.min(1, this.gunReady + dt / GUN_AIM.draw) : Math.max(0, this.gunReady - dt / GUN_AIM.holster);
+    this.gunKick *= Math.exp(-dt * 11);
     if (st === S_IDLE || st === S_MOVE) {
       if (this.sprint_block && this.stamina >= SPRINT_MIN) this.sprint_block = false;
       this.sprinting = this.sprint_req && this.move_dir !== null && this.charging <= 0 && !this.sprint_block && this.stamina > 0;
       if (this.move_dir !== null) {
-        let spd = PLAYER_SPEED * this.weapon.speed * this.move_mag;
+        if (aiming) this.sprinting = false;
+        let spd = PLAYER_SPEED * this.weapon.speed * this.move_mag * (aiming ? GUN_AIM.walk : 1);
         if (this.sprinting) spd = PLAYER_SPEED * this.weapon.speed * SPRINT_MULT;
         else if (this.charging > 0) spd *= CHARGE_WALK;
         this.vx = smooth(this.vx, Math.cos(this.move_dir) * spd, 18, dt);
@@ -806,8 +834,10 @@ class Projectiles {
   fire(p) {
     for (const sh of this.shots) if (!sh.live) {
       const a = p.attack_dir;
+      const mx = p.muzzleX === undefined ? p.gx : p.muzzleX, my = p.muzzleY === undefined ? p.gy : p.muzzleY;
       Object.assign(sh, { live: true, gx: p.gx + Math.cos(a) * 22, gy: p.gy + Math.sin(a) * 22,
-        vx: Math.cos(a) * BULLET_SPEED, vy: Math.sin(a) * BULLET_SPEED, dist: 0, rot: groundToScreenAngle(a) });
+        vx: Math.cos(a) * BULLET_SPEED, vy: Math.sin(a) * BULLET_SPEED, dist: 0, rot: groundToScreenAngle(a),
+        ox: mx, oy: my, h: p.muzzleZ === undefined ? this.SHOT_H : p.muzzleZ });
       return;
     }
   }
@@ -828,9 +858,9 @@ class Projectiles {
       let gone = sh.dist >= BULLET_RANGE || Math.abs(sh.gx) > ARENA_HALF || Math.abs(sh.gy) > ARENA_HALF;
       for (const pil of g.pillars) if (hypot(sh.gx - pil.gx, sh.gy - pil.gy) <= pil.RADIUS) gone = true;
       if (!gone && b.alive && b.elev < 40 && hypot(sh.gx - b.gx, sh.gy - b.gy) <= b.RADIUS + 6) {
-        g.onShotHit(Math.atan2(sh.vy, sh.vx), sh.gx, sh.gy); gone = true;
+        g.onShotHit(Math.atan2(sh.vy, sh.vx), sh.gx, sh.gy); gone = true; sh.hit = true;
       }
-      if (gone) sh.live = false;
+      if (gone) { if (sh.live && !sh.hit) g.fx.shotEnd(sh.gx, sh.gy * K + sh.h); sh.live = false; sh.hit = false; }
     }
     for (const bm of this.bombs) {
       if (!bm.live) continue;
@@ -896,7 +926,7 @@ class Game {
     if (d === null || d === undefined) d = this.defaultDir();
     if (kind === 'shoot') {
       if (p.bullets <= 0) return this.deny();
-      p.bullets -= 1; p.startMove('shoot', GUN_MOVE, d); return;
+      p.bullets -= 1; p.startMove('shoot', p.gunReady > 0.8 ? GUN_MOVE_READY : GUN_MOVE, d); return;
     }
     if (kind === 'item') {
       if (p.items[p.item_key] <= 0) return this.deny();
@@ -924,9 +954,8 @@ class Game {
     const mv = p.move;
     if (p.kind === 'shoot') {
       this.proj.fire(p); this.sfx('shot', 0.9); this.haptic('rigid', 0.5);
-      const a = p.attack_dir;
-      this.fx.glows.spawn({ x: p.gx + Math.cos(a) * 26, y: (p.gy + Math.sin(a) * 26) * K + this.proj.SHOT_H, life: 0.08,
-        size: [60, 60], color: '#ffd0a0', alpha: 1, s0: 0.6, s1: 1.2 });
+      p.gunKick = 1; this.addShake(p.attack_dir + Math.PI, 2.5);
+      this.fx.muzzle(p);
       return;
     }
     if (p.kind === 'item') {

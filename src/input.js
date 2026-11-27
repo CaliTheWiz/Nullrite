@@ -127,6 +127,7 @@ class Controls {
     this.flask.dim = p.flasks > 0 ? 1 : 0.4;
     this.item.dim = p.items[p.item_key] > 0 ? 1 : 0.4;
     this.shoot.dim = p.bullets > 0 ? 1 : 0.4;
+    p.aimHold = this.shoot.id !== null;                    // held: draw and aim; release fires
     for (const b of this.buttons) b.updateVisual(dt);
     this.ui.stick = this.stick.visual();
     return { moveDir, moveMag, sprint, aimDir, heavyHeld: this.heavy.id !== null ? g.t - this.heavy.start_t : -1 };

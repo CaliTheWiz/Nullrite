@@ -36,7 +36,7 @@ const C3 = (h) => hexRGB(h);
 const MAT = {
   suit: C3('#18161f'), cloth: C3('#1d1a25'), clothD: C3('#121019'), plate: C3('#3a3c4a'), plateD: C3('#24252f'),
   leather: C3('#1c140f'), leatherL: C3('#3a2a1c'), gold: C3('#a8823c'), crimson: C3('#ff2a45'), crimsonD: C3('#8A2432'),
-  black: C3('#050407'), steel: C3('#3a3b48'), steelD: C3('#1c1d25'), iron: C3('#5c6070'), wood: C3('#3a2a1c'), glass: C3('#3a0b12'), skin: C3('#1a1820'),
+  black: C3('#050407'), steel: C3('#3a3b48'), steelD: C3('#1c1d25'), iron: C3('#7a7e90'), wood: C3('#3a2a1c'), glass: C3('#3a0b12'), skin: C3('#1a1820'),
 };
 /** Ring-based tube along a list of samples { p, r:[ru, rv], bones:[b0, b1, w], col | colFn(theta) , emit, spec }. */
 function tube(mb, S, refFn, n, capStart, capEnd, skip) {
@@ -327,13 +327,19 @@ const WEAPON3D = {
     ellipsoid(mb, [2.2, 0, 0], [2.0, 2.0, 2.9], [bo, bo, 1], () => [MAT.crimson, 0.75, 0.9], 10, 8);
     tube(mb, chainSamples([[2.2, 0, 2.6], [2.2, 0, 4.6]], [bo], 1, () => [0.9, 0.9], MAT.wood, 1), fwdRef, 8, false, true);
   },
-  pistol(mb) {
-    const bo = B.offhand;
-    box(mb, [6, 0, 1.0], 6, 0.9, 0.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.iron, bo, 0, 0.8);                    // barrel
-    box(mb, [0.5, 0, -1.6], 1.4, 0.9, 2.6, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.wood, bo, 0, 0.2);               // grip
-    box(mb, [1.2, 0, 1.0], 1.6, 1.0, 1.1, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.plateD, bo, 0, 0.6);               // lock
-    box(mb, [2.4, 0, -0.8], 0.8, 0.4, 0.6, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.gold, bo, 0, 0.5);                // trigger guard
+  pistol(mb) {                                       // flintlock: long iron barrel, brass bands, dark wood, crimson inlay
+    const bo = B.offhand, X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
+    tube(mb, chainSamples([[0.5, 0, 1.4], [15, 0, 1.4]], [bo], 3, (u) => [1.15 - 0.15 * u, 1.15 - 0.15 * u], MAT.iron, 1, () => ({ spec: 0.9 })), upRef, 10, false, true);
+    for (const x of [6, 14.2]) tube(mb, chainSamples([[x, 0, 1.4], [x + 0.9, 0, 1.4]], [bo], 1, () => [1.45, 1.45], MAT.gold, 1, () => ({ spec: 0.8 })), upRef, 10, false, false);
+    box(mb, [3.2, 0, 0.6], 3.8, 1.05, 1.0, X, Y, Z, C3('#4a2e1c'), bo, 0, 0.25);                               // stock under the barrel
+    box(mb, [-0.2, 0, -1.6], 1.5, 1.0, 2.8, X, v3.norm([0, 1, 0]), v3.norm([0.25, 0, 1]), C3('#4a2e1c'), bo, 0, 0.25);   // grip
+    box(mb, [-0.6, 0, -4.2], 1.3, 1.15, 0.6, X, Y, Z, MAT.gold, bo, 0, 0.8);                                   // butt cap
+    box(mb, [1.4, 0, 2.6], 1.2, 0.5, 0.9, X, Y, Z, MAT.plateD, bo, 0, 0.7);                                     // hammer
+    box(mb, [2.2, 0, -0.9], 0.9, 0.35, 0.7, X, Y, Z, MAT.gold, bo, 0, 0.7);                                     // trigger guard
+    box(mb, [3.2, 1.08, 0.6], 1.2, 0.05, 0.45, X, Y, Z, MAT.crimson, bo, 1, 0);                                 // inlay (both sides)
+    box(mb, [3.2, -1.08, 0.6], 1.2, 0.05, 0.45, X, Y, Z, MAT.crimson, bo, 1, 0);
   },
+
 };
 function propsMesh(mb, which) {
   if (which === 'holster' || which === 'holsterEmpty') {
@@ -413,7 +419,9 @@ class CharGL {
     frameFrom(this.cur[B.weapon], [G.s, G.f, G.z], [Bd.s, Bd.f, Bd.z], ref);
     for (let k = 0; k < 12; k++) if (k % 4 !== 3) this.cur[B.weapon][k] *= wsc;
     // off-hand item: at the left fist, pointing along the forearm
-    frameFrom(this.cur[B.offhand], [J.handL.s, J.handL.f, J.handL.z], [J.wrL.s - J.elL.s, J.wrL.f - J.elL.f, J.wrL.z - J.elL.z], [0, 0, 1]);
+    { const fl = Math.hypot(J.wrL.s - J.elL.s, J.wrL.f - J.elL.f, J.wrL.z - J.elL.z) || 1, tp = Math.tan(p.gunPitch || 0);
+      frameFrom(this.cur[B.offhand], [J.handL.s, J.handL.f, J.handL.z],
+        [(J.wrL.s - J.elL.s) / fl, (J.wrL.f - J.elL.f) / fl, (J.wrL.z - J.elL.z) / fl + tp], [0, 0, 1]); }
     const I = this.cur[B.world]; I.fill(0); I[0] = I[5] = I[10] = I[15] = 1;
     for (let i = 0; i < GL_BONES; i++) {
       mat4Mul(this._tmp, this.cur[i], this.bindInv[i]);
@@ -425,7 +433,7 @@ class CharGL {
     gl.uniform3f(g.u.back, 0.05, 0.04, 0.06); gl.uniform1f(g.u.backMix, 0.6); gl.uniform1f(g.u.emitGain, 1.5);
     g.draw(this.base);
     for (const slot of GEAR_SLOTS) { const id = p.gear[slot]; if (id && this.gear[id]) g.draw(this.gear[id]); }
-    const drawn = p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
+    const drawn = p.gunDrawn;
     const drinking = p.kind === 'flask' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
     g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
     if (!drinking) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);

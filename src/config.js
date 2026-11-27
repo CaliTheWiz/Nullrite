@@ -106,8 +106,12 @@ const FLASK_MOVE = move({ windup: 0.62, active: 0.05, recovery: 0.32, cancel: 0.
 // ---- build slot: Ember Pistol
 const BULLETS_MAX = 10, BULLET_SPEED = 1100, BULLET_RANGE = 560, BULLET_DAMAGE = 18, BULLET_POISE = 3;
 const PARRY_WINDOW = 0.35;
-const GUN_MOVE = move({ windup: 0.07, active: 0.05, recovery: 0.24, cancel: 0.12, stamina: 8, damage: 0, poise: 0,
+// tap: draw from the hip and fire (the draw is the wind-up); holding the button draws and aims first,
+// so the release fires almost at once (GUN_MOVE_READY)
+const GUN_MOVE = move({ windup: 0.15, active: 0.05, recovery: 0.28, cancel: 0.12, stamina: 8, damage: 0, poise: 0,
                         lunge: -160, hitbox: null, motion: ['rest'], slash: null, sfx: null, haptic: ['rigid', 0.5] });
+const GUN_MOVE_READY = Object.assign({}, GUN_MOVE, { windup: 0.03 });
+const GUN_AIM = { draw: 0.2, holster: 0.25, walk: 0.5 };      // seconds to draw / put away while held, walk speed while aiming
 
 // ---- item slot
 const ITEMS = {

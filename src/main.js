@@ -84,4 +84,4 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, THROW_MOVE, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD } }, start() { screen = 'play'; game.resetRound(); } };
+window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD } }, start() { screen = 'play'; game.resetRound(); } };

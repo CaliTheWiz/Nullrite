@@ -95,8 +95,13 @@ frame rate on the phone.
    planted, torso rides it), head yaw (neck limit ~60 deg) leads into turns and otherwise follows the boss when in
    view, dip-and-settle for 0.3s after a dash. Contact shadow: soft wide + darker core + a shadow per foot that
    fades as the foot lifts. `python3 tools/life_sheet.py`.
-Then: gear system (stats, weight, equip screen, pickups), pistol aims with the left stick (option 2),
-shot feedback (muzzle flash + streak, option 4), player gun animation, more distinct boss wind-up poses.
+Pistol (DONE): tap = draw from the left-hip holster and fire (GUN_MOVE windup 0.15 is the draw); HOLD the button =
+draw and aim (gunReady over 0.2s, walk at 50%, no sprint, left stick steers the aim), release fires almost at once
+(GUN_MOVE_READY windup 0.03). Drag on the button still aims directly. Recoil: hand back/up a little, muzzle flips
+~20 deg (wrist extension). Muzzle point from the rig (p.muzzleX/Y/Z) drives the flash (warm + crimson glow, sparks,
+smoke) and the tracer (hot streak behind the round); misses spark + dust where they stop. Flintlock mesh.
+`python3 tools/gun_sheet.py`. Note: 2h weapons will lock the left hand in the gear phase (pistol unusable then).
+Then: gear system (stats, weight, equip screen, pickups), more distinct boss wind-up poses.
 Blunderbuss (spread shot) is a future off-hand weapon.
 Weapon/hand rules (agreed):
 - Every weapon has a grip: '1h' (either hand), '2h' (both hands, LEFT HAND LOCKED), 'shield' (left only).
