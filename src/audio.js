@@ -71,6 +71,44 @@ const SYNTHS = {
       + click[i] * Math.exp(-t[i] * 60) * 0.5) * 1.6));
     return dspFade(dspNorm(x, 0.95));
   },
+  stomp() {                                  // a huge armoured foot on stone: sub thump, a scuff of grit
+    const d = 0.34, [s, t] = dspSweep(72, 30, d, 10), n = t.length, lo = dspBand(dspNoise(n, 21), 40, 260), grit = dspBand(dspNoise(n, 22), 900, 3200);
+    const x = dspMap(n, i => { const tt = t[i];
+      return Math.tanh((s[i] * Math.exp(-tt * 9) + lo[i] * Math.exp(-tt * 22) * 0.7 + grit[i] * Math.exp(-tt * 45) * 0.12) * 1.8); });
+    return dspFade(dspNorm(dspSoften(x, 1800), 0.9), 1, 20);
+  },
+  boom() {                                   // something enormous hits the floor: sub drop, crack, rumble, falling debris
+    const d = 1.2, [s, t] = dspSweep(62, 22, d, 3.2), n = t.length, rum = dspBand(dspNoise(n, 31), 25, 180), crack = dspBand(dspNoise(n, 32), 380, 2600);
+    const deb = dspBand(dspNoise(n, 33), 1200, 4200), gate = mulberry32(34); let g = 0;
+    const x = dspMap(n, i => { const tt = t[i];
+      if (i % 220 === 0) g = gate() < 0.35 ? gate() : 0;
+      return Math.tanh((s[i] * Math.exp(-tt * 2.8) * 1.1 + rum[i] * Math.exp(-tt * 2.4) * 0.8 + crack[i] * Math.exp(-tt * 18) * 0.4
+        + deb[i] * g * Math.exp(-tt * 3.5) * 0.18 * Math.min(1, tt * 8)) * 1.6); });
+    return dspFade(dspNorm(dspSoften(x, 2600), 1.0), 1, 120);
+  },
+  clank() {                                  // a heavy armour plate hitting stone
+    const d = 0.5, t = dspTime(d), n = t.length, click = dspBand(dspNoise(n, 41), 1500, 5000), [th] = dspSweep(130, 50, d, 18);
+    const x = dspMap(n, i => { const tt = t[i]; let r = 0;
+      for (const [f, k] of [[311, 7], [737, 9], [1183, 11], [1621, 14], [2389, 18]]) r += Math.sin(TAU * f * tt) * Math.exp(-tt * k);
+      return Math.tanh((r * 0.28 + th[i] * Math.exp(-tt * 20) * 0.7 + click[i] * Math.exp(-tt * 90) * 0.45) * 1.3); });
+    return dspFade(dspNorm(dspSoften(x, 4200), 0.75), 1, 30);
+  },
+  clang() {                                  // the halberd's iron head on stone, with one bounce
+    const d = 1.0, t = dspTime(d), n = t.length, click = dspBand(dspNoise(n, 51), 1800, 6000);
+    const hit = (tt) => { if (tt < 0) return 0; let r = 0;
+      for (const [f, k] of [[523, 4], [1297, 5], [1979, 6.5], [2843, 8], [3511, 10]]) r += Math.sin(TAU * f * tt) * Math.exp(-tt * k);
+      return r; };
+    const x = dspMap(n, i => { const tt = t[i];
+      return Math.tanh((hit(tt) * 0.3 + hit(tt - 0.19) * 0.12 + click[i] * (Math.exp(-tt * 80) + (tt > 0.19 ? 0.4 * Math.exp(-(tt - 0.19) * 80) : 0)) * 0.4) * 1.2); });
+    return dspFade(dspNorm(dspSoften(x, 5000), 0.7), 1, 60);
+  },
+  skid() {                                   // armoured feet grinding to a halt on stone
+    const d = 0.6, t = dspTime(d), n = t.length, nz = dspBand(dspNoise(n, 61), 160, 1100), r = mulberry32(62), [th] = dspSweep(70, 34, d, 12); let g = 1;
+    const x = dspMap(n, i => { const tt = t[i];
+      if (i % 480 === 0) g = 0.45 + 0.55 * r();
+      return Math.tanh((nz[i] * g * Math.min(1, tt * 60) * Math.exp(-tt * 4.2) + th[i] * Math.exp(-tt * 10) * 0.6) * 1.5); });
+    return dspFade(dspNorm(dspSoften(x, 2200), 0.8), 1, 40);
+  },
   charge() {
     const d = 0.42, t = dspTime(d), grit = dspBand(dspNoise(t.length, 11), 300, 1400); let ph = 0;
     const x = dspMap(t.length, i => {

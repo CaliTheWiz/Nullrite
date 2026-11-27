@@ -90,11 +90,11 @@ class Renderer {
     for (const p of g.fx.rings.active) this.ground(ART.ring, p.x, p.y, p.w, p.h, { color: p.color, alpha: p.alpha, blend: 'add', scale: p.scale });
     this.drawEntities(g, t);
     for (const p of g.fx.slashes.active) this.ground(artByKey(p.tex), p.x, p.y, p.w, p.h, { color: p.color, alpha: p.alpha, blend: 'add', scale: p.scale, rot: p.rot });
-    for (const pool of [g.fx.sparks, g.fx.glows, g.fx.smoke, g.fx.embers]) {
-      const tex = ART[pool.tex], blend = pool.blend;
+    for (const pool of [g.fx.sparks, g.fx.glows, g.fx.smoke, g.fx.embers, g.fx.rubble]) {
+      const tex = ART[pool.tex], blend = pool.blend, tint = pool !== g.fx.rubble;
       for (const p of pool.active) {
         const Z = CAMERA_ZOOM * p.scale;
-        this.img(tex, this.sx(p.x), this.sy(p.y), p.w * Z, p.h * Z, { color: p.color, alpha: p.alpha, blend, rot: p.rot });
+        this.img(tex, this.sx(p.x), this.sy(p.y), p.w * Z, p.h * Z, { color: tint ? p.color : null, alpha: p.alpha, blend, rot: p.rot });
       }
     }
     for (const sh of g.proj.shots) if (sh.live) {

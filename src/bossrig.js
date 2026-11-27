@@ -36,7 +36,19 @@ class BossRig {
     this._elPrev = { R: { s: 0, f: 0, z: 0, ok: false }, L: { s: 0, f: 0, z: 0, ok: false } };
     this.core = { x: 0, y: 0, face: 0 }; this.visor = { x: 0, y: 0, face: 0 };
     this.box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    // weight: springs kicked by impacts (body sink, plates lagging behind, a forward lurch)
+    this.sink = 0; this.sinkV = 0; this.plateOff = 0; this.plateV = 0; this.lurch = 0; this.lurchV = 0;
+    this.dt = 0; this._ft = [[0, 0], [0, 0]]; this._fLift = [0, 0];
+    this.contact = { L: { up: false, z: 5 }, R: { up: false, z: 5 }, kL: { up: true }, kR: { up: true } };
+    this.events = []; this.prevState = null; this.prevKind = null;
   }
+  resetWeight() {
+    this.sink = this.sinkV = this.plateOff = this.plateV = this.lurch = this.lurchV = 0; this._fLift[0] = this._fLift[1] = 0;
+    this.events.length = 0; this.prevState = null; this._death = null; this._halDrop = null;
+    for (const k in this.contact) this.contact[k].up = k[0] === 'k';
+  }
+  /** Spring impulses (called on impacts). */
+  kick(sink, plate, lurch) { this.sinkV += sink || 0; this.plateV += plate || 0; this.lurchV += lurch || 0; }
   /** torso-local -> char frame (relative to the waist) */
   tl(s, f, z, out) {
     const R = this.R, W = this.j.waist;
@@ -124,21 +136,29 @@ class BossRig {
     const w = this.walkAmp, ph = this.walkPhase;
     // ---- pelvis + legs
     const bob = -2.2 * w / 16 * Math.pow(Math.sin(ph), 2);
-    J.pelvis.s = 0; J.pelvis.f = 0; J.pelvis.z = BRIG.HIP_Z - P.crouch + bob;
+    J.pelvis.s = 0; J.pelvis.f = 0; J.pelvis.z = BRIG.HIP_Z - P.crouch - this.sink + bob;
     J.hipL.s = -BRIG.HIP_W; J.hipR.s = BRIG.HIP_W;
     for (const hp of [J.hipL, J.hipR]) { hp.f = 0; hp.z = J.pelvis.z; }
     const tuck = b.elev * 0.2;
     for (const side of [-1, 1]) {
       const fo = side < 0 ? P.fl : P.fr, wp = ph + (side < 0 ? 0 : Math.PI), stride = Math.sin(wp) * w;
       const lift = Math.max(0, Math.cos(wp)) * (2 + w * 0.5);
-      const tS = side * BRIG.FOOT_W + fo[0] + this.walkS * stride, tF = fo[1] + this.walkF * stride - tuck * 0.6, tZ = 5 + fo[2] + lift + tuck;
+      // a foot that is being moved to a new spot lifts off and comes down again (and lands with a thud)
+      const si = side < 0 ? 0 : 1, ft = this._ft[si], bs = side * BRIG.FOOT_W + fo[0], bf = fo[1];
+      if (this.dt > 0) {
+        const spd = Math.hypot(bs - ft[0], bf - ft[1]) / this.dt;
+        this._fLift[si] = smooth(this._fLift[si], clamp(spd * 0.06, 0, 13), spd * 0.06 > this._fLift[si] ? 24 : 9, this.dt);
+      }
+      ft[0] = bs; ft[1] = bf;
+      const tS = bs + this.walkS * stride, tF = bf + this.walkF * stride - tuck * 0.6, tZ = 5 + fo[2] + lift + tuck + this._fLift[si];
       const hip = side < 0 ? J.hipL : J.hipR, knee = side < 0 ? J.kneeL : J.kneeR, ank = side < 0 ? J.ankleL : J.ankleR, toe = side < 0 ? J.toeL : J.toeR;
       this.leg(hip, knee, ank, tS, tF, tZ);
       const heel = clamp(-fo[1] / 40, 0, 1) * clamp(fo[2] / 6, 0, 1);       // back foot up on its toes in a lunge
       toe.s = ank.s + side * 1; toe.f = ank.f + BRIG.FOOT * (1 - 0.3 * heel); toe.z = Math.max(1, ank.z - 3 - 8 * heel);
     }
     // ---- torso basis: twist (yaw), then lean (pitch forward), then roll (side)
-    const ct = Math.cos(P.twist), st = Math.sin(P.twist), cl = Math.cos(P.lean), sl = Math.sin(P.lean), cr = Math.cos(P.roll), sr = Math.sin(P.roll);
+    const lean = P.lean + this.lurch;
+    const ct = Math.cos(P.twist), st = Math.sin(P.twist), cl = Math.cos(lean), sl = Math.sin(lean), cr = Math.cos(P.roll), sr = Math.sin(P.roll);
     const rot = (v) => {                                  // apply to a local vector, in place
       let s = v[0] * ct - v[1] * st, f = v[0] * st + v[1] * ct, z = v[2];
       const f2 = f * cl + z * sl, z2 = -f * sl + z * cl; f = f2; z = z2;
@@ -191,7 +211,7 @@ class BossRig {
     const t = this.t;
     for (const pl of this.plates) {
       const S = pl.side, k = pl.k, bobz = Math.sin(t * 2 + k * 1.3 + S) * 3.2 * (1 - P.tilt);
-      const out = (k === 0 ? 54 : 60) + P.spread * (k === 0 ? 1 : 0.8), z = (k === 0 ? 56 : 34) + P.lift * (k === 0 ? 1 : 0.8) + bobz + br;
+      const out = (k === 0 ? 54 : 60) + P.spread * (k === 0 ? 1 : 0.8), z = (k === 0 ? 56 : 34) + P.lift * (k === 0 ? 1 : 0.8) + bobz + br + this.plateOff * (k === 0 ? 1 : 1.25) + this.sink * 0.6;
       this.tl(S * out, k === 0 ? 2 : -1, z, pl.o);
       const tilt = (k === 0 ? 0.55 : 0.2) + Math.sin(t * 1.5 + k) * 0.05 + P.spread * 0.008;
       const ox = S * Math.cos(tilt), oz = Math.sin(tilt);           // outward, tipped up
@@ -311,10 +331,9 @@ function poseBoss(b, dt, t) {
     T.freeR = 1; setv(T.R, 46 + 40 * rise, 7 + 8 * rise, 66 + 62 * rise);
     T.spread = 26 * rise; T.lift = 10 * rise; rate = 6;
   } else if (st === S_DEAD) {
-    const d = Math.min(1, b.dead_t / 1.6);
-    T.crouch = 25; T.lean = 0.3; T.headPitch = 0.5; setv(T.fl, -4, 26, 0); setv(T.fr, 2, -26, 1);
-    T.freeR = 1; T.freeL = 1; setv(T.R, 30, 26, 40); setv(T.Lr, -30, 26, 40);
-    T.tilt = _bs(0.35, 1, d); T.lift = -60 * _bs(0, 0.6, d); rate = 4;
+    // knees buckle -> kneels, sways -> topples forward (gravity: accelerating) -> hits the floor and settles
+    T.crouch = 27; T.lean = 0.3; T.headPitch = 0.5; setv(T.fl, -4, 26, 0); setv(T.fr, 2, -28, 1);
+    T.freeR = 1; T.freeL = 1; setv(T.R, 30, 26, 40); setv(T.Lr, -30, 26, 40); rate = 5;
   }
   // hit reactions on top: a shove of the torso and a little sink
   T.roll += b.wob * 0.55; T.lean -= Math.abs(b.wob) * 0.25; T.crouch += b.squash * 60;
@@ -332,17 +351,77 @@ function poseBoss(b, dt, t) {
     R.walkPhase += dt * Math.PI * spd / (2 * Math.max(10, R.walkAmp + 10));
   } else if (dt > 0) { const k = Math.round(R.walkPhase / Math.PI) * Math.PI; R.walkPhase = smooth(R.walkPhase, k, 6, dt); }
   R.swing = Math.sin(R.walkPhase + Math.PI) * R.walkAmp * 0.55;             // the free fist swings with the stride
-  R.build(b);
-  // the halberd drops out of his hands when he dies and lies beside him
+  // ---- weight: impulses when he lands, stops, swings or goes down; springs settle them
+  const prevSt = R.prevState, prevK = R.prevKind;
+  if (dt > 0 && prevSt !== null && (st !== prevSt || b.kind !== prevK)) {
+    if (st === S_ACTIVE && b.kind === 'slam') R.kick(190, -190, 0.25);
+    else if (st === S_ACTIVE && b.kind === 'sweep') R.kick(45, 30, 0);
+    else if (st === S_ACTIVE && b.kind === 'lance') R.kick(30, 40, 0.9);
+    else if (prevSt === S_ACTIVE && prevK === 'lance') R.kick(90, -110, 2.6);         // the charge slams to a stop
+    else if (st === S_WINDUP && b.kind === 'slam') R.kick(0, 20, 0);
+    else if (st === S_STAGGERED) R.kick(60, -120, 0.4);
+    else if (st === S_PHASE) R.kick(70, 60, -0.3);
+  }
+  R.prevState = st; R.prevKind = b.kind; R.dt = dt;
+  if (dt > 0) {
+    const sp = (x, v, k, c) => v + (-k * x - c * v) * dt;
+    R.sinkV = sp(R.sink, R.sinkV, 190, 16); R.sink += R.sinkV * dt;
+    R.plateV = sp(R.plateOff, R.plateV, 55, 4.2); R.plateOff += R.plateV * dt;
+    R.lurchV = sp(R.lurch, R.lurchV, 110, 11); R.lurch += R.lurchV * dt;
+  }
+  // ---- death timeline (seconds): exact, not eased, so it has weight
+  let fallT = 0;
   if (st === S_DEAD) {
-    const d = Math.min(1, b.dead_t / 1.6), hf = _bs(0.12, 0.55, d), H = R.hal;
+    const s = b.dead_t;
+    if (!R._death) R._death = { c0: C.crouch, l0: C.lean, body: false, hal: false, plates: R.plates.map((pl, i) => ({ t0: 0.12 + 0.07 * i, z: 0, v: 0, on: false, hit: 0, out: 0 })) };
+    const Dd = R._death, kq = clamp(s / 0.3, 0, 1);
+    C.crouch = Dd.c0 + (27 - Dd.c0) * kq * kq;                                         // knees give: accelerating drop
+    C.lean = Dd.l0 + (0.3 - Dd.l0) * kq + 0.05 * Math.sin(clamp((s - 0.3) / 0.5, 0, 1) * Math.PI);
+    if (s < 0.8) fallT = 0;
+    else if (s < 1.28) { const u = (s - 0.8) / 0.48; fallT = u * u; }
+    else { const u = s - 1.28; fallT = 1 - 0.07 * Math.max(0, Math.sin(Math.min(1, u / 0.17) * Math.PI)) - 0.022 * Math.max(0, Math.sin(clamp((u - 0.17) / 0.12, 0, 1) * Math.PI)); }
+    if (!Dd.body && s >= 1.28) { Dd.body = true; R.events.push({ type: 'body', s: 0, f: 60, str: 1 }); }
+    C.tilt = fallT;
+  } else R._death = null;
+  R.build(b);
+  if (st === S_DEAD) {
+    const s = b.dead_t, Dd = R._death, H = R.hal;
+    // the halberd tips over from his loosened grip: accelerating, then one bounce and a clang
     if (!R._halDrop) R._halDrop = { o: H.o.slice(), x: H.x.slice(), y: H.y.slice() };
-    const A = R._halDrop, G = { o: [-80, -40, 3 + 6 * Math.abs(Math.sin(hf * Math.PI * 1.5)) * (1 - hf)], x: normv([0.35, 0.94, 0]), y: [0, 0, 1] };
+    const u = clamp((s - 0.38) / 0.52, 0, 1), hf = u * u, bnc = s > 0.9 ? 5 * Math.max(0, Math.sin(clamp((s - 0.9) / 0.22, 0, 1) * Math.PI)) : 0;
+    const A = R._halDrop, G = { o: [-80, -40, 3 + bnc], x: normv([0.35, 0.94, 0.0]), y: [0, 0, 1] };
     for (let i = 0; i < 3; i++) { H.o[i] = A.o[i] + (G.o[i] - A.o[i]) * hf; H.x[i] = A.x[i] + (G.x[i] - A.x[i]) * hf; H.y[i] = A.y[i] + (G.y[i] - A.y[i]) * hf; }
     normv(H.x); { const k = v3dot(H.y, H.x); for (let i = 0; i < 3; i++) H.y[i] -= H.x[i] * k; normv(H.y); }
-    for (const pl of R.plates) pl.o[2] = Math.max(6, pl.o[2] - 140 * _bs(0, 0.7, d));
+    if (!Dd.hal && u >= 1) { Dd.hal = true; R.events.push({ type: 'halberd', s: H.o[0] + H.x[0] * 200, f: H.o[1] + H.x[1] * 200, str: 1 }); }
+    // the floating plates lose their hold: fall, clank, bounce once
+    R.plates.forEach((pl, i) => {
+      const q = Dd.plates[i];
+      if (s < q.t0) { q.z = pl.o[2]; return; }
+      if (!q.on) { q.on = true; q.v = 0; }
+      if (dt > 0 && q.hit < 2) { q.v -= 900 * dt; q.z += q.v * dt; q.out += 30 * dt; if (q.z <= 7) { q.z = 7; q.hit++; q.v = q.hit === 1 ? 140 : 0; R.events.push({ type: 'plate', s: pl.o[0], f: pl.o[1], str: q.hit === 1 ? 1 : 0.4 }); } }
+      pl.o[2] = Math.max(7, q.z);
+    });
   } else R._halDrop = null;
+  bossContacts(R, b);
   bossProject(R);
+}
+/** Feet and knees meeting the floor -> 'foot' / 'knee' events (with how hard they came down). */
+function bossContacts(R, b) {
+  if (R.dt <= 0) return;
+  const J = R.j, Cn = R.contact;
+  for (const [key, A] of [['L', J.ankleL], ['R', J.ankleR]]) {
+    const c = Cn[key], z = A.z + b.elev, vz = (c.z - z) / R.dt;
+    if (z > 9.5) c.up = true;
+    else if (c.up && z < 6.5) { c.up = false; R.events.push({ type: 'foot', s: A.s, f: A.f, str: clamp(0.35 + vz / 260, 0.35, 1) }); R.kick(28 * clamp(0.35 + vz / 260, 0.35, 1), -18, 0); }
+    c.z = z;
+  }
+  const kneelOK = b.state === S_STAGGERED || (b.state === S_DEAD && b.dead_t < 0.8);       // only when he really goes down on a knee
+  for (const [key, Kn] of [['kL', J.kneeL], ['kR', J.kneeR]]) {
+    const c = Cn[key];
+    if (!kneelOK) { c.up = Kn.z > 16 || c.up; continue; }
+    if (Kn.z > 16) c.up = true;
+    else if (c.up && Kn.z < 9) { c.up = false; R.events.push({ type: 'knee', s: Kn.s, f: Kn.f, str: 1 }); R.kick(50, -60, 0.15); }
+  }
 }
 function v3dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 

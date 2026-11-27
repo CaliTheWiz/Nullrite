@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = 'fc1a41';
+const BUILD = '16a135';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -880,7 +880,19 @@ class BossRig {
     this._elPrev = { R: { s: 0, f: 0, z: 0, ok: false }, L: { s: 0, f: 0, z: 0, ok: false } };
     this.core = { x: 0, y: 0, face: 0 }; this.visor = { x: 0, y: 0, face: 0 };
     this.box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    // weight: springs kicked by impacts (body sink, plates lagging behind, a forward lurch)
+    this.sink = 0; this.sinkV = 0; this.plateOff = 0; this.plateV = 0; this.lurch = 0; this.lurchV = 0;
+    this.dt = 0; this._ft = [[0, 0], [0, 0]]; this._fLift = [0, 0];
+    this.contact = { L: { up: false, z: 5 }, R: { up: false, z: 5 }, kL: { up: true }, kR: { up: true } };
+    this.events = []; this.prevState = null; this.prevKind = null;
   }
+  resetWeight() {
+    this.sink = this.sinkV = this.plateOff = this.plateV = this.lurch = this.lurchV = 0; this._fLift[0] = this._fLift[1] = 0;
+    this.events.length = 0; this.prevState = null; this._death = null; this._halDrop = null;
+    for (const k in this.contact) this.contact[k].up = k[0] === 'k';
+  }
+  /** Spring impulses (called on impacts). */
+  kick(sink, plate, lurch) { this.sinkV += sink || 0; this.plateV += plate || 0; this.lurchV += lurch || 0; }
   /** torso-local -> char frame (relative to the waist) */
   tl(s, f, z, out) {
     const R = this.R, W = this.j.waist;
@@ -968,21 +980,29 @@ class BossRig {
     const w = this.walkAmp, ph = this.walkPhase;
     // ---- pelvis + legs
     const bob = -2.2 * w / 16 * Math.pow(Math.sin(ph), 2);
-    J.pelvis.s = 0; J.pelvis.f = 0; J.pelvis.z = BRIG.HIP_Z - P.crouch + bob;
+    J.pelvis.s = 0; J.pelvis.f = 0; J.pelvis.z = BRIG.HIP_Z - P.crouch - this.sink + bob;
     J.hipL.s = -BRIG.HIP_W; J.hipR.s = BRIG.HIP_W;
     for (const hp of [J.hipL, J.hipR]) { hp.f = 0; hp.z = J.pelvis.z; }
     const tuck = b.elev * 0.2;
     for (const side of [-1, 1]) {
       const fo = side < 0 ? P.fl : P.fr, wp = ph + (side < 0 ? 0 : Math.PI), stride = Math.sin(wp) * w;
       const lift = Math.max(0, Math.cos(wp)) * (2 + w * 0.5);
-      const tS = side * BRIG.FOOT_W + fo[0] + this.walkS * stride, tF = fo[1] + this.walkF * stride - tuck * 0.6, tZ = 5 + fo[2] + lift + tuck;
+      // a foot that is being moved to a new spot lifts off and comes down again (and lands with a thud)
+      const si = side < 0 ? 0 : 1, ft = this._ft[si], bs = side * BRIG.FOOT_W + fo[0], bf = fo[1];
+      if (this.dt > 0) {
+        const spd = Math.hypot(bs - ft[0], bf - ft[1]) / this.dt;
+        this._fLift[si] = smooth(this._fLift[si], clamp(spd * 0.06, 0, 13), spd * 0.06 > this._fLift[si] ? 24 : 9, this.dt);
+      }
+      ft[0] = bs; ft[1] = bf;
+      const tS = bs + this.walkS * stride, tF = bf + this.walkF * stride - tuck * 0.6, tZ = 5 + fo[2] + lift + tuck + this._fLift[si];
       const hip = side < 0 ? J.hipL : J.hipR, knee = side < 0 ? J.kneeL : J.kneeR, ank = side < 0 ? J.ankleL : J.ankleR, toe = side < 0 ? J.toeL : J.toeR;
       this.leg(hip, knee, ank, tS, tF, tZ);
       const heel = clamp(-fo[1] / 40, 0, 1) * clamp(fo[2] / 6, 0, 1);       // back foot up on its toes in a lunge
       toe.s = ank.s + side * 1; toe.f = ank.f + BRIG.FOOT * (1 - 0.3 * heel); toe.z = Math.max(1, ank.z - 3 - 8 * heel);
     }
     // ---- torso basis: twist (yaw), then lean (pitch forward), then roll (side)
-    const ct = Math.cos(P.twist), st = Math.sin(P.twist), cl = Math.cos(P.lean), sl = Math.sin(P.lean), cr = Math.cos(P.roll), sr = Math.sin(P.roll);
+    const lean = P.lean + this.lurch;
+    const ct = Math.cos(P.twist), st = Math.sin(P.twist), cl = Math.cos(lean), sl = Math.sin(lean), cr = Math.cos(P.roll), sr = Math.sin(P.roll);
     const rot = (v) => {                                  // apply to a local vector, in place
       let s = v[0] * ct - v[1] * st, f = v[0] * st + v[1] * ct, z = v[2];
       const f2 = f * cl + z * sl, z2 = -f * sl + z * cl; f = f2; z = z2;
@@ -1035,7 +1055,7 @@ class BossRig {
     const t = this.t;
     for (const pl of this.plates) {
       const S = pl.side, k = pl.k, bobz = Math.sin(t * 2 + k * 1.3 + S) * 3.2 * (1 - P.tilt);
-      const out = (k === 0 ? 54 : 60) + P.spread * (k === 0 ? 1 : 0.8), z = (k === 0 ? 56 : 34) + P.lift * (k === 0 ? 1 : 0.8) + bobz + br;
+      const out = (k === 0 ? 54 : 60) + P.spread * (k === 0 ? 1 : 0.8), z = (k === 0 ? 56 : 34) + P.lift * (k === 0 ? 1 : 0.8) + bobz + br + this.plateOff * (k === 0 ? 1 : 1.25) + this.sink * 0.6;
       this.tl(S * out, k === 0 ? 2 : -1, z, pl.o);
       const tilt = (k === 0 ? 0.55 : 0.2) + Math.sin(t * 1.5 + k) * 0.05 + P.spread * 0.008;
       const ox = S * Math.cos(tilt), oz = Math.sin(tilt);           // outward, tipped up
@@ -1155,10 +1175,9 @@ function poseBoss(b, dt, t) {
     T.freeR = 1; setv(T.R, 46 + 40 * rise, 7 + 8 * rise, 66 + 62 * rise);
     T.spread = 26 * rise; T.lift = 10 * rise; rate = 6;
   } else if (st === S_DEAD) {
-    const d = Math.min(1, b.dead_t / 1.6);
-    T.crouch = 25; T.lean = 0.3; T.headPitch = 0.5; setv(T.fl, -4, 26, 0); setv(T.fr, 2, -26, 1);
-    T.freeR = 1; T.freeL = 1; setv(T.R, 30, 26, 40); setv(T.Lr, -30, 26, 40);
-    T.tilt = _bs(0.35, 1, d); T.lift = -60 * _bs(0, 0.6, d); rate = 4;
+    // knees buckle -> kneels, sways -> topples forward (gravity: accelerating) -> hits the floor and settles
+    T.crouch = 27; T.lean = 0.3; T.headPitch = 0.5; setv(T.fl, -4, 26, 0); setv(T.fr, 2, -28, 1);
+    T.freeR = 1; T.freeL = 1; setv(T.R, 30, 26, 40); setv(T.Lr, -30, 26, 40); rate = 5;
   }
   // hit reactions on top: a shove of the torso and a little sink
   T.roll += b.wob * 0.55; T.lean -= Math.abs(b.wob) * 0.25; T.crouch += b.squash * 60;
@@ -1176,17 +1195,77 @@ function poseBoss(b, dt, t) {
     R.walkPhase += dt * Math.PI * spd / (2 * Math.max(10, R.walkAmp + 10));
   } else if (dt > 0) { const k = Math.round(R.walkPhase / Math.PI) * Math.PI; R.walkPhase = smooth(R.walkPhase, k, 6, dt); }
   R.swing = Math.sin(R.walkPhase + Math.PI) * R.walkAmp * 0.55;             // the free fist swings with the stride
-  R.build(b);
-  // the halberd drops out of his hands when he dies and lies beside him
+  // ---- weight: impulses when he lands, stops, swings or goes down; springs settle them
+  const prevSt = R.prevState, prevK = R.prevKind;
+  if (dt > 0 && prevSt !== null && (st !== prevSt || b.kind !== prevK)) {
+    if (st === S_ACTIVE && b.kind === 'slam') R.kick(190, -190, 0.25);
+    else if (st === S_ACTIVE && b.kind === 'sweep') R.kick(45, 30, 0);
+    else if (st === S_ACTIVE && b.kind === 'lance') R.kick(30, 40, 0.9);
+    else if (prevSt === S_ACTIVE && prevK === 'lance') R.kick(90, -110, 2.6);         // the charge slams to a stop
+    else if (st === S_WINDUP && b.kind === 'slam') R.kick(0, 20, 0);
+    else if (st === S_STAGGERED) R.kick(60, -120, 0.4);
+    else if (st === S_PHASE) R.kick(70, 60, -0.3);
+  }
+  R.prevState = st; R.prevKind = b.kind; R.dt = dt;
+  if (dt > 0) {
+    const sp = (x, v, k, c) => v + (-k * x - c * v) * dt;
+    R.sinkV = sp(R.sink, R.sinkV, 190, 16); R.sink += R.sinkV * dt;
+    R.plateV = sp(R.plateOff, R.plateV, 55, 4.2); R.plateOff += R.plateV * dt;
+    R.lurchV = sp(R.lurch, R.lurchV, 110, 11); R.lurch += R.lurchV * dt;
+  }
+  // ---- death timeline (seconds): exact, not eased, so it has weight
+  let fallT = 0;
   if (st === S_DEAD) {
-    const d = Math.min(1, b.dead_t / 1.6), hf = _bs(0.12, 0.55, d), H = R.hal;
+    const s = b.dead_t;
+    if (!R._death) R._death = { c0: C.crouch, l0: C.lean, body: false, hal: false, plates: R.plates.map((pl, i) => ({ t0: 0.12 + 0.07 * i, z: 0, v: 0, on: false, hit: 0, out: 0 })) };
+    const Dd = R._death, kq = clamp(s / 0.3, 0, 1);
+    C.crouch = Dd.c0 + (27 - Dd.c0) * kq * kq;                                         // knees give: accelerating drop
+    C.lean = Dd.l0 + (0.3 - Dd.l0) * kq + 0.05 * Math.sin(clamp((s - 0.3) / 0.5, 0, 1) * Math.PI);
+    if (s < 0.8) fallT = 0;
+    else if (s < 1.28) { const u = (s - 0.8) / 0.48; fallT = u * u; }
+    else { const u = s - 1.28; fallT = 1 - 0.07 * Math.max(0, Math.sin(Math.min(1, u / 0.17) * Math.PI)) - 0.022 * Math.max(0, Math.sin(clamp((u - 0.17) / 0.12, 0, 1) * Math.PI)); }
+    if (!Dd.body && s >= 1.28) { Dd.body = true; R.events.push({ type: 'body', s: 0, f: 60, str: 1 }); }
+    C.tilt = fallT;
+  } else R._death = null;
+  R.build(b);
+  if (st === S_DEAD) {
+    const s = b.dead_t, Dd = R._death, H = R.hal;
+    // the halberd tips over from his loosened grip: accelerating, then one bounce and a clang
     if (!R._halDrop) R._halDrop = { o: H.o.slice(), x: H.x.slice(), y: H.y.slice() };
-    const A = R._halDrop, G = { o: [-80, -40, 3 + 6 * Math.abs(Math.sin(hf * Math.PI * 1.5)) * (1 - hf)], x: normv([0.35, 0.94, 0]), y: [0, 0, 1] };
+    const u = clamp((s - 0.38) / 0.52, 0, 1), hf = u * u, bnc = s > 0.9 ? 5 * Math.max(0, Math.sin(clamp((s - 0.9) / 0.22, 0, 1) * Math.PI)) : 0;
+    const A = R._halDrop, G = { o: [-80, -40, 3 + bnc], x: normv([0.35, 0.94, 0.0]), y: [0, 0, 1] };
     for (let i = 0; i < 3; i++) { H.o[i] = A.o[i] + (G.o[i] - A.o[i]) * hf; H.x[i] = A.x[i] + (G.x[i] - A.x[i]) * hf; H.y[i] = A.y[i] + (G.y[i] - A.y[i]) * hf; }
     normv(H.x); { const k = v3dot(H.y, H.x); for (let i = 0; i < 3; i++) H.y[i] -= H.x[i] * k; normv(H.y); }
-    for (const pl of R.plates) pl.o[2] = Math.max(6, pl.o[2] - 140 * _bs(0, 0.7, d));
+    if (!Dd.hal && u >= 1) { Dd.hal = true; R.events.push({ type: 'halberd', s: H.o[0] + H.x[0] * 200, f: H.o[1] + H.x[1] * 200, str: 1 }); }
+    // the floating plates lose their hold: fall, clank, bounce once
+    R.plates.forEach((pl, i) => {
+      const q = Dd.plates[i];
+      if (s < q.t0) { q.z = pl.o[2]; return; }
+      if (!q.on) { q.on = true; q.v = 0; }
+      if (dt > 0 && q.hit < 2) { q.v -= 900 * dt; q.z += q.v * dt; q.out += 30 * dt; if (q.z <= 7) { q.z = 7; q.hit++; q.v = q.hit === 1 ? 140 : 0; R.events.push({ type: 'plate', s: pl.o[0], f: pl.o[1], str: q.hit === 1 ? 1 : 0.4 }); } }
+      pl.o[2] = Math.max(7, q.z);
+    });
   } else R._halDrop = null;
+  bossContacts(R, b);
   bossProject(R);
+}
+/** Feet and knees meeting the floor -> 'foot' / 'knee' events (with how hard they came down). */
+function bossContacts(R, b) {
+  if (R.dt <= 0) return;
+  const J = R.j, Cn = R.contact;
+  for (const [key, A] of [['L', J.ankleL], ['R', J.ankleR]]) {
+    const c = Cn[key], z = A.z + b.elev, vz = (c.z - z) / R.dt;
+    if (z > 9.5) c.up = true;
+    else if (c.up && z < 6.5) { c.up = false; R.events.push({ type: 'foot', s: A.s, f: A.f, str: clamp(0.35 + vz / 260, 0.35, 1) }); R.kick(28 * clamp(0.35 + vz / 260, 0.35, 1), -18, 0); }
+    c.z = z;
+  }
+  const kneelOK = b.state === S_STAGGERED || (b.state === S_DEAD && b.dead_t < 0.8);       // only when he really goes down on a knee
+  for (const [key, Kn] of [['kL', J.kneeL], ['kR', J.kneeR]]) {
+    const c = Cn[key];
+    if (!kneelOK) { c.up = Kn.z > 16 || c.up; continue; }
+    if (Kn.z > 16) c.up = true;
+    else if (c.up && Kn.z < 9) { c.up = false; R.events.push({ type: 'knee', s: Kn.s, f: Kn.f, str: 1 }); R.kick(50, -60, 0.15); }
+  }
 }
 function v3dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
@@ -1279,7 +1358,8 @@ class FX {
     this.slashes = new Pool(4, { layer: 'slash', tex: 'slash:170', size: [256, 256] });
     this.ghosts = new Pool(14, { layer: 'world', tex: 'knightSil:S', size: [64, 96], anchor: [0.5, 0.04] });
     this.embers = new Pool(30, { layer: 'top', tex: 'glow', size: [8, 8] });
-    this.pools = [this.sparks, this.glows, this.smoke, this.rings, this.slashes, this.ghosts, this.embers];
+    this.rubble = new Pool(90, { layer: 'top', tex: 'rubble', size: [9, 8], blend: 'normal' });
+    this.pools = [this.sparks, this.glows, this.smoke, this.rings, this.slashes, this.ghosts, this.embers, this.rubble];
   }
   hitBurst(x, y, base, heavy, gx, gy, sparks, flash) {
     for (let i = 0; i < sparks; i++) {
@@ -1427,6 +1507,63 @@ class FX {
     for (let k = 0; k < 3; k++) this.rings.spawn({ x: b.gx, y: b.gy, life: 0.6 + 0.25 * k, size: [260, 260], color: cols[k], alpha: 0.9, s0: 0.2, s1: 2.5 + k });
     this.glows.spawn({ x, y, life: 0.5, size: [360, 360], color: '#ffe9d6', alpha: 1, s0: 0.4, s1: 1.5 });
     this.glows.spawn({ x, y, life: 0.9, size: [420, 420], color: CRIMSON, alpha: 0.7, s0: 0.5, s1: 1.6 });
+  }
+  /** A heavy foot coming down: a low ring of dust pushed out along the floor, a few chips of stone. */
+  stomp(gx, gy, str, dir) {
+    const x = gx, y = gy * K, n = Math.round(3 + 5 * str);
+    for (let i = 0; i < n; i++) {
+      const a = dir === undefined ? uniform(0, TAU) : dir + uniform(-0.9, 0.9), sp = uniform(50, 130) * (0.6 + 0.6 * str);
+      this.smoke.spawn({ x: x + uniform(-6, 6), y: y + 3, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * K + 8, life: uniform(0.4, 0.7),
+        size: [40, 40], color: '#575161', alpha: 0.18 + 0.22 * str, drag: 3.5, s0: 0.5, s1: 1.4 + 0.6 * str });
+    }
+    if (str > 0.6) for (let i = 0; i < Math.round(4 * str); i++) this.chip(x, y + 4, 180 * str);
+  }
+  chip(x, y, sp) {
+    const a = uniform(0.35, Math.PI - 0.35), v = uniform(0.5, 1) * sp, s = uniform(4, 8);
+    this.rubble.spawn({ x: x + uniform(-10, 10), y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: uniform(0.35, 0.6), g: -1100, drag: 0.8,
+      size: [s, s * 0.85], rot: uniform(0, TAU), color: choice(['#3a3640', '#4a4550', '#2c2930']), alpha: 1, fade: 3 });
+  }
+  /** A big impact: dust thrown out in a wide ring, rubble flying, a faint shock ring on the floor. */
+  quake(gx, gy, str) {
+    const x = gx, y = gy * K;
+    for (let i = 0; i < 10; i++) {
+      const a = i * TAU / 10 + uniform(-0.2, 0.2), sp = uniform(90, 200) * str;
+      this.smoke.spawn({ x, y: y + 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * K + 14, life: uniform(0.6, 1.0),
+        size: [56, 56], color: '#524d5c', alpha: 0.32, drag: 2.6, s0: 0.6, s1: 2.2 });
+    }
+    for (let i = 0; i < Math.round(10 * str); i++) this.chip(x, y + 6, 320 * str);
+    this.rings.spawn({ x: gx, y: gy, life: 0.5, size: [200 * str, 200 * str], color: '#8a7f90', alpha: 0.35, s0: 0.2, s1: 1.6, fade: 1.3 });
+  }
+  /** Metal hitting stone: white-gold sparks, a puff. */
+  clank(gx, gy, str) {
+    const x = gx, y = gy * K + 4;
+    for (let i = 0; i < Math.round(5 + 6 * str); i++) {
+      const a = uniform(0.2, Math.PI - 0.2), sp = uniform(160, 420) * str;
+      this.sparks.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: uniform(0.12, 0.3), size: [uniform(8, 16), 2.5],
+        color: choice(['#ffe7c2', '#ffd0a0', '#ffffff']), g: -1200, drag: 2.5, s0: 1, s1: 0.3, align: true });
+    }
+    this.smoke.spawn({ x, y, vx: 0, vy: 16, life: 0.5, size: [34, 34], color: '#575161', alpha: 0.28, drag: 2, s0: 0.5, s1: 1.6 });
+  }
+  /** Floor dust kicked up behind him during the lance charge. */
+  chargeDust(b) {
+    const back = groundToScreenAngle(b.attack_dir + Math.PI);
+    this.smoke.spawn({ x: b.gx + uniform(-14, 14), y: b.gy * K + 4, vx: Math.cos(back) * uniform(40, 120), vy: Math.sin(back) * 40 + 14,
+      life: uniform(0.45, 0.7), size: [46, 46], color: '#575161', alpha: 0.26, drag: 3, s0: 0.6, s1: 1.8 });
+  }
+  /** The charge ends: dust sprays on ahead, sparks off his feet, stone chips. */
+  skidStop(b) {
+    const fwd = groundToScreenAngle(b.attack_dir), x = b.gx, y = b.gy * K;
+    for (let i = 0; i < 12; i++) {
+      const a = fwd + uniform(-0.8, 0.8), sp = uniform(120, 300);
+      this.smoke.spawn({ x: x + uniform(-10, 10), y: y + 5, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.6 + 12, life: uniform(0.5, 0.9),
+        size: [52, 52], color: '#524d5c', alpha: 0.32, drag: 3, s0: 0.6, s1: 2.0 });
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = fwd + uniform(-0.6, 0.6), sp = uniform(250, 520);
+      this.sparks.spawn({ x, y: y + 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5 + uniform(40, 160), life: uniform(0.15, 0.35),
+        size: [uniform(10, 20), 2.5], color: choice(['#ffd0a0', '#ffb070', CRIMSON]), g: -1000, drag: 2, s0: 1, s1: 0.3, align: true });
+    }
+    for (let i = 0; i < 6; i++) this.chip(x + Math.cos(b.attack_dir) * 30, y + 4, 260);
   }
   sprintDust(p) {
     const back = groundToScreenAngle(p.facing + Math.PI);
@@ -1804,7 +1941,7 @@ class Player {
 class Boss {
   constructor(game) { this.g = game; this.RADIUS = BOSS_RADIUS; this.rig = new BossRig(); this.reset(); }
   reset() {
-    [this.gx, this.gy] = BOSS_START; this.rig.fresh = true;
+    [this.gx, this.gy] = BOSS_START; this.rig.fresh = true; this.rig.resetWeight();
     this.vx = this.vy = 0; this.facing = -Math.PI / 2; this.state = S_IDLE; this.state_t = 0; this.idle_time = 1.4;
     this.hp = BOSS_MAX_HP; this.hp_lag = BOSS_MAX_HP; this.hp_lag_hold = 0; this.poise = BOSS_POISE; this.poise_delay = 0;
     this.kind = null; this.atk = null; this.want = 0; this.attack_dir = this.facing; this.hit_done = false;
@@ -1881,6 +2018,7 @@ class Boss {
         if (T >= atk.windup) { this.enter(S_ACTIVE); g.onBossSwing(this); }
       } else if (this.kind === 'slam') {
         if (T >= atk.crouch) {
+          if (T - dt < atk.crouch) g.onBossLeap(this);
           const q = clamp((T - atk.crouch) / (atk.windup - atk.crouch), 0, 1), e = q * q * (3 - 2 * q);
           this.gx = this.slam_from[0] + (this.slam_to[0] - this.slam_from[0]) * e;
           this.gy = this.slam_from[1] + (this.slam_to[1] - this.slam_from[1]) * e;
@@ -1899,10 +2037,10 @@ class Boss {
       } else if (this.kind === 'slam') { if (T >= atk.active) this.enter(S_RECOVERY); }
       else {
         this.vx = Math.cos(this.attack_dir) * atk.speed; this.vy = Math.sin(this.attack_dir) * atk.speed;
-        g.fx.lanceTrail(this);
+        g.fx.lanceTrail(this); g.fx.chargeDust(this);
         if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock);
         if (T >= this.dash_time) {
-          this.vx *= 0.3; this.vy *= 0.3;
+          this.vx *= 0.3; this.vy *= 0.3; g.onBossLanceStop(this);
           if (this.phase === 2 && !this.followed) {          // phase 2: straight into a sweep, no pause
             this.followed = true; this.kind = 'sweep'; this.atk = BOSS_ATTACKS.sweep_follow;
             this.attack_dir = to_p; this.facing = to_p; this.hit_done = false; this.enter(S_WINDUP);
@@ -1996,7 +2134,11 @@ class Boss {
     }
     this.animateHalberd(dt, t, d);
     poseBoss(this, dt, t);
+    const ev = this.rig.events;
+    if (ev.length) { for (const e of ev) this.g.onBossContact(this, e); ev.length = 0; }
   }
+  /** Char-frame point (s, f) -> world ground position. */
+  worldAt(s, f) { const c = Math.cos(this.facing), sn = Math.sin(this.facing); return [this.gx + s * sn + f * c, this.gy - s * c + f * sn]; }
   pickView() {
     const n = pickOctant(this.facing, this.octant);
     if (n !== this.octant) { this.octant = n; [this.view, this.flip] = OCTANTS[n]; }
@@ -2109,7 +2251,7 @@ class Game {
   resetRound() {
     this.player.reset(); this.boss.reset(); this.fx.clear(); this.proj.clear();
     for (const pk of this.pickups) pk.reset();
-    this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0;
+    this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0; this.bump_y = 0; this.bump_v = 0;
     this.ox = 0; this.oy = 0; this.stamDeny = 0; this.toast_t = 0; this.toast_key = null;
     this.outcome = null; this.outcome_t = 0; this.hapticQueue = []; this.visceralReady = false;
     this.phaseMix = 0; for (const w of this.waves) w.live = false;
@@ -2271,11 +2413,14 @@ class Game {
     if (this.toast_t > 0) this.toast_t -= dt;
   }
   // ---- boss events (no wind-up tells: poses only)
-  onBossSwing(b) { this.sfx('whoosh_heavy', 1.0); this.fx.bossSlash(b); this.addShake(groundToScreenAngle(b.attack_dir), 4); }
+  onBossSwing(b) { this.sfx('whoosh_heavy', 1.0); this.fx.bossSlash(b); this.addShake(groundToScreenAngle(b.attack_dir), 4); this.addBump(2); }
   onBossSlam(b) {
     const R = b.atk.radius;
     this.fx.slamImpact(b.gx, b.gy, R); this.sfx('thud', 1.0); this.sfx('crunch', 0.8);
     this.addShake(Math.PI / 2, 16); this.haptic('heavy', 0.7); this.ritualFlash = 1;
+    this.sfx('boom', 1.0); this.addBump(14); this.hapticQueue.push([0.09, 'heavy', 0.9]);
+    const c = Math.cos(b.facing), s = Math.sin(b.facing);
+    this.fx.quake(b.gx, b.gy, 1.4); this.fx.quake(b.gx + c * 160, b.gy + s * 160, 1.0); this.fx.clank(b.gx + c * 160, b.gy + s * 160, 1.6);
     const p = this.player, dx = p.gx - b.gx, dy = p.gy - b.gy;
     if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock);
     if (b.phase === 2) {
@@ -2327,7 +2472,34 @@ class Game {
     const dx = p.gx - b.gx, dy = p.gy - b.gy, d = hypot(dx, dy);
     if (d <= R && p.alive) p.shove(Math.atan2(dy, dx), PHASE_PUSH.knock * (1 - 0.5 * d / R));
   }
-  onBossLunge(b) { this.sfx('whoosh_heavy', 1.0); this.sfx('dash', 0.8); this.addShake(groundToScreenAngle(b.attack_dir), 5); }
+  onBossLunge(b) {
+    this.sfx('whoosh_heavy', 1.0); this.sfx('dash', 0.8); this.sfx('stomp', 0.8); this.addShake(groundToScreenAngle(b.attack_dir), 5);
+    this.addBump(3); this.fx.stomp(b.gx, b.gy, 1, b.attack_dir + Math.PI);
+  }
+  onBossLanceStop(b) {                                // the charge grinds to a halt
+    this.sfx('skid', 0.9); this.sfx('stomp', 0.9); this.addShake(groundToScreenAngle(b.attack_dir), 6); this.addBump(5); this.haptic('medium', 0.7);
+    this.fx.skidStop(b);
+  }
+  onBossLeap(b) { this.sfx('stomp', 1.0); this.addBump(4); this.fx.stomp(b.gx, b.gy, 1.2); this.haptic('medium', 0.5); }
+  /** Feet, knees, the body, plates and the halberd meeting the floor. */
+  onBossContact(b, e) {
+    const [x, y] = b.worldAt(e.s, e.f), st = e.str;
+    if (e.type === 'foot') {
+      this.sfx('stomp', 0.25 + 0.4 * st); this.addBump(0.6 + 1.6 * st * st); this.fx.stomp(x, y, st);
+      if (st > 0.7) this.haptic('light', 0.4 * st);
+    } else if (e.type === 'knee') {
+      this.sfx('stomp', 0.9); this.sfx('clank', 0.35); this.addBump(5); this.addShake(Math.PI / 2, 4); this.fx.stomp(x, y, 1.3); this.haptic('medium', 0.7);
+    } else if (e.type === 'body') {                   // the sentinel hits the floor
+      this.sfx('boom', 1.0); this.sfx('clank', 0.6); this.addBump(15); this.addShake(Math.PI / 2, 12);
+      this.haptic('heavy', 1.0); this.hapticQueue.push([0.1, 'heavy', 0.8]);
+      const c = Math.cos(b.facing), s = Math.sin(b.facing);
+      for (let k = 0; k <= 4; k++) this.fx.quake(b.gx + c * (k * 32), b.gy + s * (k * 32), 0.7 + 0.1 * k);
+    } else if (e.type === 'plate') {
+      this.sfx('clank', 0.35 + 0.35 * st); if (st > 0.6) this.addBump(1.2); this.fx.clank(x, y, st);
+    } else if (e.type === 'halberd') {
+      this.sfx('clang', 0.85); this.addBump(2.5); this.addShake(Math.PI / 2, 3); this.fx.clank(x, y, 1.2); this.fx.stomp(x, y, 0.8);
+    }
+  }
   onBossStagger(b) {
     this.sfx('stagger', 1.0); this.haptic('heavy', 1.0); this.hapticQueue.push([0.14, 'heavy', 1.0]);
     this.fx.staggerBurst(b); this.addShake(Math.PI / 2, 10);
@@ -2391,7 +2563,11 @@ class Game {
     const amp = this.shake_amp, main = Math.cos(this.shake_t * 62) * amp, perp = Math.sin(this.shake_t * 41) * amp * 0.35;
     this.ox = this.shake_dx * main - this.shake_dy * perp; this.oy = this.shake_dy * main + this.shake_dx * perp;
     this.shake_amp *= Math.exp(-dt * 13);
+    // heavy impacts: the whole view drops and springs back (a thud, not a rattle)
+    this.bump_v += (-300 * this.bump_y - 15 * this.bump_v) * dt; this.bump_y += this.bump_v * dt;
+    this.oy += this.bump_y;
   }
+  addBump(amp) { this.bump_v -= amp * 17; }
 
   /** ctl: {moveDir, moveMag, sprint, aimDir, heavyHeld (seconds or -1)} from the input layer. */
   update(rawDt, ctl) {
@@ -3006,6 +3182,11 @@ function buildArt(scale) {
   A.visor = makeTex(22, 10, drawVisor);
   A.weapon = { sword: makeTex(112, 28, drawSword), spear: makeTex(150, 18, drawSpear) };
   A.obelisk = makeTex(88, 196, drawObelisk);
+  A.rubble = makeTex(18, 16, (x) => {                     // a chip of floor stone (drawn untinted)
+    fillP(x, [[2, 9], [6, 2], [14, 3], [17, 10], [11, 15], [4, 14]], '#2e2b33');
+    fillP(x, [[6, 2], [14, 3], [12, 8], [5, 8]], '#4d4855');
+    lineP(x, [[6, 2], [14, 3]], 0.8, '#6a6472');
+  });
   A.core = makeTex(22, 30, drawCore); A.plate = makeTex(46, 30, drawPlate); A.halberd = makeTex(230, 50, drawHalberd);
   A.tiles = [11, 23, 37, 51].map(s => makeTex(TILE, TILE, drawTileBase(s)));
   A.runes = [11, 23, 37, 51].map(s => makeTex(TILE, TILE, drawTileRunes(s)));
@@ -3017,7 +3198,7 @@ function buildArt(scale) {
   A.bomb = makeTex(18, 20, (x, w) => iconBomb(x, w / 2, w / 2 + 1));
   // pre-tint everything the game tints at runtime, so no canvas is created mid-fight
   const tints = SPARK_COLORS.concat([CRIMSON, RUNE_GOLD, '#8A2432', '#b3202f', '#ffb070', '#ff8a3a', '#ff9a4a', '#ff8a96',
-    '#ffe9d6', '#ffd0a0', '#ff4058', '#ffe2b0', '#fff4f0', '#ffe7c2', '#ff5a6a', '#ffd0c0']);
+    '#ffe9d6', '#ffd0a0', '#8a7f90', '#ff4058', '#ffe2b0', '#fff4f0', '#ffe7c2', '#ff5a6a', '#ffd0c0']);
   for (const col of tints) { tinted(A.glow, col); tinted(A.spark, col); tinted(A.ring, col); }
   for (const s of spans) for (const col of [CRIMSON, '#ffe2b0', '#fff4f0']) tinted(A.slash[s], col);
   for (const col of ['#5c5766', '#524d5c', '#575161', '#4d4545']) tinted(A.glowSoft, col);
@@ -4314,6 +4495,44 @@ const SYNTHS = {
       + click[i] * Math.exp(-t[i] * 60) * 0.5) * 1.6));
     return dspFade(dspNorm(x, 0.95));
   },
+  stomp() {                                  // a huge armoured foot on stone: sub thump, a scuff of grit
+    const d = 0.34, [s, t] = dspSweep(72, 30, d, 10), n = t.length, lo = dspBand(dspNoise(n, 21), 40, 260), grit = dspBand(dspNoise(n, 22), 900, 3200);
+    const x = dspMap(n, i => { const tt = t[i];
+      return Math.tanh((s[i] * Math.exp(-tt * 9) + lo[i] * Math.exp(-tt * 22) * 0.7 + grit[i] * Math.exp(-tt * 45) * 0.12) * 1.8); });
+    return dspFade(dspNorm(dspSoften(x, 1800), 0.9), 1, 20);
+  },
+  boom() {                                   // something enormous hits the floor: sub drop, crack, rumble, falling debris
+    const d = 1.2, [s, t] = dspSweep(62, 22, d, 3.2), n = t.length, rum = dspBand(dspNoise(n, 31), 25, 180), crack = dspBand(dspNoise(n, 32), 380, 2600);
+    const deb = dspBand(dspNoise(n, 33), 1200, 4200), gate = mulberry32(34); let g = 0;
+    const x = dspMap(n, i => { const tt = t[i];
+      if (i % 220 === 0) g = gate() < 0.35 ? gate() : 0;
+      return Math.tanh((s[i] * Math.exp(-tt * 2.8) * 1.1 + rum[i] * Math.exp(-tt * 2.4) * 0.8 + crack[i] * Math.exp(-tt * 18) * 0.4
+        + deb[i] * g * Math.exp(-tt * 3.5) * 0.18 * Math.min(1, tt * 8)) * 1.6); });
+    return dspFade(dspNorm(dspSoften(x, 2600), 1.0), 1, 120);
+  },
+  clank() {                                  // a heavy armour plate hitting stone
+    const d = 0.5, t = dspTime(d), n = t.length, click = dspBand(dspNoise(n, 41), 1500, 5000), [th] = dspSweep(130, 50, d, 18);
+    const x = dspMap(n, i => { const tt = t[i]; let r = 0;
+      for (const [f, k] of [[311, 7], [737, 9], [1183, 11], [1621, 14], [2389, 18]]) r += Math.sin(TAU * f * tt) * Math.exp(-tt * k);
+      return Math.tanh((r * 0.28 + th[i] * Math.exp(-tt * 20) * 0.7 + click[i] * Math.exp(-tt * 90) * 0.45) * 1.3); });
+    return dspFade(dspNorm(dspSoften(x, 4200), 0.75), 1, 30);
+  },
+  clang() {                                  // the halberd's iron head on stone, with one bounce
+    const d = 1.0, t = dspTime(d), n = t.length, click = dspBand(dspNoise(n, 51), 1800, 6000);
+    const hit = (tt) => { if (tt < 0) return 0; let r = 0;
+      for (const [f, k] of [[523, 4], [1297, 5], [1979, 6.5], [2843, 8], [3511, 10]]) r += Math.sin(TAU * f * tt) * Math.exp(-tt * k);
+      return r; };
+    const x = dspMap(n, i => { const tt = t[i];
+      return Math.tanh((hit(tt) * 0.3 + hit(tt - 0.19) * 0.12 + click[i] * (Math.exp(-tt * 80) + (tt > 0.19 ? 0.4 * Math.exp(-(tt - 0.19) * 80) : 0)) * 0.4) * 1.2); });
+    return dspFade(dspNorm(dspSoften(x, 5000), 0.7), 1, 60);
+  },
+  skid() {                                   // armoured feet grinding to a halt on stone
+    const d = 0.6, t = dspTime(d), n = t.length, nz = dspBand(dspNoise(n, 61), 160, 1100), r = mulberry32(62), [th] = dspSweep(70, 34, d, 12); let g = 1;
+    const x = dspMap(n, i => { const tt = t[i];
+      if (i % 480 === 0) g = 0.45 + 0.55 * r();
+      return Math.tanh((nz[i] * g * Math.min(1, tt * 60) * Math.exp(-tt * 4.2) + th[i] * Math.exp(-tt * 10) * 0.6) * 1.5); });
+    return dspFade(dspNorm(dspSoften(x, 2200), 0.8), 1, 40);
+  },
   charge() {
     const d = 0.42, t = dspTime(d), grit = dspBand(dspNoise(t.length, 11), 300, 1400); let ph = 0;
     const x = dspMap(t.length, i => {
@@ -4577,11 +4796,11 @@ class Renderer {
     for (const p of g.fx.rings.active) this.ground(ART.ring, p.x, p.y, p.w, p.h, { color: p.color, alpha: p.alpha, blend: 'add', scale: p.scale });
     this.drawEntities(g, t);
     for (const p of g.fx.slashes.active) this.ground(artByKey(p.tex), p.x, p.y, p.w, p.h, { color: p.color, alpha: p.alpha, blend: 'add', scale: p.scale, rot: p.rot });
-    for (const pool of [g.fx.sparks, g.fx.glows, g.fx.smoke, g.fx.embers]) {
-      const tex = ART[pool.tex], blend = pool.blend;
+    for (const pool of [g.fx.sparks, g.fx.glows, g.fx.smoke, g.fx.embers, g.fx.rubble]) {
+      const tex = ART[pool.tex], blend = pool.blend, tint = pool !== g.fx.rubble;
       for (const p of pool.active) {
         const Z = CAMERA_ZOOM * p.scale;
-        this.img(tex, this.sx(p.x), this.sy(p.y), p.w * Z, p.h * Z, { color: p.color, alpha: p.alpha, blend, rot: p.rot });
+        this.img(tex, this.sx(p.x), this.sy(p.y), p.w * Z, p.h * Z, { color: tint ? p.color : null, alpha: p.alpha, blend, rot: p.rot });
       }
     }
     for (const sh of g.proj.shots) if (sh.live) {

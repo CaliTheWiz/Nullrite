@@ -114,6 +114,17 @@ low leaning on the planted halberd; phase roar = halberd thrust up, arm flung ou
 topples forward, halberd and plates fall. Left hand high on the shaft, right hand low; the shaft always runs through
 where the fists actually are. Arms use the same anatomical scored IK as the player, measured in the twisted torso
 frame. 2D sentinel pictures remain as the fallback. `python3 tools/boss_sheet.py` (6 facings x 16 poses).
+Boss weight (DONE): every heavy contact is detected from the rig, not scripted: a foot coming down from a lift
+(walking, or any stance change - a foot moved to a new spot lifts and lands), a knee hitting the floor (stagger,
+death only), the body, the halberd and each plate in the death fall. Each sends an event -> Game.onBossContact:
+synthesized sound (stomp / boom / clank / clang / skid), a camera drop that springs back (addBump; a thud, not the
+rattle of addShake), floor dust, stone chips (rubble pool, untinted texture), haptics. Springs in the rig give the
+body weight: sink (knees give on landing), plates lag and bounce, a forward lurch when the lance charge stops.
+Slam: push-off stomp at the leap, boom + big drop + rubble at the landing and where the blade bites. Lance:
+push-off, floor dust through the charge, grinding skid + dust spray at the stop. Death runs on an exact timeline
+(not eased): knees give (0-0.3s, knee thud), plates drop and clank (~0.6-0.9), halberd tips over and clangs (~0.9),
+he topples with accelerating speed and hits the floor at 1.28s (boom, biggest drop), one small settle bounce.
+`python3 tools/boss_seq.py` renders these as time strips.
 Then: gear system (stats, weight, equip screen, pickups).
 Blunderbuss (spread shot) is a future off-hand weapon.
 Weapon/hand rules (agreed):

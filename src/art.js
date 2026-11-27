@@ -574,6 +574,11 @@ function buildArt(scale) {
   A.visor = makeTex(22, 10, drawVisor);
   A.weapon = { sword: makeTex(112, 28, drawSword), spear: makeTex(150, 18, drawSpear) };
   A.obelisk = makeTex(88, 196, drawObelisk);
+  A.rubble = makeTex(18, 16, (x) => {                     // a chip of floor stone (drawn untinted)
+    fillP(x, [[2, 9], [6, 2], [14, 3], [17, 10], [11, 15], [4, 14]], '#2e2b33');
+    fillP(x, [[6, 2], [14, 3], [12, 8], [5, 8]], '#4d4855');
+    lineP(x, [[6, 2], [14, 3]], 0.8, '#6a6472');
+  });
   A.core = makeTex(22, 30, drawCore); A.plate = makeTex(46, 30, drawPlate); A.halberd = makeTex(230, 50, drawHalberd);
   A.tiles = [11, 23, 37, 51].map(s => makeTex(TILE, TILE, drawTileBase(s)));
   A.runes = [11, 23, 37, 51].map(s => makeTex(TILE, TILE, drawTileRunes(s)));
@@ -585,7 +590,7 @@ function buildArt(scale) {
   A.bomb = makeTex(18, 20, (x, w) => iconBomb(x, w / 2, w / 2 + 1));
   // pre-tint everything the game tints at runtime, so no canvas is created mid-fight
   const tints = SPARK_COLORS.concat([CRIMSON, RUNE_GOLD, '#8A2432', '#b3202f', '#ffb070', '#ff8a3a', '#ff9a4a', '#ff8a96',
-    '#ffe9d6', '#ffd0a0', '#ff4058', '#ffe2b0', '#fff4f0', '#ffe7c2', '#ff5a6a', '#ffd0c0']);
+    '#ffe9d6', '#ffd0a0', '#8a7f90', '#ff4058', '#ffe2b0', '#fff4f0', '#ffe7c2', '#ff5a6a', '#ffd0c0']);
   for (const col of tints) { tinted(A.glow, col); tinted(A.spark, col); tinted(A.ring, col); }
   for (const s of spans) for (const col of [CRIMSON, '#ffe2b0', '#fff4f0']) tinted(A.slash[s], col);
   for (const col of ['#5c5766', '#524d5c', '#575161', '#4d4545']) tinted(A.glowSoft, col);

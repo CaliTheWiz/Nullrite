@@ -63,7 +63,8 @@ class FX {
     this.slashes = new Pool(4, { layer: 'slash', tex: 'slash:170', size: [256, 256] });
     this.ghosts = new Pool(14, { layer: 'world', tex: 'knightSil:S', size: [64, 96], anchor: [0.5, 0.04] });
     this.embers = new Pool(30, { layer: 'top', tex: 'glow', size: [8, 8] });
-    this.pools = [this.sparks, this.glows, this.smoke, this.rings, this.slashes, this.ghosts, this.embers];
+    this.rubble = new Pool(90, { layer: 'top', tex: 'rubble', size: [9, 8], blend: 'normal' });
+    this.pools = [this.sparks, this.glows, this.smoke, this.rings, this.slashes, this.ghosts, this.embers, this.rubble];
   }
   hitBurst(x, y, base, heavy, gx, gy, sparks, flash) {
     for (let i = 0; i < sparks; i++) {
@@ -211,6 +212,63 @@ class FX {
     for (let k = 0; k < 3; k++) this.rings.spawn({ x: b.gx, y: b.gy, life: 0.6 + 0.25 * k, size: [260, 260], color: cols[k], alpha: 0.9, s0: 0.2, s1: 2.5 + k });
     this.glows.spawn({ x, y, life: 0.5, size: [360, 360], color: '#ffe9d6', alpha: 1, s0: 0.4, s1: 1.5 });
     this.glows.spawn({ x, y, life: 0.9, size: [420, 420], color: CRIMSON, alpha: 0.7, s0: 0.5, s1: 1.6 });
+  }
+  /** A heavy foot coming down: a low ring of dust pushed out along the floor, a few chips of stone. */
+  stomp(gx, gy, str, dir) {
+    const x = gx, y = gy * K, n = Math.round(3 + 5 * str);
+    for (let i = 0; i < n; i++) {
+      const a = dir === undefined ? uniform(0, TAU) : dir + uniform(-0.9, 0.9), sp = uniform(50, 130) * (0.6 + 0.6 * str);
+      this.smoke.spawn({ x: x + uniform(-6, 6), y: y + 3, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * K + 8, life: uniform(0.4, 0.7),
+        size: [40, 40], color: '#575161', alpha: 0.18 + 0.22 * str, drag: 3.5, s0: 0.5, s1: 1.4 + 0.6 * str });
+    }
+    if (str > 0.6) for (let i = 0; i < Math.round(4 * str); i++) this.chip(x, y + 4, 180 * str);
+  }
+  chip(x, y, sp) {
+    const a = uniform(0.35, Math.PI - 0.35), v = uniform(0.5, 1) * sp, s = uniform(4, 8);
+    this.rubble.spawn({ x: x + uniform(-10, 10), y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: uniform(0.35, 0.6), g: -1100, drag: 0.8,
+      size: [s, s * 0.85], rot: uniform(0, TAU), color: choice(['#3a3640', '#4a4550', '#2c2930']), alpha: 1, fade: 3 });
+  }
+  /** A big impact: dust thrown out in a wide ring, rubble flying, a faint shock ring on the floor. */
+  quake(gx, gy, str) {
+    const x = gx, y = gy * K;
+    for (let i = 0; i < 10; i++) {
+      const a = i * TAU / 10 + uniform(-0.2, 0.2), sp = uniform(90, 200) * str;
+      this.smoke.spawn({ x, y: y + 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * K + 14, life: uniform(0.6, 1.0),
+        size: [56, 56], color: '#524d5c', alpha: 0.32, drag: 2.6, s0: 0.6, s1: 2.2 });
+    }
+    for (let i = 0; i < Math.round(10 * str); i++) this.chip(x, y + 6, 320 * str);
+    this.rings.spawn({ x: gx, y: gy, life: 0.5, size: [200 * str, 200 * str], color: '#8a7f90', alpha: 0.35, s0: 0.2, s1: 1.6, fade: 1.3 });
+  }
+  /** Metal hitting stone: white-gold sparks, a puff. */
+  clank(gx, gy, str) {
+    const x = gx, y = gy * K + 4;
+    for (let i = 0; i < Math.round(5 + 6 * str); i++) {
+      const a = uniform(0.2, Math.PI - 0.2), sp = uniform(160, 420) * str;
+      this.sparks.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: uniform(0.12, 0.3), size: [uniform(8, 16), 2.5],
+        color: choice(['#ffe7c2', '#ffd0a0', '#ffffff']), g: -1200, drag: 2.5, s0: 1, s1: 0.3, align: true });
+    }
+    this.smoke.spawn({ x, y, vx: 0, vy: 16, life: 0.5, size: [34, 34], color: '#575161', alpha: 0.28, drag: 2, s0: 0.5, s1: 1.6 });
+  }
+  /** Floor dust kicked up behind him during the lance charge. */
+  chargeDust(b) {
+    const back = groundToScreenAngle(b.attack_dir + Math.PI);
+    this.smoke.spawn({ x: b.gx + uniform(-14, 14), y: b.gy * K + 4, vx: Math.cos(back) * uniform(40, 120), vy: Math.sin(back) * 40 + 14,
+      life: uniform(0.45, 0.7), size: [46, 46], color: '#575161', alpha: 0.26, drag: 3, s0: 0.6, s1: 1.8 });
+  }
+  /** The charge ends: dust sprays on ahead, sparks off his feet, stone chips. */
+  skidStop(b) {
+    const fwd = groundToScreenAngle(b.attack_dir), x = b.gx, y = b.gy * K;
+    for (let i = 0; i < 12; i++) {
+      const a = fwd + uniform(-0.8, 0.8), sp = uniform(120, 300);
+      this.smoke.spawn({ x: x + uniform(-10, 10), y: y + 5, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.6 + 12, life: uniform(0.5, 0.9),
+        size: [52, 52], color: '#524d5c', alpha: 0.32, drag: 3, s0: 0.6, s1: 2.0 });
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = fwd + uniform(-0.6, 0.6), sp = uniform(250, 520);
+      this.sparks.spawn({ x, y: y + 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5 + uniform(40, 160), life: uniform(0.15, 0.35),
+        size: [uniform(10, 20), 2.5], color: choice(['#ffd0a0', '#ffb070', CRIMSON]), g: -1000, drag: 2, s0: 1, s1: 0.3, align: true });
+    }
+    for (let i = 0; i < 6; i++) this.chip(x + Math.cos(b.attack_dir) * 30, y + 4, 260);
   }
   sprintDust(p) {
     const back = groundToScreenAngle(p.facing + Math.PI);
@@ -588,7 +646,7 @@ class Player {
 class Boss {
   constructor(game) { this.g = game; this.RADIUS = BOSS_RADIUS; this.rig = new BossRig(); this.reset(); }
   reset() {
-    [this.gx, this.gy] = BOSS_START; this.rig.fresh = true;
+    [this.gx, this.gy] = BOSS_START; this.rig.fresh = true; this.rig.resetWeight();
     this.vx = this.vy = 0; this.facing = -Math.PI / 2; this.state = S_IDLE; this.state_t = 0; this.idle_time = 1.4;
     this.hp = BOSS_MAX_HP; this.hp_lag = BOSS_MAX_HP; this.hp_lag_hold = 0; this.poise = BOSS_POISE; this.poise_delay = 0;
     this.kind = null; this.atk = null; this.want = 0; this.attack_dir = this.facing; this.hit_done = false;
@@ -665,6 +723,7 @@ class Boss {
         if (T >= atk.windup) { this.enter(S_ACTIVE); g.onBossSwing(this); }
       } else if (this.kind === 'slam') {
         if (T >= atk.crouch) {
+          if (T - dt < atk.crouch) g.onBossLeap(this);
           const q = clamp((T - atk.crouch) / (atk.windup - atk.crouch), 0, 1), e = q * q * (3 - 2 * q);
           this.gx = this.slam_from[0] + (this.slam_to[0] - this.slam_from[0]) * e;
           this.gy = this.slam_from[1] + (this.slam_to[1] - this.slam_from[1]) * e;
@@ -683,10 +742,10 @@ class Boss {
       } else if (this.kind === 'slam') { if (T >= atk.active) this.enter(S_RECOVERY); }
       else {
         this.vx = Math.cos(this.attack_dir) * atk.speed; this.vy = Math.sin(this.attack_dir) * atk.speed;
-        g.fx.lanceTrail(this);
+        g.fx.lanceTrail(this); g.fx.chargeDust(this);
         if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock);
         if (T >= this.dash_time) {
-          this.vx *= 0.3; this.vy *= 0.3;
+          this.vx *= 0.3; this.vy *= 0.3; g.onBossLanceStop(this);
           if (this.phase === 2 && !this.followed) {          // phase 2: straight into a sweep, no pause
             this.followed = true; this.kind = 'sweep'; this.atk = BOSS_ATTACKS.sweep_follow;
             this.attack_dir = to_p; this.facing = to_p; this.hit_done = false; this.enter(S_WINDUP);
@@ -780,7 +839,11 @@ class Boss {
     }
     this.animateHalberd(dt, t, d);
     poseBoss(this, dt, t);
+    const ev = this.rig.events;
+    if (ev.length) { for (const e of ev) this.g.onBossContact(this, e); ev.length = 0; }
   }
+  /** Char-frame point (s, f) -> world ground position. */
+  worldAt(s, f) { const c = Math.cos(this.facing), sn = Math.sin(this.facing); return [this.gx + s * sn + f * c, this.gy - s * c + f * sn]; }
   pickView() {
     const n = pickOctant(this.facing, this.octant);
     if (n !== this.octant) { this.octant = n; [this.view, this.flip] = OCTANTS[n]; }
@@ -893,7 +956,7 @@ class Game {
   resetRound() {
     this.player.reset(); this.boss.reset(); this.fx.clear(); this.proj.clear();
     for (const pk of this.pickups) pk.reset();
-    this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0;
+    this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0; this.bump_y = 0; this.bump_v = 0;
     this.ox = 0; this.oy = 0; this.stamDeny = 0; this.toast_t = 0; this.toast_key = null;
     this.outcome = null; this.outcome_t = 0; this.hapticQueue = []; this.visceralReady = false;
     this.phaseMix = 0; for (const w of this.waves) w.live = false;
@@ -1055,11 +1118,14 @@ class Game {
     if (this.toast_t > 0) this.toast_t -= dt;
   }
   // ---- boss events (no wind-up tells: poses only)
-  onBossSwing(b) { this.sfx('whoosh_heavy', 1.0); this.fx.bossSlash(b); this.addShake(groundToScreenAngle(b.attack_dir), 4); }
+  onBossSwing(b) { this.sfx('whoosh_heavy', 1.0); this.fx.bossSlash(b); this.addShake(groundToScreenAngle(b.attack_dir), 4); this.addBump(2); }
   onBossSlam(b) {
     const R = b.atk.radius;
     this.fx.slamImpact(b.gx, b.gy, R); this.sfx('thud', 1.0); this.sfx('crunch', 0.8);
     this.addShake(Math.PI / 2, 16); this.haptic('heavy', 0.7); this.ritualFlash = 1;
+    this.sfx('boom', 1.0); this.addBump(14); this.hapticQueue.push([0.09, 'heavy', 0.9]);
+    const c = Math.cos(b.facing), s = Math.sin(b.facing);
+    this.fx.quake(b.gx, b.gy, 1.4); this.fx.quake(b.gx + c * 160, b.gy + s * 160, 1.0); this.fx.clank(b.gx + c * 160, b.gy + s * 160, 1.6);
     const p = this.player, dx = p.gx - b.gx, dy = p.gy - b.gy;
     if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock);
     if (b.phase === 2) {
@@ -1111,7 +1177,34 @@ class Game {
     const dx = p.gx - b.gx, dy = p.gy - b.gy, d = hypot(dx, dy);
     if (d <= R && p.alive) p.shove(Math.atan2(dy, dx), PHASE_PUSH.knock * (1 - 0.5 * d / R));
   }
-  onBossLunge(b) { this.sfx('whoosh_heavy', 1.0); this.sfx('dash', 0.8); this.addShake(groundToScreenAngle(b.attack_dir), 5); }
+  onBossLunge(b) {
+    this.sfx('whoosh_heavy', 1.0); this.sfx('dash', 0.8); this.sfx('stomp', 0.8); this.addShake(groundToScreenAngle(b.attack_dir), 5);
+    this.addBump(3); this.fx.stomp(b.gx, b.gy, 1, b.attack_dir + Math.PI);
+  }
+  onBossLanceStop(b) {                                // the charge grinds to a halt
+    this.sfx('skid', 0.9); this.sfx('stomp', 0.9); this.addShake(groundToScreenAngle(b.attack_dir), 6); this.addBump(5); this.haptic('medium', 0.7);
+    this.fx.skidStop(b);
+  }
+  onBossLeap(b) { this.sfx('stomp', 1.0); this.addBump(4); this.fx.stomp(b.gx, b.gy, 1.2); this.haptic('medium', 0.5); }
+  /** Feet, knees, the body, plates and the halberd meeting the floor. */
+  onBossContact(b, e) {
+    const [x, y] = b.worldAt(e.s, e.f), st = e.str;
+    if (e.type === 'foot') {
+      this.sfx('stomp', 0.25 + 0.4 * st); this.addBump(0.6 + 1.6 * st * st); this.fx.stomp(x, y, st);
+      if (st > 0.7) this.haptic('light', 0.4 * st);
+    } else if (e.type === 'knee') {
+      this.sfx('stomp', 0.9); this.sfx('clank', 0.35); this.addBump(5); this.addShake(Math.PI / 2, 4); this.fx.stomp(x, y, 1.3); this.haptic('medium', 0.7);
+    } else if (e.type === 'body') {                   // the sentinel hits the floor
+      this.sfx('boom', 1.0); this.sfx('clank', 0.6); this.addBump(15); this.addShake(Math.PI / 2, 12);
+      this.haptic('heavy', 1.0); this.hapticQueue.push([0.1, 'heavy', 0.8]);
+      const c = Math.cos(b.facing), s = Math.sin(b.facing);
+      for (let k = 0; k <= 4; k++) this.fx.quake(b.gx + c * (k * 32), b.gy + s * (k * 32), 0.7 + 0.1 * k);
+    } else if (e.type === 'plate') {
+      this.sfx('clank', 0.35 + 0.35 * st); if (st > 0.6) this.addBump(1.2); this.fx.clank(x, y, st);
+    } else if (e.type === 'halberd') {
+      this.sfx('clang', 0.85); this.addBump(2.5); this.addShake(Math.PI / 2, 3); this.fx.clank(x, y, 1.2); this.fx.stomp(x, y, 0.8);
+    }
+  }
   onBossStagger(b) {
     this.sfx('stagger', 1.0); this.haptic('heavy', 1.0); this.hapticQueue.push([0.14, 'heavy', 1.0]);
     this.fx.staggerBurst(b); this.addShake(Math.PI / 2, 10);
@@ -1175,7 +1268,11 @@ class Game {
     const amp = this.shake_amp, main = Math.cos(this.shake_t * 62) * amp, perp = Math.sin(this.shake_t * 41) * amp * 0.35;
     this.ox = this.shake_dx * main - this.shake_dy * perp; this.oy = this.shake_dy * main + this.shake_dx * perp;
     this.shake_amp *= Math.exp(-dt * 13);
+    // heavy impacts: the whole view drops and springs back (a thud, not a rattle)
+    this.bump_v += (-300 * this.bump_y - 15 * this.bump_v) * dt; this.bump_y += this.bump_v * dt;
+    this.oy += this.bump_y;
   }
+  addBump(amp) { this.bump_v -= amp * 17; }
 
   /** ctl: {moveDir, moveMag, sprint, aimDir, heavyHeld (seconds or -1)} from the input layer. */
   update(rawDt, ctl) {
