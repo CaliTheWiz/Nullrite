@@ -148,13 +148,23 @@ class Rig {
   }
 
   /** Two-bone arm IK in the char frame. side +1 right / -1 left; handDir: where the hand points (or along the forearm). */
-  arm3(sh, el, wr, hand, t, side, handDir) {
-    const L1 = RIG.UPPER, L2 = RIG.FORE;
+  arm3(sh, el, wr, hand, t0, side, handDir) {
+    const L1 = RIG.UPPER, L2 = RIG.FORE, J = this.j;
+    // keep the hand out of his torso: a target inside the body is pushed out to the front (or the back)
+    const t = this._t3; t.s = t0.s; t.f = t0.f; t.z = t0.z;
+    const pelZ = J.pelvis.z, zr = t.z - pelZ;
+    if (zr > -10 && zr < 27) {
+      const a = (zr < 6 ? 8.2 : 10.2) + 4, b = (zr < 6 ? 5.6 : 6.0) + 4, fc = 0.6 + (J.neck.f - 1.0) * clamp(zr / 24, 0, 1);
+      const u = t.s / a, v = (t.f - fc) / b, r = u * u + v * v;
+      if (r < 1) { const dir = t.f >= fc - 2 ? 1 : -1; t.f = fc + dir * b * Math.sqrt(Math.max(0, 1 - u * u)); }
+    }
+    // an arm reaching across his body folds its elbow forward instead of out and back
+    const cross = clamp((-t.s * side) / 8, 0, 1);
     const ds = t.s - sh.s, df = t.f - sh.f, dz = t.z - sh.z, d = Math.hypot(ds, df, dz) || 1e-4;
     const dd = clamp(d, Math.abs(L1 - L2) + 0.5, L1 + L2 - 0.05);
     const us = ds / d, uf = df / d, uz = dz / d;
     // pole: out to his side, a little back, and down
-    let ps = side * 0.6, pf = -0.35, pz = -1;
+    let ps = side * (0.6 - 0.4 * cross), pf = -0.35 + 1.35 * cross, pz = -1 + 0.4 * cross;
     const k = ps * us + pf * uf + pz * uz; ps -= k * us; pf -= k * uf; pz -= k * uz;
     let pl = Math.hypot(ps, pf, pz);
     if (pl < 1e-3) { ps = side; pf = 0; pz = 0; pl = 1; }
@@ -198,7 +208,7 @@ class Rig {
   }
 }
 // scratch objects (allocated once)
-Rig.prototype._tmp = V3(); Rig.prototype._w = V3();
+Rig.prototype._tmp = V3(); Rig.prototype._w = V3(); Rig.prototype._t3 = V3();
 Rig.prototype._m1 = { x: 0, y: 0 }; Rig.prototype._m2 = { x: 0, y: 0 }; Rig.prototype._e1 = { x: 0, y: 0 }; Rig.prototype._e2 = { x: 0, y: 0 };
 Object.defineProperty(Rig.prototype, '_all', { get() { if (!this.__all) this.__all = Object.values(this.j); return this.__all; } });
 Rig.prototype.weaponRot0 = 0;

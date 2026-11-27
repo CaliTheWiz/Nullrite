@@ -270,6 +270,8 @@ class Player {
       if (cl) for (const name in cl) this.cloths[name] = new Cloth(cl[name]);
     }
   }
+  /** Snap to a new facing and carry the weapon round with him, so it never starts an attack behind his back. */
+  turnTo(d) { this.facing = d; }                       // animateSword carries the weapon round with the turn
   get invulnerable() {
     if (this.kind === 'visceral' && (this.state === S_WINDUP || this.state === S_ACTIVE || this.state === S_RECOVERY)) return true;
     return this.invuln || this.hurt_iframes > 0 || this.state === S_DEAD;
@@ -296,12 +298,12 @@ class Player {
     this.kind = kind; this.move = mv;
     if (comboIdx !== undefined && comboIdx !== null) this.combo = comboIdx;
     else if (kind === 'heavy' || kind === 'charged') this.combo = -1;
-    if (kind !== 'flask') { this.attack_dir = d; this.facing = d; }
+    if (kind !== 'flask') { this.attack_dir = d; this.turnTo(d); }
     this.hit_done = false; this.charging = 0; this.enter(S_WINDUP);
   }
   startDodge(d) {
     const prof = this.dodge_prof = DODGE_ROLL;
-    this.spent(prof.stamina); this.dodge_dir = d; this.facing = d; this.ghost_t = 0; this.charging = 0;
+    this.spent(prof.stamina); this.dodge_dir = d; this.turnTo(d); this.ghost_t = 0; this.charging = 0;
     this.sprinting = false; this.enter(S_DODGE);
   }
   startVisceral(b) {
@@ -325,7 +327,7 @@ class Player {
     const hyper = (this.state === S_WINDUP || this.state === S_ACTIVE) && this.move && this.move.hyper;
     if (hyper && this.hp > 0) return;                 // hyper armour: take the damage, keep swinging
     this.knock_dir = angle; this.vx = Math.cos(angle) * knock; this.vy = Math.sin(angle) * knock;
-    this.facing = angle + Math.PI;
+    this.turnTo(angle + Math.PI);
     if (this.hp <= 0) this.rally = 0;
     this.enter(this.hp <= 0 ? S_DEAD : S_HURT);
   }
@@ -335,7 +337,7 @@ class Player {
     if (!this.alive) return;
     this.charging = 0; this.sprinting = false; this.invuln = false;
     this.knock_dir = angle; this.vx = Math.cos(angle) * knock; this.vy = Math.sin(angle) * knock;
-    this.facing = angle + Math.PI;
+    this.turnTo(angle + Math.PI);
     this.enter(S_HURT);
   }
 
@@ -467,6 +469,13 @@ class Player {
   }
   animateSword(dt, t, charge) {
     const st = this.state, mv = this.move;
+    // whatever turned him this frame (a snap into an attack, a hit, steering) turns the weapon with him,
+    // so it is never left behind his back for the first frames of a move
+    if (this._lastFacing !== undefined) {
+      const turn = wrap(this.facing - this._lastFacing);
+      this.sword_angle += turn; if (this.bladeH !== undefined) this.bladeH += turn;
+    }
+    this._lastFacing = this.facing;
     const side = -0.9 - Math.PI;                      // rest on his right-front side (right hand)
     const resting = st === S_IDLE || st === S_MOVE || st === S_HURT ||
       (mv && mv.motion[0] === 'rest' && (st === S_WINDUP || st === S_ACTIVE || st === S_RECOVERY));

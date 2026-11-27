@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = '318cc5';
+const BUILD = 'd66295';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -421,13 +421,23 @@ class Rig {
   }
 
   /** Two-bone arm IK in the char frame. side +1 right / -1 left; handDir: where the hand points (or along the forearm). */
-  arm3(sh, el, wr, hand, t, side, handDir) {
-    const L1 = RIG.UPPER, L2 = RIG.FORE;
+  arm3(sh, el, wr, hand, t0, side, handDir) {
+    const L1 = RIG.UPPER, L2 = RIG.FORE, J = this.j;
+    // keep the hand out of his torso: a target inside the body is pushed out to the front (or the back)
+    const t = this._t3; t.s = t0.s; t.f = t0.f; t.z = t0.z;
+    const pelZ = J.pelvis.z, zr = t.z - pelZ;
+    if (zr > -10 && zr < 27) {
+      const a = (zr < 6 ? 8.2 : 10.2) + 4, b = (zr < 6 ? 5.6 : 6.0) + 4, fc = 0.6 + (J.neck.f - 1.0) * clamp(zr / 24, 0, 1);
+      const u = t.s / a, v = (t.f - fc) / b, r = u * u + v * v;
+      if (r < 1) { const dir = t.f >= fc - 2 ? 1 : -1; t.f = fc + dir * b * Math.sqrt(Math.max(0, 1 - u * u)); }
+    }
+    // an arm reaching across his body folds its elbow forward instead of out and back
+    const cross = clamp((-t.s * side) / 8, 0, 1);
     const ds = t.s - sh.s, df = t.f - sh.f, dz = t.z - sh.z, d = Math.hypot(ds, df, dz) || 1e-4;
     const dd = clamp(d, Math.abs(L1 - L2) + 0.5, L1 + L2 - 0.05);
     const us = ds / d, uf = df / d, uz = dz / d;
     // pole: out to his side, a little back, and down
-    let ps = side * 0.6, pf = -0.35, pz = -1;
+    let ps = side * (0.6 - 0.4 * cross), pf = -0.35 + 1.35 * cross, pz = -1 + 0.4 * cross;
     const k = ps * us + pf * uf + pz * uz; ps -= k * us; pf -= k * uf; pz -= k * uz;
     let pl = Math.hypot(ps, pf, pz);
     if (pl < 1e-3) { ps = side; pf = 0; pz = 0; pl = 1; }
@@ -471,7 +481,7 @@ class Rig {
   }
 }
 // scratch objects (allocated once)
-Rig.prototype._tmp = V3(); Rig.prototype._w = V3();
+Rig.prototype._tmp = V3(); Rig.prototype._w = V3(); Rig.prototype._t3 = V3();
 Rig.prototype._m1 = { x: 0, y: 0 }; Rig.prototype._m2 = { x: 0, y: 0 }; Rig.prototype._e1 = { x: 0, y: 0 }; Rig.prototype._e2 = { x: 0, y: 0 };
 Object.defineProperty(Rig.prototype, '_all', { get() { if (!this.__all) this.__all = Object.values(this.j); return this.__all; } });
 Rig.prototype.weaponRot0 = 0;
@@ -1004,6 +1014,8 @@ class Player {
       if (cl) for (const name in cl) this.cloths[name] = new Cloth(cl[name]);
     }
   }
+  /** Snap to a new facing and carry the weapon round with him, so it never starts an attack behind his back. */
+  turnTo(d) { this.facing = d; }                       // animateSword carries the weapon round with the turn
   get invulnerable() {
     if (this.kind === 'visceral' && (this.state === S_WINDUP || this.state === S_ACTIVE || this.state === S_RECOVERY)) return true;
     return this.invuln || this.hurt_iframes > 0 || this.state === S_DEAD;
@@ -1030,12 +1042,12 @@ class Player {
     this.kind = kind; this.move = mv;
     if (comboIdx !== undefined && comboIdx !== null) this.combo = comboIdx;
     else if (kind === 'heavy' || kind === 'charged') this.combo = -1;
-    if (kind !== 'flask') { this.attack_dir = d; this.facing = d; }
+    if (kind !== 'flask') { this.attack_dir = d; this.turnTo(d); }
     this.hit_done = false; this.charging = 0; this.enter(S_WINDUP);
   }
   startDodge(d) {
     const prof = this.dodge_prof = DODGE_ROLL;
-    this.spent(prof.stamina); this.dodge_dir = d; this.facing = d; this.ghost_t = 0; this.charging = 0;
+    this.spent(prof.stamina); this.dodge_dir = d; this.turnTo(d); this.ghost_t = 0; this.charging = 0;
     this.sprinting = false; this.enter(S_DODGE);
   }
   startVisceral(b) {
@@ -1059,7 +1071,7 @@ class Player {
     const hyper = (this.state === S_WINDUP || this.state === S_ACTIVE) && this.move && this.move.hyper;
     if (hyper && this.hp > 0) return;                 // hyper armour: take the damage, keep swinging
     this.knock_dir = angle; this.vx = Math.cos(angle) * knock; this.vy = Math.sin(angle) * knock;
-    this.facing = angle + Math.PI;
+    this.turnTo(angle + Math.PI);
     if (this.hp <= 0) this.rally = 0;
     this.enter(this.hp <= 0 ? S_DEAD : S_HURT);
   }
@@ -1069,7 +1081,7 @@ class Player {
     if (!this.alive) return;
     this.charging = 0; this.sprinting = false; this.invuln = false;
     this.knock_dir = angle; this.vx = Math.cos(angle) * knock; this.vy = Math.sin(angle) * knock;
-    this.facing = angle + Math.PI;
+    this.turnTo(angle + Math.PI);
     this.enter(S_HURT);
   }
 
@@ -1201,6 +1213,13 @@ class Player {
   }
   animateSword(dt, t, charge) {
     const st = this.state, mv = this.move;
+    // whatever turned him this frame (a snap into an attack, a hit, steering) turns the weapon with him,
+    // so it is never left behind his back for the first frames of a move
+    if (this._lastFacing !== undefined) {
+      const turn = wrap(this.facing - this._lastFacing);
+      this.sword_angle += turn; if (this.bladeH !== undefined) this.bladeH += turn;
+    }
+    this._lastFacing = this.facing;
     const side = -0.9 - Math.PI;                      // rest on his right-front side (right hand)
     const resting = st === S_IDLE || st === S_MOVE || st === S_HURT ||
       (mv && mv.motion[0] === 'rest' && (st === S_WINDUP || st === S_ACTIVE || st === S_RECOVERY));
