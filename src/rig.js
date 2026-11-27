@@ -15,6 +15,19 @@ const RIG_LIGHT = [-0.45, -0.35, 0.8];
 let USE_3D = false;                                  // set true when the WebGL character renderer is running          // light from the camera side, upper left (art + cloth shading)
 function V3() { return { s: 0, f: 0, z: 0, x: 0, y: 0, d: 0 }; }   // char frame + projected screen + depth
 
+/** How far forward (+) or back (-) a char-frame point must move to sit outside his torso (coat + an arm's thickness). */
+function torsoPush(J, s, f, z, margin) {
+  const zr = z - J.pelvis.z;
+  if (zr < -12 || zr > 25) return 0;
+  // coat profile: skirt / hips / belly / chest / shoulders (half width a, half depth b)
+  const a = zr < -2 ? 9.2 : zr < 9 ? 8.4 : zr < 15 ? 9.6 : 11.2, b = zr < -2 ? 6.6 : zr < 9 ? 5.6 : zr < 15 ? 6.3 : 5.9;
+  const k = clamp((z - J.waist.z) / (J.neck.z - J.waist.z), 0, 1), fc = J.waist.f + (J.neck.f - J.waist.f) * k;
+  const A = a + margin, Bd = b + margin, u = s / A;
+  if (Math.abs(u) >= 1) return 0;
+  const edge = Bd * Math.sqrt(1 - u * u), d = f - fc;
+  if (Math.abs(d) >= edge) return 0;
+  return d >= -1.5 ? edge - d : -(edge + d);
+}
 /** Two-bone IK in screen space. Writes the elbow into `mid` and the reached end into `end`.
  *  bend: +1 / -1 picks which side the joint folds to. Returns false if the target was out of reach. */
 function ik2(ax, ay, tx, ty, L1, L2, bend, mid, end) {
@@ -152,12 +165,7 @@ class Rig {
     const L1 = RIG.UPPER, L2 = RIG.FORE, J = this.j;
     // keep the hand out of his torso: a target inside the body is pushed out to the front (or the back)
     const t = this._t3; t.s = t0.s; t.f = t0.f; t.z = t0.z;
-    const pelZ = J.pelvis.z, zr = t.z - pelZ;
-    if (zr > -10 && zr < 27) {
-      const a = (zr < 6 ? 8.2 : 10.2) + 4, b = (zr < 6 ? 5.6 : 6.0) + 4, fc = 0.6 + (J.neck.f - 1.0) * clamp(zr / 24, 0, 1);
-      const u = t.s / a, v = (t.f - fc) / b, r = u * u + v * v;
-      if (r < 1) { const dir = t.f >= fc - 2 ? 1 : -1; t.f = fc + dir * b * Math.sqrt(Math.max(0, 1 - u * u)); }
-    }
+    t.f += torsoPush(J, t.s, t.f, t.z, 3.6);
     // an arm reaching across his body folds its elbow forward instead of out and back
     const cross = clamp((-t.s * side) / 8, 0, 1);
     const ds = t.s - sh.s, df = t.f - sh.f, dz = t.z - sh.z, d = Math.hypot(ds, df, dz) || 1e-4;
@@ -172,6 +180,21 @@ class Rig {
     const a = (L1 * L1 - L2 * L2 + dd * dd) / (2 * dd), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
     el.s = sh.s + us * a + ps * h; el.f = sh.f + uf * a + pf * h; el.z = sh.z + uz * a + pz * h;
     wr.s = sh.s + us * dd; wr.f = sh.f + uf * dd; wr.z = sh.z + uz * dd;
+    // keep the whole arm out of the body: if the upper arm or forearm cuts into the torso, swing the elbow
+    // out of it (the upper arm keeps its length) and re-aim the forearm at the hand target
+    for (let it = 0; it < 4; it++) {
+      let worst = 0;
+      for (const [A, Bq, u0] of [[sh, el, 0.35], [el, wr, 0]]) for (let q = 0; q <= 3; q++) {
+        const u = u0 + (1 - u0) * q / 3, ps_ = A.s + (Bq.s - A.s) * u, pf_ = A.f + (Bq.f - A.f) * u, pz_ = A.z + (Bq.z - A.z) * u;
+        const push = torsoPush(J, ps_, pf_, pz_, 3.0);
+        if (Math.abs(push) > Math.abs(worst)) worst = push;
+      }
+      if (Math.abs(worst) < 0.15) break;
+      let es = el.s - sh.s, ef = el.f + worst * 1.2 - sh.f, ez = el.z - sh.z; const el_ = Math.hypot(es, ef, ez) || 1;
+      el.s = sh.s + es / el_ * L1; el.f = sh.f + ef / el_ * L1; el.z = sh.z + ez / el_ * L1;
+      let ws = t.s - el.s, wf = t.f - el.f, wz = t.z - el.z; const wl = Math.hypot(ws, wf, wz) || 1, reach2 = Math.min(L2, wl);
+      wr.s = el.s + ws / wl * reach2; wr.f = el.f + wf / wl * reach2; wr.z = el.z + wz / wl * reach2;
+    }
     let hs, hf, hz;
     if (handDir) { hs = handDir.s; hf = handDir.f; hz = handDir.z; }
     else { hs = wr.s - el.s; hf = wr.f - el.f; hz = wr.z - el.z; const hl = Math.hypot(hs, hf, hz) || 1; hs /= hl; hf /= hl; hz /= hl; }

@@ -215,7 +215,7 @@ const GEAR3D = {
     };
     loftZ(mb, BODY_TORSO, 36, 65.2, 20, 22, torsoBones, col, null, [0.8, 0.7]);
     // chest core
-    const cz = 55.5, q = sectionAt(BODY_TORSO, cz), cf = (q.f || 0) + q.b + 0.9;
+    const cz = 55.5, q = sectionAt(BODY_TORSO, cz), cf = (q.f || 0) + q.b + 0.45;
     const P = [[0, cf + 0.6, cz + 3.2], [1.9, cf + 0.3, cz], [0, cf + 0.6, cz - 3.2], [-1.9, cf + 0.3, cz]], ctr = [0, cf + 1.4, cz];
     const ids = P.map(p => mb.vert(p, v3.norm(v3.sub(p, [0, cf - 3, cz])), MAT.crimson, B.spine, B.spine, 1, 1, 0));
     const ic = mb.vert(ctr, [0, 1, 0], MAT.crimson, B.spine, B.spine, 1, 1, 0);
