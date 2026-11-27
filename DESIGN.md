@@ -25,8 +25,10 @@
 - Tests: `node test/logic_test.js` + `node test/phase2_test.js` (pure logic), `python3 test/controls.py` / `test/fight.py` (headless Chrome).
 
 ## Hard design rules (user decisions)
-- NO tells or previews of any kind: no floor telegraphs (player or boss), no wind-up sounds,
-  no glints, no core flare, no visceral prompt, no charge-ready ping. Only animation poses.
+- NO visual tells/indicators: no floor telegraphs (player or boss), no parry glints, no red glows for
+  unparryable attacks, no core flare, no visceral prompt, no charge-ready ping.
+  Organic cues ARE fine (user clarified, like Souls games): body language and poses, and the natural
+  sounds of the body and weapon (footfalls into a stance, armour, grunts, whooshes, attack-specific sounds).
 - NO lock-on, NO soft-lock/auto-aim. Fully manual aim (move direction / drag on buttons).
 - Dodge is a low forward dash (was a roll; user changed it): same timing/i-frames, crimson afterimages snapshot the real body.
 - Zero external assets: all art + audio generated in code.
