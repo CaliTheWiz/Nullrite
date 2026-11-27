@@ -127,7 +127,25 @@ push-off, floor dust through the charge, grinding skid + dust spray at the stop.
 (not eased): knees give (0-0.3s, knee thud), plates drop and clank (~0.6-0.9), halberd tips over and clangs (~0.9),
 he topples with accelerating speed and hits the floor at 1.28s (boom, biggest drop), one small settle bounce.
 `python3 tools/boss_seq.py` renders these as time strips.
-Then: gear system (stats, weight, equip screen, pickups).
+Gear system (DONE, first pass): src/gear.js holds the item catalog (ITEM_DB = armour from GEAR + WEAPON_ITEMS +
+TALISMANS, each with lore), Inventory (owned items, equipped slots, seen/new flags, looted-source flags; saved to
+localStorage 'nullrite.inventory.v1') and deriveStats(). Slots: right, left, head, chest, hands, legs, feet, back,
+necklace (shown as AMULET), ring. Hand rules in Inventory.fits(): 2h = right only and locks the left hand (the left item
+stays equipped but inactive, shown LOCKED); shields left only; `allowed` lists the hands a weapon has animations for
+(pistol: left; swords: right) until per-weapon left-hand movesets exist. Right hand can't be empty (no unarmed set).
+Stats: defence -> damage taken x (23+60)/(def+60) (x1 in the hunter set); poise >= an attack's impact (sweep 18,
+lance 24, slam 32, waves 14) = take the damage but keep your footing; weight / max load (72 + rings) picks a tier:
+LIGHT <=30%, MEDIUM <=70%, HEAVY <=100%, OVERLOADED: dash speed/length, stamina regen and walk speed drop per tier.
+Talismans: Ember Ring (regen +15%), Ring of the Hollow Oath (load +15), Crimson Locket (HP +15), Sentinel's Sigil
+(poise +10). Starter kit: Oathbound Sword (1h, new, own stance + moveset; the free arm swings out for balance) +
+Ember Pistol + hunter set. Sources: chests (test room: west = greatsword + Ember Ring, east = spear + Crimson
+Locket; OPEN prompt, lid animation, OBTAINED banner) and boss drops (Sentinel Helm, Sentinel Plate, Sentinel's Sigil,
+Ring of the Hollow Oath on victory, listed on the victory screen). Each source gives once per save. Enemy drops later.
+Equipment screen (src/menu.js): opened from the HUD weapon chip (GEAR, red dot = new items). Slots | items that fit |
+detail (stats with +/- against what is worn, lore) + totals (HP, damage taken, poise, load bar with tier marks).
+First tap previews, second tap equips. The fight does not pause (Souls). Changing gear only when not mid-action.
+Hold "RESET PROGRESS" 1.2 s to wipe the save. `python3 tools/gear_sheet.py` renders loadouts in 3D.
+Next: per-weapon unique animation sets (incl. left-hand / dual-wield movesets), shields, catalysts, enemy drops.
 Blunderbuss (spread shot) is a future off-hand weapon.
 Weapon/hand rules (agreed):
 - Every weapon has a grip: '1h' (either hand), '2h' (both hands, LEFT HAND LOCKED), 'shield' (left only).

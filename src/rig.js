@@ -321,17 +321,24 @@ function poseRig(p, dt, t) {
   }
   p.gunDrawn = gp >= 0.5;
   const bothHands = W.stance && W.stance.hands === 2;
+  // one-handed weapons: the free arm swings out and back for balance, opposite the blade
+  function offhand(k) {
+    const O = W.stance.offhand || { s: -13, f: -5, z: 40 }, sw = attacking && mv && mv.motion[0] === 'swing' ? Math.sign(mv.motion[1]) : 0;
+    const ts = O.s - 2 * sw, tf = O.f + 3 * sw, tz = O.z + 2 * heft;
+    _lr.s += (ts - _lr.s) * k; _lr.f += (tf - _lr.f) * k; _lr.z += (tz - _lr.z) * k;
+  }
   if (bothHands && gp < 0.05 && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }  // 2h: both hands unless the left is busy
   if (attacking && !tool && p.kind !== 'visceral') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
     crouch += (2 + 5 * heft) * ph; hunch = 1.5 + 2.5 * heft * ph;
     _feet.f = -(3 + 3 * heft) * ph - 1.5; _feet.spread = 1.5 + 2 * ph;          // left foot forward, wider base
-    o.twoHand = _two; _two.gap = W.handGap || 8;
+    if (bothHands) { o.twoHand = _two; _two.gap = W.handGap || 8; } else offhand(ph);
   } else if (p.kind === 'visceral' && attacking) {
-    crouch += 4; hunch = 3; o.twoHand = _two; _two.gap = W.handGap || 8;
+    crouch += 4; hunch = 3; if (bothHands) { o.twoHand = _two; _two.gap = W.handGap || 8; } else offhand(1);
   } else if (p.charging > 0 && loco) {
     const c = clamp((p.charging - CHARGE_START) / (CHARGE_FULL - CHARGE_START), 0, 1);
-    crouch += 2 + 5 * c; hunch = 2 + 2 * c; _feet.f = -3 - 2 * c; _feet.spread = 2 + c; o.twoHand = _two; _two.gap = W.handGap || 8;
+    crouch += 2 + 5 * c; hunch = 2 + 2 * c; _feet.f = -3 - 2 * c; _feet.spread = 2 + c;
+    if (bothHands) { o.twoHand = _two; _two.gap = W.handGap || 8; } else offhand(0.6 + 0.4 * c);
   }
   if (gp > 0.001) {
     // draw from the left hip, then up into the aim; recoil kicks the hand back and up and tips the muzzle

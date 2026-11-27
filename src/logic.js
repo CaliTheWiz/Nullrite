@@ -270,6 +270,17 @@ class FX {
     }
     for (let i = 0; i < 6; i++) this.chip(x + Math.cos(b.attack_dir) * 30, y + 4, 260);
   }
+  /** Chest opens: a gold-crimson glow pours out, embers rise. */
+  chestBurst(ch) {
+    const x = ch.gx, y = ch.gy * K + 22;
+    this.glows.spawn({ x, y, life: 0.5, size: [160, 160], color: RUNE_GOLD, alpha: 0.85, s0: 0.4, s1: 1.4 });
+    this.glows.spawn({ x, y, life: 0.8, size: [220, 220], color: CRIMSON, alpha: 0.5, s0: 0.5, s1: 1.5 });
+    for (let i = 0; i < 18; i++) {
+      const s = uniform(5, 10);
+      this.embers.spawn({ x: x + uniform(-22, 22), y: y + uniform(-4, 10), vx: uniform(-20, 20), vy: uniform(60, 150), life: uniform(0.7, 1.3),
+        size: [s, s], color: choice([RUNE_GOLD, '#ffe2b0', CRIMSON]), alpha: 0.95, fade: -1 });
+    }
+  }
   sprintDust(p) {
     const back = groundToScreenAngle(p.facing + Math.PI);
     this.smoke.spawn({ x: p.gx + uniform(-8, 8), y: p.gy * K + 4, vx: Math.cos(back) * 60, vy: Math.sin(back) * 30 + 15,
@@ -307,12 +318,13 @@ class FX {
 
 // ---------------------------------------------------------------- player
 class Player {
-  constructor(game) { this.g = game; this.setWeapon(WEAPON_ORDER[0]); this.reset(); }
+  constructor(game) { this.g = game; this.setWeapon('oathsword'); this.reset(); }
   setWeapon(key) { this.weaponKey = key; this.weapon = WEAPONS[key]; this.combo = -1; this.combo_expire_t = -1; }
   reset() {
     [this.gx, this.gy] = PLAYER_START;
     this.vx = this.vy = 0; this.facing = Math.PI / 2; this.state = S_IDLE; this.state_t = 0;
-    this.hp = PLAYER_MAX_HP; this.hp_lag = PLAYER_MAX_HP; this.hp_lag_hold = 0;
+    this.applyLoadout();
+    this.hp = this.maxHp; this.hp_lag = this.maxHp; this.hp_lag_hold = 0;
     this.stamina = STAM_MAX; this.stam_delay = 0; this.stam_lag = STAM_MAX; this.stam_lag_hold = 0;
     this.flasks = FLASK_CHARGES; this.bullets = BULLETS_MAX; this.item_key = 'firebomb';
     this.gunReady = 0; this.aimHold = false; this.gunKick = 0; this.gunDrawn = false; this.gunPitch = 0;
@@ -321,13 +333,12 @@ class Player {
     this.dodge_end_t = -10; this.hit_done = false; this.dodge_dir = 0; this.ghost_t = 0; this.invuln = false;
     this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0;
     this.charging = 0; this.sprint_req = false; this.sprinting = false; this.sprint_block = false; this.sprint_t = -10;
-    this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = DODGE_ROLL;
+    this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = this.dodgeBase;
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
     this.octant = null; this.view = 'N'; this.flip = 1;
     if (!this.rig) this.rig = new Rig();
     this.rig._elPrev.R.ok = this.rig._elPrev.L.ok = false;
     this.rigDir = null; this.walkPhase = 0; this.walkAmp = 0;
-    if (!this.gear) this.setGear(STARTER_GEAR);
     this.sword_angle = this.facing + 2.35 + Math.PI; this.sword_rot = Math.PI / 2; this.sword_r = 24;
     this.sword_elev = 36; this.sword_up = 1; this.sword_scale = 0.88; this.swordGlow = 0.25;
     // pose (read by the renderer)
@@ -335,6 +346,23 @@ class Player {
     this.visorX = 0; this.visorY = 68; this.visorSX = 1; this.visorAlpha = 1; this.visorGlow = 0.6;
     this.swordX = 0; this.swordY = 0; this.swordZ = 1;
     this.animate(0, 0);
+  }
+  /** Take what is equipped in the inventory: weapon, left hand, worn armour, and the stats it all adds up to. */
+  applyLoadout() {
+    const inv = this.g && this.g.inv, eq = inv ? inv.eq : STARTER_EQUIP, st = this.stats = deriveStats(eq);
+    const prevMax = this.maxHp || st.maxHp;
+    this.maxHp = st.maxHp;
+    if (this.hp !== undefined) { this.hp = Math.min(this.maxHp, this.hp + Math.max(0, this.maxHp - prevMax)); this.hp_lag = Math.min(this.hp_lag, this.maxHp); }
+    const r = ITEM_DB[eq.right], wk = r && r.weapon && WEAPONS[r.weapon] ? r.weapon : 'oathsword';
+    if (wk !== this.weaponKey) this.setWeapon(wk);
+    this.leftLocked = !!r && r.hands === '2h';
+    this.hasPistol = eq.left === 'pistol';
+    this.leftItem = this.leftLocked ? null : eq.left;
+    const armor = {}; for (const s of ARMOR_SLOTS) armor[s] = eq[s];
+    const key = JSON.stringify(armor);
+    if (key !== this._armorKey) { this._armorKey = key; this.setGear(armor); }
+    this.dodgeBase = Object.assign({}, DODGE_ROLL, { speed: DODGE_ROLL.speed * st.tier.dashSpeed, time: DODGE_ROLL.time * st.tier.dashTime,
+      iframes: [DODGE_ROLL.iframes[0], DODGE_ROLL.iframes[1] * st.tier.dashTime] });
   }
   /** Equip a full loadout (slot -> id). Works out which pictures each rig part draws, back to front. */
   setGear(loadout) {
@@ -384,7 +412,7 @@ class Player {
     this.hit_done = false; this.charging = 0; this.enter(S_WINDUP);
   }
   startDodge(d) {
-    const prof = this.dodge_prof = DODGE_ROLL;
+    const prof = this.dodge_prof = this.dodgeBase;
     this.spent(prof.stamina); this.dodge_dir = d; this.turnTo(d); this.ghost_t = 0; this.charging = 0;
     this.sprinting = false; this.enter(S_DODGE);
   }
@@ -396,18 +424,22 @@ class Player {
     this.visc_to = [b.gx - Math.cos(a) * stand, b.gy - Math.sin(a) * stand];
   }
   regain(amount) {
-    const g = Math.min(this.rally, amount, PLAYER_MAX_HP - this.hp);
+    const g = Math.min(this.rally, amount, this.maxHp - this.hp);
     if (g > 0) { this.hp += g; this.rally -= g; return g; }
     return 0;
   }
-  takeHit(dmg, angle, knock) {
+  takeHit(dmg, angle, knock, poised) {
     const lost = Math.min(this.hp, dmg);
     this.hp = Math.max(0, this.hp - dmg);
-    this.rally = Math.min(PLAYER_MAX_HP - this.hp, this.rally + lost);
+    this.rally = Math.min(this.maxHp - this.hp, this.rally + lost);
     this.rally_hold = RALLY_GRACE; this.sprinting = false; this.hp_lag_hold = 0.5;
-    this.hurt_iframes = HURT_IFRAMES; this.invuln = false; this.charging = 0;
+    this.hurt_iframes = HURT_IFRAMES; this.invuln = false;
     const hyper = (this.state === S_WINDUP || this.state === S_ACTIVE) && this.move && this.move.hyper;
-    if (hyper && this.hp > 0) return;                 // hyper armour: take the damage, keep swinging
+    if ((hyper || poised) && this.hp > 0) {         // hyper armour / enough poise: take the damage, keep your footing
+      if (poised) { this.vx += Math.cos(angle) * knock * 0.25; this.vy += Math.sin(angle) * knock * 0.25; }
+      return;
+    }
+    this.charging = 0;
     this.knock_dir = angle; this.vx = Math.cos(angle) * knock; this.vy = Math.sin(angle) * knock;
     this.turnTo(angle + Math.PI);
     if (this.hp <= 0) this.rally = 0;
@@ -436,8 +468,9 @@ class Player {
       this.sprinting = this.sprint_req && this.move_dir !== null && this.charging <= 0 && !this.sprint_block && this.stamina > 0;
       if (this.move_dir !== null) {
         if (aiming) this.sprinting = false;
-        let spd = PLAYER_SPEED * this.weapon.speed * this.move_mag * (aiming ? GUN_AIM.walk : 1);
-        if (this.sprinting) spd = PLAYER_SPEED * this.weapon.speed * SPRINT_MULT;
+        const walk = this.stats.tier.walk;
+        let spd = PLAYER_SPEED * this.weapon.speed * walk * this.move_mag * (aiming ? GUN_AIM.walk : 1);
+        if (this.sprinting) spd = PLAYER_SPEED * this.weapon.speed * walk * SPRINT_MULT;
         else if (this.charging > 0) spd *= CHARGE_WALK;
         this.vx = smooth(this.vx, Math.cos(this.move_dir) * spd, 18, dt);
         this.vy = smooth(this.vy, Math.sin(this.move_dir) * spd, 18, dt);
@@ -457,7 +490,7 @@ class Player {
         this.dust_t -= dt;
         if (this.dust_t <= 0) { this.dust_t = 0.11; this.g.fx.sprintDust(this); }
       } else if (this.stam_delay > 0) this.stam_delay -= dt;
-      else this.stamina = Math.min(STAM_MAX, this.stamina + STAM_REGEN * (this.state === S_MOVE ? 0.9 : 1) * dt);
+      else this.stamina = Math.min(STAM_MAX, this.stamina + STAM_REGEN * this.stats.regen * (this.state === S_MOVE ? 0.9 : 1) * dt);
     } else if (st === S_WINDUP) {
       this.sprinting = false;
       if (this.kind === 'visceral') {
@@ -737,13 +770,13 @@ class Boss {
       }
     } else if (st === S_ACTIVE) {
       if (this.kind === 'sweep') {
-        if (!this.hit_done && g.bossSweepHits(this)) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock);
+        if (!this.hit_done && g.bossSweepHits(this)) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact);
         if (T >= atk.active) this.enter(S_RECOVERY);
       } else if (this.kind === 'slam') { if (T >= atk.active) this.enter(S_RECOVERY); }
       else {
         this.vx = Math.cos(this.attack_dir) * atk.speed; this.vy = Math.sin(this.attack_dir) * atk.speed;
         g.fx.lanceTrail(this); g.fx.chargeDust(this);
-        if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock);
+        if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact);
         if (T >= this.dash_time) {
           this.vx *= 0.3; this.vy *= 0.3; g.onBossLanceStop(this);
           if (this.phase === 2 && !this.followed) {          // phase 2: straight into a sweep, no pause
@@ -884,6 +917,12 @@ class Boss {
 // ---------------------------------------------------------------- world objects
 class Pillar { constructor(gx, gy) { this.gx = gx; this.gy = gy; this.RADIUS = 34; this.phase = uniform(0, 6.28); } }
 
+class Chest {
+  constructor(def) { this.id = def.id; [this.gx, this.gy] = def.pos; this.items = def.items; this.RADIUS = CHEST_RADIUS; this.open_t = -1; this.given = false; }
+  reset(inv) { this.given = !!inv.flags[this.id]; this.open_t = this.given ? 99 : -1; }
+  get closed() { return this.open_t < 0; }
+}
+
 class Pickup {
   constructor(pos, key, count) { [this.gx, this.gy] = pos; this.item_key = key; this.count = count; this.phase = uniform(0, 6.28); this.reset(); }
   reset() { this.taken = false; }
@@ -944,10 +983,12 @@ class Game {
     this.t = 0;
     this.fx = new FX(this);
     this.pillars = [[-560, -560], [560, -560], [-560, 560], [560, 560]].map(p => new Pillar(p[0], p[1]));
+    this.inv = Inventory.load();
     this.boss = new Boss(this);
     this.player = new Player(this);
     this.proj = new Projectiles(this);
     this.pickups = PICKUPS.map(p => new Pickup(p[0], p[1], p[2]));
+    this.chests = CHESTS.map(d => new Chest(d)); this.chestNear = null; this.loot = null;
     this.ritualFlash = 0;
     this.waves = [];                     // phase-2 slam shockwaves (fixed pool)
     for (let i = 0; i < 6; i++) this.waves.push({ live: false, x: 0, y: 0, r: 0, delay: 0, hit: false, alpha: 0, started: false, dust_t: 0 });
@@ -956,6 +997,7 @@ class Game {
   resetRound() {
     this.player.reset(); this.boss.reset(); this.fx.clear(); this.proj.clear();
     for (const pk of this.pickups) pk.reset();
+    for (const ch of this.chests) ch.reset(this.inv); this.chestNear = null; this.loot = null; this.bossLoot = [];
     this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0; this.bump_y = 0; this.bump_v = 0;
     this.ox = 0; this.oy = 0; this.stamDeny = 0; this.toast_t = 0; this.toast_key = null;
     this.outcome = null; this.outcome_t = 0; this.hapticQueue = []; this.visceralReady = false;
@@ -989,7 +1031,7 @@ class Game {
     if (p.stamina <= 0.5) return this.deny();
     if (d === null || d === undefined) d = this.defaultDir();
     if (kind === 'shoot') {
-      if (p.bullets <= 0) return this.deny();
+      if (p.leftItem !== 'pistol' || p.bullets <= 0) return this.deny();      // left hand empty, or locked by a 2h weapon
       p.bullets -= 1; p.startMove('shoot', p.gunReady > 0.8 ? GUN_MOVE_READY : GUN_MOVE, d); return;
     }
     if (kind === 'item') {
@@ -1006,13 +1048,13 @@ class Game {
     }
   }
   deny() { this.stamDeny = 0.35; this.sfx('deny', 0.6); this.haptic('light', 0.4); }
-  swapWeapon(attackHeld) {
+  /** Change equipment (from the equipment screen). Only when not mid-action; the fight does not pause. */
+  equip(slot, id) {
     const p = this.player;
-    if ((p.state !== S_IDLE && p.state !== S_MOVE) || attackHeld || this.outcome !== null) return this.deny();
-    const i = WEAPON_ORDER.indexOf(p.weaponKey);
-    p.setWeapon(WEAPON_ORDER[(i + 1) % WEAPON_ORDER.length]);
-    this.sfx('thud', 0.45); this.sfx('ready', 0.4); this.haptic('medium', 0.6);
-    this.fx.glows.spawn({ x: p.gx, y: p.gy * K + 40, life: 0.3, size: [120, 120], color: CRIMSON, alpha: 0.7, s0: 0.5, s1: 1.3 });
+    if ((p.state !== S_IDLE && p.state !== S_MOVE) || this.outcome !== null) { this.deny(); return false; }
+    if (!this.inv.equip(slot, id)) { this.deny(); return false; }
+    p.applyLoadout(); this.sfx('thud', 0.35); this.sfx('ready', 0.35); this.haptic('medium', 0.5);
+    return true;
   }
   onSwing(p) {
     const mv = p.move;
@@ -1026,7 +1068,7 @@ class Game {
       this.proj.throwItem(p, ITEMS[p.item_key]); if (mv.sfx) this.sfx(mv.sfx[0], mv.sfx[1]); this.haptic('light', 0.5); return;
     }
     if (p.kind === 'flask') {
-      p.hp = Math.min(PLAYER_MAX_HP, p.hp + FLASK_HEAL); p.rally = Math.min(p.rally, PLAYER_MAX_HP - p.hp);
+      p.hp = Math.min(p.maxHp, p.hp + FLASK_HEAL); p.rally = Math.min(p.rally, p.maxHp - p.hp);
       this.fx.heal(p); this.sfx('flask', 0.9); this.haptic('light', 0.5); return;
     }
     if (mv.sfx) this.sfx(mv.sfx[0], mv.sfx[1]);
@@ -1104,6 +1146,34 @@ class Game {
     if (b.alive && hypot(b.gx - gx, b.gy - gy) <= R + b.RADIUS && b.elev < 60)
       this.hitBoss(item.damage, item.poise, Math.atan2(b.gy - gy, b.gx - gx), true, false);
   }
+  /** Chests: who is close enough to open one, lids opening, loot handed over once the lid is up. */
+  updateChests(dt) {
+    const p = this.player; this.chestNear = null;
+    for (const ch of this.chests) {
+      if (ch.open_t >= 0 && ch.open_t < 99) {
+        ch.open_t += dt;
+        if (!ch.given && ch.open_t >= CHEST_OPEN_TIME * 0.8) { ch.given = true; this.giveLoot(ch.id, ch.items); this.fx.chestBurst(ch); }
+      }
+      if (ch.closed && p.alive && this.outcome === null && hypot(p.gx - ch.gx, p.gy - ch.gy) <= CHEST_REACH) this.chestNear = ch;
+    }
+    if (this.loot) { this.loot.t -= dt; if (this.loot.t <= 0) this.loot = null; }
+  }
+  openChest() {
+    const ch = this.chestNear, p = this.player;
+    if (!ch || (p.state !== S_IDLE && p.state !== S_MOVE)) return this.deny();
+    ch.open_t = 0; this.chestNear = null;
+    p.vx = p.vy = 0; p.turnTo(Math.atan2(ch.gy - p.gy, ch.gx - p.gx));
+    this.sfx('clank', 0.5); this.sfx('thud', 0.5); this.haptic('medium', 0.6);
+  }
+  /** Items into the inventory (once per save for this source), with the banner. */
+  giveLoot(source, items) {
+    const inv = this.inv;
+    if (inv.flags[source]) return [];
+    for (const id of items) inv.add(id);
+    inv.flags[source] = 1; inv.save();
+    this.loot = { items: items.slice(), t: 3.4 }; this.sfx('ready', 0.8); this.sfx('flask', 0.4);
+    return items;
+  }
   updatePickups(dt) {
     const p = this.player;
     for (const pk of this.pickups) {
@@ -1127,7 +1197,7 @@ class Game {
     const c = Math.cos(b.facing), s = Math.sin(b.facing);
     this.fx.quake(b.gx, b.gy, 1.4); this.fx.quake(b.gx + c * 160, b.gy + s * 160, 1.0); this.fx.clank(b.gx + c * 160, b.gy + s * 160, 1.6);
     const p = this.player, dx = p.gx - b.gx, dy = p.gy - b.gy;
-    if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock);
+    if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock, b.atk.impact);
     if (b.phase === 2) {
       let n = 0;
       for (const w of this.waves) {
@@ -1156,7 +1226,7 @@ class Game {
       if (w.r >= S.max_r) { w.live = false; continue; }
       if (!w.hit && p.alive && this.outcome === null) {
         const dx = p.gx - w.x, dy = p.gy - w.y, d = hypot(dx, dy);
-        if (Math.abs(d - w.r) <= S.hit + PLAYER_RADIUS * 0.5) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock);
+        if (Math.abs(d - w.r) <= S.hit + PLAYER_RADIUS * 0.5) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock, 14);
       }
     }
   }
@@ -1210,6 +1280,7 @@ class Game {
     this.fx.staggerBurst(b); this.addShake(Math.PI / 2, 10);
   }
   onBossDeath(b) {
+    this.bossLoot = this.inv.flags[BOSS_DROPS.id] ? [] : this.giveLoot(BOSS_DROPS.id, BOSS_DROPS.items); this.loot = null;
     this.sfx('boss_die', 1.0); this.haptic('heavy', 1.0);
     this.hapticQueue.push([0.18, 'heavy', 1.0]); this.hapticQueue.push([0.45, 'medium', 0.8]);
     this.fx.deathBurst(b); this.addShake(Math.PI / 2, 20); this.hitstop = 0.12; this.setOutcome('victory');
@@ -1222,10 +1293,11 @@ class Game {
     const slack = Math.asin(Math.min(1, PLAYER_RADIUS / dist));
     return Math.abs(wrap(Math.atan2(dy, dx) - b.attack_dir)) <= b.atk.half + slack;
   }
-  damagePlayer(dmg, angle, knock) {
+  damagePlayer(dmg, angle, knock, impact) {
     const p = this.player;
     if (p.invulnerable || this.outcome !== null) return false;
-    p.takeHit(dmg, angle, knock);
+    const poised = impact !== undefined && p.stats.poise >= impact;                // heavy armour shrugs off lighter blows
+    p.takeHit(Math.max(1, Math.round(dmg * p.stats.dmgTaken)), angle, knock, poised);
     this.fx.hurtBurst(p, angle); this.hitstop = 0.06; this.addShake(groundToScreenAngle(angle), 9);
     this.sfx('hurt', 0.9); this.haptic('heavy', 1.0);
     if (!p.alive) { this.sfx('thud', 0.8); this.setOutcome('death'); }
@@ -1248,6 +1320,7 @@ class Game {
   resolveCollisions() {
     const p = this.player, b = this.boss;
     if (b.alive && b.elev < 30) this.pushOut(p, b.gx, b.gy, PLAYER_RADIUS + b.RADIUS);
+    for (const ch of this.chests) { this.pushOut(p, ch.gx, ch.gy, PLAYER_RADIUS + ch.RADIUS); if (b.elev < 30) this.pushOut(b, ch.gx, ch.gy, b.RADIUS + ch.RADIUS); }
     for (const pil of this.pillars) {
       this.pushOut(p, pil.gx, pil.gy, PLAYER_RADIUS + pil.RADIUS);
       if (b.elev < 30) this.pushOut(b, pil.gx, pil.gy, b.RADIUS + pil.RADIUS);
@@ -1291,7 +1364,7 @@ class Game {
     if (this.hitstop > 0) { this.hitstop -= dt; this.updateCamera(dt); return; }   // freeze-frame
     this.updateVisceral();
     this.proj.update(dt);
-    this.updatePickups(dt);
+    this.updatePickups(dt); this.updateChests(dt);
     this.updateWaves(dt);
     if (b.phase === 2) this.phaseMix = Math.min(1, this.phaseMix + dt / 1.6);
     if (this.buffer) {

@@ -14,6 +14,7 @@ const sound = new SoundBank();
 const game = new Game({ sfx: (n, v) => sound.play(n, v), haptic: (s, i) => haptic(s, i) });
 const renderer = new Renderer(canvas);
 const controls = new Controls(game);
+const menu = new EquipMenu(game); controls.menu = menu; controls.ui.menu = menu;
 let screen = 'title';           // 'title' | 'play'
 let W = 0, H = 0;
 
@@ -79,9 +80,11 @@ function frame(now) {
     game.update(raw, ctl);
     if (game.outcome !== null && controls.owner.size) controls.releaseAll();
     renderer.draw(game, controls.ui, game.t);
+    if (game.outcome !== null && menu.open) menu.close();
+    if (menu.open) { menu.update(raw); menu.draw(renderer); }
     sound.setDrone(game.outcome === null, game.boss.phase);
   }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); } };
+window.__nullrite = { game, controls, renderer, sound, menu, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); } };

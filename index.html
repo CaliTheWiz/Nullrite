@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = '16a135';
+const BUILD = '99e27e';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -74,6 +74,31 @@ const DODGE_ATTACK_WINDOW = 0.30;
 const CHARGE_START = 0.20, CHARGE_FULL = 0.65, CHARGE_WALK = 0.45;
 
 const WEAPONS = {
+  // one-handed: quick cuts, the left hand free (pistol on the hip) and swung out for balance
+  oathsword: {
+    name: 'OATHBOUND SWORD', tex: 'oathsword', size: [70, 16], grip: 8, handGap: 0, glow: [30, 62, 10], speed: 1.06,
+    stance: { hands: 1, offhand: { s: -13, f: -5, z: 40 },
+              rest: { off: -0.5, r: 16, elev: 34, point: -0.2, up: 0.15, sway: 2.0 },       // point forward, a little raised
+              move: { off: -1.3, r: 13, elev: 30, point: -0.85, up: -0.5 },                    // low at his side, tip forward-down
+              dash: { off: -(Math.PI - 0.9), r: 16, elev: 28, point: -(Math.PI - 0.35), up: -0.3 } },   // trailing behind
+    light: [
+      move({ windup: 0.08, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 10, damage: 26, poise: 5, lunge: 300,
+             hitbox: ['arc', 122, 50], motion: ['swing', 70, -62], reach: 40 }),
+      move({ windup: 0.07, active: 0.08, recovery: 0.21, cancel: 0.07, stamina: 10, damage: 27, poise: 5, lunge: 300,
+             hitbox: ['arc', 124, 52], motion: ['swing', -72, 64], reach: 42 }),
+      move({ windup: 0.10, active: 0.08, recovery: 0.26, cancel: 0.10, stamina: 12, damage: 33, poise: 8, lunge: 380,
+             hitbox: ['thrust', 150, 32], motion: ['thrust'], reach: 62, slash: ['thrust', 'gold'], shake: 6, sparks: 12, flash: 110 }),
+    ],
+    heavy: move({ windup: 0.30, active: 0.12, recovery: 0.40, cancel: 0.18, stamina: 24, damage: 62, poise: 22,
+                  lunge: 420, hitbox: ['thrust', 150, 62], motion: ['overhead'], reach: 52, heft: 0.6,
+                  slash: ['slam', 'crimson'], sfx: ['whoosh_heavy', 0.85], haptic: ['medium', 0.8], shake: 10, sparks: 22, flash: 150 }),
+    charged: move({ windup: 0.12, active: 0.15, recovery: 0.44, cancel: 0.22, stamina: 34, damage: 92, poise: 34,
+                    lunge: 520, hitbox: ['arc', 168, 80], motion: ['swing', 150, -150], reach: 50, heft: 0.8,
+                    hyper: true, slash: ['arc', 'white'], sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
+                    shake: 15, sparks: 32, flash: 210, hitstop: 0.08, thud: true }),
+    dodge: move({ windup: 0.05, active: 0.10, recovery: 0.22, cancel: 0.08, stamina: 12, damage: 29, poise: 6,
+                  lunge: 720, hitbox: ['thrust', 170, 34], motion: ['thrust'], reach: 64, slash: ['thrust', 'gold'], sparks: 12 }),
+  },
   greatsword: {
     name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, handGap: 8, glow: [50, 96, 16], speed: 0.95,
     // stance: how this weapon is carried (angle offset from facing, distance, height, blade tilt: 1 upright, <0 tip down)
@@ -130,7 +155,7 @@ const WEAPONS = {
                   slash: ['thrust', 'gold'], sparks: 12 }),
   },
 };
-const WEAPON_ORDER = ['greatsword', 'spear'];
+const WEAPON_ORDER = ['oathsword', 'greatsword', 'spear'];
 function weaponMoves(w) { return w.light.concat([w.heavy, w.charged, w.dodge]); }
 
 const FLASK_MOVE = move({ windup: 0.62, active: 0.05, recovery: 0.32, cancel: 0.18, stamina: 0, damage: 0,
@@ -153,10 +178,18 @@ const ITEMS = {
 const ITEM_STACK_MAX = 6;
 const PICKUPS = [[[-430, -150], 'firebomb', 3], [[440, 330], 'firebomb', 3]];
 const PICKUP_RADIUS = 38;
+// chests (test room) and boss drops; each gives its items once per save
+const CHESTS = [
+  { id: 'chest_west', pos: [-610, 40], items: ['greatsword', 'ember_ring'] },
+  { id: 'chest_east', pos: [610, -40], items: ['spear', 'crimson_locket'] },
+];
+const CHEST_REACH = 82, CHEST_RADIUS = 26, CHEST_OPEN_TIME = 0.5;
+const BOSS_DROPS = { id: 'boss_sentinel', items: ['sentinel_helm', 'sentinel_plate', 'sentinel_sigil', 'oath_ring'] };
 const THROW_MOVE = move({ windup: 0.18, active: 0.05, recovery: 0.30, cancel: 0.14, stamina: 8, damage: 0, poise: 0,
                           lunge: 0, hitbox: null, motion: ['rest'], slash: null, sfx: ['whoosh', 0.5],
                           haptic: ['light', 0.5] });
 
+const INV_SAVE_KEY = 'nullrite.inventory.v1';
 const PLAYER_MAX_HP = 100, HURT_TIME = 0.32, HURT_IFRAMES = 0.65, FLASK_CHARGES = 3, FLASK_HEAL = 45;
 
 // ---- boss
@@ -166,11 +199,11 @@ const BOSS_START = [0, 170], PLAYER_START = [0, -300];
 const RAD = Math.PI / 180;
 const BOSS_ATTACKS = {
   sweep: { windup: 0.85, track: 0.4, active: 0.22, recovery: 0.9, range: 250, half: 80 * RAD,
-           damage: 28, knock: 260, want: 205, parry: true },
+           damage: 28, knock: 260, want: 205, parry: true, impact: 18 },
   slam:  { windup: 1.05, crouch: 0.3, active: 0.12, recovery: 1.1, radius: 230, hop: 170,
-           damage: 36, knock: 360, want: 330, parry: false },
+           damage: 36, knock: 360, want: 330, parry: false, impact: 32 },
   lance: { windup: 1.12, lock: 0.8, recovery: 1.0, speed: 1500, max_dist: 680,
-           damage: 32, knock: 320, want: 9999, parry: true },
+           damage: 32, knock: 320, want: 9999, parry: true, impact: 24 },
 };
 // Phase 2 (below half HP): lance chains straight into a quicker sweep; slam sends out radial waves
 BOSS_ATTACKS.sweep_follow = Object.assign({}, BOSS_ATTACKS.sweep, { windup: 0.52, track: 0.26, recovery: 1.05 });
@@ -265,15 +298,139 @@ const GEAR = {
   hunter_gauntlets: { slot: 'hands', name: 'HUNTER GAUNTLETS', defense: 3, poise: 1, weight: 1.5, parts: ['foreL', 'foreR', 'handL', 'handR'] },
   hunter_greaves:   { slot: 'legs',  name: 'HUNTER GREAVES',   defense: 5, poise: 3, weight: 3.5, parts: ['thighL', 'thighR', 'shinL', 'shinR'] },
   hunter_boots:     { slot: 'feet',  name: 'HUNTER BOOTS',     defense: 2, poise: 1, weight: 1.5, parts: ['footL', 'footR', 'shinL', 'shinR'] },
+  // dropped by the Obsidian Sentinel
+  sentinel_helm:    { slot: 'head',  name: 'SENTINEL HELM',    defense: 8, poise: 5, weight: 7.0, parts: ['head'], visor: true },
+  sentinel_plate:   { slot: 'chest', name: 'SENTINEL PLATE',   defense: 17, poise: 14, weight: 18.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'] },
 };
-const STARTER_GEAR = { head: 'hunter_hood', chest: 'hunter_coat', back: 'hunter_cloak', hands: 'hunter_gauntlets',
-  legs: 'hunter_greaves', feet: 'hunter_boots', right: 'greatsword', left: 'pistol', necklace: null, ring: null };
+const GEAR_LORE = {
+  hunter_hood: 'A hood of waxed cloth over a mask of black iron. The slit lets through only what must be seen.',
+  hunter_coat: 'Long coat of the oathbound hunters, plated at the chest. The crimson tabard marks one who has not yet broken faith.',
+  hunter_cloak: 'Worn to rags on the long road. It has outlasted every hunter who wore it before.',
+  hunter_gauntlets: 'Leather and iron, stiff with old blood. Steady enough for a blade, light enough for a pistol.',
+  hunter_greaves: 'Iron over the shins, cloth above. Made for long marches more than long fights.',
+  hunter_boots: 'Hobnailed boots that bite into stone. Quiet, as hunters must be.',
+  sentinel_helm: 'The horned helm of the Obsidian Sentinel. Its visor still burns faintly, as though it remembers the oath it was forged to keep.',
+  sentinel_plate: 'Obsidian plate grown, not forged. The cold core in its chest beats once, slowly, when danger is near.',
+};
 
 // rig part -> which picture family it uses ('L'/'R' parts share one segment picture)
 const PART_ART = { thighL: 'thigh', thighR: 'thigh', shinL: 'shin', shinR: 'shin', footL: 'foot', footR: 'foot',
   upperL: 'upper', upperR: 'upper', foreL: 'fore', foreR: 'fore', handL: 'hand', handR: 'hand',
   pelvis: 'pelvis', torso: 'torso', head: 'head', cape: 'cape', tabard: 'tabard' };
 const RIG_DIRS = 16;                         // view pictures are baked for 16 facing directions
+
+// ============================================================ ITEMS, INVENTORY, EQUIP RULES
+// Everything the player can own. Armour comes from GEAR (above); weapons and talismans are listed here.
+// Hand rules: any weapon may go in either hand, except shields (left only) and two-handed weapons, which
+// lock the left hand (held with both hands). `allowed` lists the hands a weapon has animations for so far.
+const EQUIP_SLOTS = ['right', 'left', 'head', 'chest', 'hands', 'legs', 'feet', 'back', 'necklace', 'ring'];
+const ARMOR_SLOTS = ['head', 'chest', 'hands', 'legs', 'feet', 'back'];
+const WEAPON_ITEMS = {
+  oathsword:  { name: 'OATHBOUND SWORD', weapon: 'oathsword', hands: '1h', family: 'melee', allowed: ['right'], weight: 3.5, icon: 'sword',
+    lore: 'A plain straight sword given to every hunter who swears the oath. Quick in the hand; it asks for nerve, not strength.' },
+  greatsword: { name: 'OBSIDIAN GREATSWORD', weapon: 'greatsword', hands: '2h', family: 'melee', allowed: ['right'], weight: 14, icon: 'greatsword',
+    lore: 'A slab of obsidian with a crimson vein along its fuller. Too heavy for one hand; every swing commits the whole body.' },
+  spear:      { name: 'HOLLOW SPEAR', weapon: 'spear', hands: '2h', family: 'melee', allowed: ['right'], weight: 9, icon: 'spear',
+    lore: 'Its shaft is hollow, its point is not. Keeps the danger at arm and a half.' },
+  pistol:     { name: 'EMBER PISTOL', weapon: null, hands: '1h', family: 'gun', allowed: ['left'], weight: 2.5, icon: 'pistol',
+    lore: 'Obsidian flintlock loaded with ember shot. Weak against flesh, but a shot timed to the swing can break a stance.' },
+};
+const TALISMANS = {
+  ember_ring:     { slot: 'ring', name: 'EMBER RING', mods: { regen: 0.15 }, effect: 'Stamina recovers 15% faster', icon: 'ring',
+    lore: 'A band of black iron set with a coal that never cools. The wearer breathes easier in the heat of a fight.' },
+  oath_ring:      { slot: 'ring', name: 'RING OF THE HOLLOW OATH', mods: { load: 15 }, effect: 'Equip load +15', icon: 'ring',
+    lore: 'Taken from the Sentinel. An oath with nothing left inside it weighs nothing at all.' },
+  crimson_locket: { slot: 'necklace', name: 'CRIMSON LOCKET', mods: { hp: 15 }, effect: 'Max HP +15', icon: 'necklace',
+    lore: 'A locket holding a dried crimson petal. Its owner swore to come home; the locket did.' },
+  sentinel_sigil: { slot: 'necklace', name: "SENTINEL'S SIGIL", mods: { poise: 10 }, effect: 'Poise +10', icon: 'necklace',
+    lore: 'The Sentinel wore this beneath its plate. Whoever carries it stands a little more like a wall.' },
+};
+const ITEM_DB = {};
+for (const id in GEAR) ITEM_DB[id] = Object.assign({ cat: 'armor', icon: GEAR[id].slot, lore: GEAR_LORE[id] || '' }, GEAR[id]);
+for (const id in WEAPON_ITEMS) ITEM_DB[id] = Object.assign({ cat: 'weapon' }, WEAPON_ITEMS[id]);
+for (const id in TALISMANS) ITEM_DB[id] = Object.assign({ cat: 'talisman', weight: 0.5 }, TALISMANS[id]);
+
+const STARTER_ITEMS = ['hunter_hood', 'hunter_coat', 'hunter_cloak', 'hunter_gauntlets', 'hunter_greaves', 'hunter_boots', 'oathsword', 'pistol'];
+const STARTER_EQUIP = { right: 'oathsword', left: 'pistol', head: 'hunter_hood', chest: 'hunter_coat', hands: 'hunter_gauntlets',
+  legs: 'hunter_greaves', feet: 'hunter_boots', back: 'hunter_cloak', necklace: null, ring: null };
+
+// equip load: total weight / max load picks a tier; heavier = slower, shorter dash and slower stamina
+const LOAD_BASE = 72;
+const LOAD_TIERS = [
+  { max: 0.30, name: 'LIGHT',      dashSpeed: 1.00, dashTime: 1.00, regen: 1.00, walk: 1.00 },
+  { max: 0.70, name: 'MEDIUM',     dashSpeed: 0.92, dashTime: 1.00, regen: 0.92, walk: 1.00 },
+  { max: 1.00, name: 'HEAVY',      dashSpeed: 0.80, dashTime: 1.06, regen: 0.80, walk: 0.94 },
+  { max: 1e9,  name: 'OVERLOADED', dashSpeed: 0.58, dashTime: 1.15, regen: 0.65, walk: 0.80 },
+];
+const DEF_REF = 23, DEF_K = 60;          // damage taken x1 at the hunter set's defence; more defence = less damage
+
+/** Stats from an equipment map (slot -> id). */
+function deriveStats(eq) {
+  let defense = 0, poise = 0, weight = 0;
+  const mods = { regen: 0, load: 0, hp: 0, poise: 0 };
+  for (const slot of EQUIP_SLOTS) {
+    const d = eq[slot] && ITEM_DB[eq[slot]];
+    if (!d) continue;
+    weight += d.weight || 0;
+    if (d.cat === 'armor') { defense += d.defense; poise += d.poise; }
+    if (d.mods) for (const k in d.mods) mods[k] += d.mods[k];
+  }
+  poise += mods.poise;
+  const maxLoad = LOAD_BASE + mods.load, ratio = weight / maxLoad;
+  const tier = LOAD_TIERS.find(t => ratio <= t.max);
+  return { defense, poise, weight, maxLoad, ratio, tier, dmgTaken: (DEF_REF + DEF_K) / (defense + DEF_K),
+    maxHp: PLAYER_MAX_HP + mods.hp, regen: tier.regen * (1 + mods.regen) };
+}
+
+class Inventory {
+  constructor() { this.items = {}; this.eq = {}; this.seen = {}; this.flags = {}; this.reset(); }
+  reset() {
+    this.items = {}; for (const id of STARTER_ITEMS) this.items[id] = 1;
+    this.eq = Object.assign({}, STARTER_EQUIP); this.seen = {}; this.flags = {};
+  }
+  static load() {
+    const inv = new Inventory();
+    try {
+      const raw = typeof localStorage !== 'undefined' && localStorage.getItem(INV_SAVE_KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        inv.items = {}; for (const id in d.items) if (ITEM_DB[id]) inv.items[id] = d.items[id];
+        for (const slot of EQUIP_SLOTS) inv.eq[slot] = d.eq && ITEM_DB[d.eq[slot]] ? d.eq[slot] : (slot === 'right' ? 'oathsword' : null);
+        inv.seen = d.seen || {}; inv.flags = d.flags || {};
+        if (!inv.items.oathsword) inv.items.oathsword = 1;
+      }
+    } catch (e) { /* storage unavailable: play without saving */ }
+    return inv;
+  }
+  save() {
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem(INV_SAVE_KEY, JSON.stringify({ items: this.items, eq: this.eq, seen: this.seen, flags: this.flags })); }
+    catch (e) { /* ignore */ }
+  }
+  has(id) { return (this.items[id] || 0) > 0; }
+  add(id, n) { if (!ITEM_DB[id]) return false; this.items[id] = (this.items[id] || 0) + (n || 1); this.save(); return true; }
+  /** Can this item go in this slot at all? (hand rules for weapons) */
+  fits(id, slot) {
+    const d = ITEM_DB[id]; if (!d) return false;
+    if (d.cat === 'weapon') {
+      if (slot !== 'right' && slot !== 'left') return false;
+      if (d.hands === '2h' && slot !== 'right') return false;
+      if (d.hands === 'shield' && slot !== 'left') return false;
+      return d.allowed.indexOf(slot) >= 0;
+    }
+    return d.slot === slot;
+  }
+  /** Owned copies not already equipped in another slot. */
+  free(id, slot) { let n = this.items[id] || 0; for (const s of EQUIP_SLOTS) if (s !== slot && this.eq[s] === id) n--; return n; }
+  candidates(slot) { return Object.keys(this.items).filter(id => this.has(id) && this.fits(id, slot)); }
+  leftLocked() { const r = ITEM_DB[this.eq.right]; return !!r && r.hands === '2h'; }
+  /** Equip (or empty with id = null). The right hand can't be empty yet (no unarmed moveset). */
+  equip(slot, id) {
+    if (EQUIP_SLOTS.indexOf(slot) < 0) return false;
+    if (id === null) { if (slot === 'right') return false; this.eq[slot] = null; this.save(); return true; }
+    if (!this.fits(id, slot) || this.free(id, slot) <= 0) return false;
+    this.eq[slot] = id; this.save(); return true;
+  }
+}
 
 // ============================================================ RIG (jointed player body)
 // The body is a small 3D skeleton in the character's own frame (s = to his right, f = forward, z = up),
@@ -598,17 +755,24 @@ function poseRig(p, dt, t) {
   }
   p.gunDrawn = gp >= 0.5;
   const bothHands = W.stance && W.stance.hands === 2;
+  // one-handed weapons: the free arm swings out and back for balance, opposite the blade
+  function offhand(k) {
+    const O = W.stance.offhand || { s: -13, f: -5, z: 40 }, sw = attacking && mv && mv.motion[0] === 'swing' ? Math.sign(mv.motion[1]) : 0;
+    const ts = O.s - 2 * sw, tf = O.f + 3 * sw, tz = O.z + 2 * heft;
+    _lr.s += (ts - _lr.s) * k; _lr.f += (tf - _lr.f) * k; _lr.z += (tz - _lr.z) * k;
+  }
   if (bothHands && gp < 0.05 && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }  // 2h: both hands unless the left is busy
   if (attacking && !tool && p.kind !== 'visceral') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
     crouch += (2 + 5 * heft) * ph; hunch = 1.5 + 2.5 * heft * ph;
     _feet.f = -(3 + 3 * heft) * ph - 1.5; _feet.spread = 1.5 + 2 * ph;          // left foot forward, wider base
-    o.twoHand = _two; _two.gap = W.handGap || 8;
+    if (bothHands) { o.twoHand = _two; _two.gap = W.handGap || 8; } else offhand(ph);
   } else if (p.kind === 'visceral' && attacking) {
-    crouch += 4; hunch = 3; o.twoHand = _two; _two.gap = W.handGap || 8;
+    crouch += 4; hunch = 3; if (bothHands) { o.twoHand = _two; _two.gap = W.handGap || 8; } else offhand(1);
   } else if (p.charging > 0 && loco) {
     const c = clamp((p.charging - CHARGE_START) / (CHARGE_FULL - CHARGE_START), 0, 1);
-    crouch += 2 + 5 * c; hunch = 2 + 2 * c; _feet.f = -3 - 2 * c; _feet.spread = 2 + c; o.twoHand = _two; _two.gap = W.handGap || 8;
+    crouch += 2 + 5 * c; hunch = 2 + 2 * c; _feet.f = -3 - 2 * c; _feet.spread = 2 + c;
+    if (bothHands) { o.twoHand = _two; _two.gap = W.handGap || 8; } else offhand(0.6 + 0.4 * c);
   }
   if (gp > 0.001) {
     // draw from the left hip, then up into the aim; recoil kicks the hand back and up and tips the muzzle
@@ -1565,6 +1729,17 @@ class FX {
     }
     for (let i = 0; i < 6; i++) this.chip(x + Math.cos(b.attack_dir) * 30, y + 4, 260);
   }
+  /** Chest opens: a gold-crimson glow pours out, embers rise. */
+  chestBurst(ch) {
+    const x = ch.gx, y = ch.gy * K + 22;
+    this.glows.spawn({ x, y, life: 0.5, size: [160, 160], color: RUNE_GOLD, alpha: 0.85, s0: 0.4, s1: 1.4 });
+    this.glows.spawn({ x, y, life: 0.8, size: [220, 220], color: CRIMSON, alpha: 0.5, s0: 0.5, s1: 1.5 });
+    for (let i = 0; i < 18; i++) {
+      const s = uniform(5, 10);
+      this.embers.spawn({ x: x + uniform(-22, 22), y: y + uniform(-4, 10), vx: uniform(-20, 20), vy: uniform(60, 150), life: uniform(0.7, 1.3),
+        size: [s, s], color: choice([RUNE_GOLD, '#ffe2b0', CRIMSON]), alpha: 0.95, fade: -1 });
+    }
+  }
   sprintDust(p) {
     const back = groundToScreenAngle(p.facing + Math.PI);
     this.smoke.spawn({ x: p.gx + uniform(-8, 8), y: p.gy * K + 4, vx: Math.cos(back) * 60, vy: Math.sin(back) * 30 + 15,
@@ -1602,12 +1777,13 @@ class FX {
 
 // ---------------------------------------------------------------- player
 class Player {
-  constructor(game) { this.g = game; this.setWeapon(WEAPON_ORDER[0]); this.reset(); }
+  constructor(game) { this.g = game; this.setWeapon('oathsword'); this.reset(); }
   setWeapon(key) { this.weaponKey = key; this.weapon = WEAPONS[key]; this.combo = -1; this.combo_expire_t = -1; }
   reset() {
     [this.gx, this.gy] = PLAYER_START;
     this.vx = this.vy = 0; this.facing = Math.PI / 2; this.state = S_IDLE; this.state_t = 0;
-    this.hp = PLAYER_MAX_HP; this.hp_lag = PLAYER_MAX_HP; this.hp_lag_hold = 0;
+    this.applyLoadout();
+    this.hp = this.maxHp; this.hp_lag = this.maxHp; this.hp_lag_hold = 0;
     this.stamina = STAM_MAX; this.stam_delay = 0; this.stam_lag = STAM_MAX; this.stam_lag_hold = 0;
     this.flasks = FLASK_CHARGES; this.bullets = BULLETS_MAX; this.item_key = 'firebomb';
     this.gunReady = 0; this.aimHold = false; this.gunKick = 0; this.gunDrawn = false; this.gunPitch = 0;
@@ -1616,13 +1792,12 @@ class Player {
     this.dodge_end_t = -10; this.hit_done = false; this.dodge_dir = 0; this.ghost_t = 0; this.invuln = false;
     this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0;
     this.charging = 0; this.sprint_req = false; this.sprinting = false; this.sprint_block = false; this.sprint_t = -10;
-    this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = DODGE_ROLL;
+    this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = this.dodgeBase;
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
     this.octant = null; this.view = 'N'; this.flip = 1;
     if (!this.rig) this.rig = new Rig();
     this.rig._elPrev.R.ok = this.rig._elPrev.L.ok = false;
     this.rigDir = null; this.walkPhase = 0; this.walkAmp = 0;
-    if (!this.gear) this.setGear(STARTER_GEAR);
     this.sword_angle = this.facing + 2.35 + Math.PI; this.sword_rot = Math.PI / 2; this.sword_r = 24;
     this.sword_elev = 36; this.sword_up = 1; this.sword_scale = 0.88; this.swordGlow = 0.25;
     // pose (read by the renderer)
@@ -1630,6 +1805,23 @@ class Player {
     this.visorX = 0; this.visorY = 68; this.visorSX = 1; this.visorAlpha = 1; this.visorGlow = 0.6;
     this.swordX = 0; this.swordY = 0; this.swordZ = 1;
     this.animate(0, 0);
+  }
+  /** Take what is equipped in the inventory: weapon, left hand, worn armour, and the stats it all adds up to. */
+  applyLoadout() {
+    const inv = this.g && this.g.inv, eq = inv ? inv.eq : STARTER_EQUIP, st = this.stats = deriveStats(eq);
+    const prevMax = this.maxHp || st.maxHp;
+    this.maxHp = st.maxHp;
+    if (this.hp !== undefined) { this.hp = Math.min(this.maxHp, this.hp + Math.max(0, this.maxHp - prevMax)); this.hp_lag = Math.min(this.hp_lag, this.maxHp); }
+    const r = ITEM_DB[eq.right], wk = r && r.weapon && WEAPONS[r.weapon] ? r.weapon : 'oathsword';
+    if (wk !== this.weaponKey) this.setWeapon(wk);
+    this.leftLocked = !!r && r.hands === '2h';
+    this.hasPistol = eq.left === 'pistol';
+    this.leftItem = this.leftLocked ? null : eq.left;
+    const armor = {}; for (const s of ARMOR_SLOTS) armor[s] = eq[s];
+    const key = JSON.stringify(armor);
+    if (key !== this._armorKey) { this._armorKey = key; this.setGear(armor); }
+    this.dodgeBase = Object.assign({}, DODGE_ROLL, { speed: DODGE_ROLL.speed * st.tier.dashSpeed, time: DODGE_ROLL.time * st.tier.dashTime,
+      iframes: [DODGE_ROLL.iframes[0], DODGE_ROLL.iframes[1] * st.tier.dashTime] });
   }
   /** Equip a full loadout (slot -> id). Works out which pictures each rig part draws, back to front. */
   setGear(loadout) {
@@ -1679,7 +1871,7 @@ class Player {
     this.hit_done = false; this.charging = 0; this.enter(S_WINDUP);
   }
   startDodge(d) {
-    const prof = this.dodge_prof = DODGE_ROLL;
+    const prof = this.dodge_prof = this.dodgeBase;
     this.spent(prof.stamina); this.dodge_dir = d; this.turnTo(d); this.ghost_t = 0; this.charging = 0;
     this.sprinting = false; this.enter(S_DODGE);
   }
@@ -1691,18 +1883,22 @@ class Player {
     this.visc_to = [b.gx - Math.cos(a) * stand, b.gy - Math.sin(a) * stand];
   }
   regain(amount) {
-    const g = Math.min(this.rally, amount, PLAYER_MAX_HP - this.hp);
+    const g = Math.min(this.rally, amount, this.maxHp - this.hp);
     if (g > 0) { this.hp += g; this.rally -= g; return g; }
     return 0;
   }
-  takeHit(dmg, angle, knock) {
+  takeHit(dmg, angle, knock, poised) {
     const lost = Math.min(this.hp, dmg);
     this.hp = Math.max(0, this.hp - dmg);
-    this.rally = Math.min(PLAYER_MAX_HP - this.hp, this.rally + lost);
+    this.rally = Math.min(this.maxHp - this.hp, this.rally + lost);
     this.rally_hold = RALLY_GRACE; this.sprinting = false; this.hp_lag_hold = 0.5;
-    this.hurt_iframes = HURT_IFRAMES; this.invuln = false; this.charging = 0;
+    this.hurt_iframes = HURT_IFRAMES; this.invuln = false;
     const hyper = (this.state === S_WINDUP || this.state === S_ACTIVE) && this.move && this.move.hyper;
-    if (hyper && this.hp > 0) return;                 // hyper armour: take the damage, keep swinging
+    if ((hyper || poised) && this.hp > 0) {         // hyper armour / enough poise: take the damage, keep your footing
+      if (poised) { this.vx += Math.cos(angle) * knock * 0.25; this.vy += Math.sin(angle) * knock * 0.25; }
+      return;
+    }
+    this.charging = 0;
     this.knock_dir = angle; this.vx = Math.cos(angle) * knock; this.vy = Math.sin(angle) * knock;
     this.turnTo(angle + Math.PI);
     if (this.hp <= 0) this.rally = 0;
@@ -1731,8 +1927,9 @@ class Player {
       this.sprinting = this.sprint_req && this.move_dir !== null && this.charging <= 0 && !this.sprint_block && this.stamina > 0;
       if (this.move_dir !== null) {
         if (aiming) this.sprinting = false;
-        let spd = PLAYER_SPEED * this.weapon.speed * this.move_mag * (aiming ? GUN_AIM.walk : 1);
-        if (this.sprinting) spd = PLAYER_SPEED * this.weapon.speed * SPRINT_MULT;
+        const walk = this.stats.tier.walk;
+        let spd = PLAYER_SPEED * this.weapon.speed * walk * this.move_mag * (aiming ? GUN_AIM.walk : 1);
+        if (this.sprinting) spd = PLAYER_SPEED * this.weapon.speed * walk * SPRINT_MULT;
         else if (this.charging > 0) spd *= CHARGE_WALK;
         this.vx = smooth(this.vx, Math.cos(this.move_dir) * spd, 18, dt);
         this.vy = smooth(this.vy, Math.sin(this.move_dir) * spd, 18, dt);
@@ -1752,7 +1949,7 @@ class Player {
         this.dust_t -= dt;
         if (this.dust_t <= 0) { this.dust_t = 0.11; this.g.fx.sprintDust(this); }
       } else if (this.stam_delay > 0) this.stam_delay -= dt;
-      else this.stamina = Math.min(STAM_MAX, this.stamina + STAM_REGEN * (this.state === S_MOVE ? 0.9 : 1) * dt);
+      else this.stamina = Math.min(STAM_MAX, this.stamina + STAM_REGEN * this.stats.regen * (this.state === S_MOVE ? 0.9 : 1) * dt);
     } else if (st === S_WINDUP) {
       this.sprinting = false;
       if (this.kind === 'visceral') {
@@ -2032,13 +2229,13 @@ class Boss {
       }
     } else if (st === S_ACTIVE) {
       if (this.kind === 'sweep') {
-        if (!this.hit_done && g.bossSweepHits(this)) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock);
+        if (!this.hit_done && g.bossSweepHits(this)) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact);
         if (T >= atk.active) this.enter(S_RECOVERY);
       } else if (this.kind === 'slam') { if (T >= atk.active) this.enter(S_RECOVERY); }
       else {
         this.vx = Math.cos(this.attack_dir) * atk.speed; this.vy = Math.sin(this.attack_dir) * atk.speed;
         g.fx.lanceTrail(this); g.fx.chargeDust(this);
-        if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock);
+        if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact);
         if (T >= this.dash_time) {
           this.vx *= 0.3; this.vy *= 0.3; g.onBossLanceStop(this);
           if (this.phase === 2 && !this.followed) {          // phase 2: straight into a sweep, no pause
@@ -2179,6 +2376,12 @@ class Boss {
 // ---------------------------------------------------------------- world objects
 class Pillar { constructor(gx, gy) { this.gx = gx; this.gy = gy; this.RADIUS = 34; this.phase = uniform(0, 6.28); } }
 
+class Chest {
+  constructor(def) { this.id = def.id; [this.gx, this.gy] = def.pos; this.items = def.items; this.RADIUS = CHEST_RADIUS; this.open_t = -1; this.given = false; }
+  reset(inv) { this.given = !!inv.flags[this.id]; this.open_t = this.given ? 99 : -1; }
+  get closed() { return this.open_t < 0; }
+}
+
 class Pickup {
   constructor(pos, key, count) { [this.gx, this.gy] = pos; this.item_key = key; this.count = count; this.phase = uniform(0, 6.28); this.reset(); }
   reset() { this.taken = false; }
@@ -2239,10 +2442,12 @@ class Game {
     this.t = 0;
     this.fx = new FX(this);
     this.pillars = [[-560, -560], [560, -560], [-560, 560], [560, 560]].map(p => new Pillar(p[0], p[1]));
+    this.inv = Inventory.load();
     this.boss = new Boss(this);
     this.player = new Player(this);
     this.proj = new Projectiles(this);
     this.pickups = PICKUPS.map(p => new Pickup(p[0], p[1], p[2]));
+    this.chests = CHESTS.map(d => new Chest(d)); this.chestNear = null; this.loot = null;
     this.ritualFlash = 0;
     this.waves = [];                     // phase-2 slam shockwaves (fixed pool)
     for (let i = 0; i < 6; i++) this.waves.push({ live: false, x: 0, y: 0, r: 0, delay: 0, hit: false, alpha: 0, started: false, dust_t: 0 });
@@ -2251,6 +2456,7 @@ class Game {
   resetRound() {
     this.player.reset(); this.boss.reset(); this.fx.clear(); this.proj.clear();
     for (const pk of this.pickups) pk.reset();
+    for (const ch of this.chests) ch.reset(this.inv); this.chestNear = null; this.loot = null; this.bossLoot = [];
     this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0; this.bump_y = 0; this.bump_v = 0;
     this.ox = 0; this.oy = 0; this.stamDeny = 0; this.toast_t = 0; this.toast_key = null;
     this.outcome = null; this.outcome_t = 0; this.hapticQueue = []; this.visceralReady = false;
@@ -2284,7 +2490,7 @@ class Game {
     if (p.stamina <= 0.5) return this.deny();
     if (d === null || d === undefined) d = this.defaultDir();
     if (kind === 'shoot') {
-      if (p.bullets <= 0) return this.deny();
+      if (p.leftItem !== 'pistol' || p.bullets <= 0) return this.deny();      // left hand empty, or locked by a 2h weapon
       p.bullets -= 1; p.startMove('shoot', p.gunReady > 0.8 ? GUN_MOVE_READY : GUN_MOVE, d); return;
     }
     if (kind === 'item') {
@@ -2301,13 +2507,13 @@ class Game {
     }
   }
   deny() { this.stamDeny = 0.35; this.sfx('deny', 0.6); this.haptic('light', 0.4); }
-  swapWeapon(attackHeld) {
+  /** Change equipment (from the equipment screen). Only when not mid-action; the fight does not pause. */
+  equip(slot, id) {
     const p = this.player;
-    if ((p.state !== S_IDLE && p.state !== S_MOVE) || attackHeld || this.outcome !== null) return this.deny();
-    const i = WEAPON_ORDER.indexOf(p.weaponKey);
-    p.setWeapon(WEAPON_ORDER[(i + 1) % WEAPON_ORDER.length]);
-    this.sfx('thud', 0.45); this.sfx('ready', 0.4); this.haptic('medium', 0.6);
-    this.fx.glows.spawn({ x: p.gx, y: p.gy * K + 40, life: 0.3, size: [120, 120], color: CRIMSON, alpha: 0.7, s0: 0.5, s1: 1.3 });
+    if ((p.state !== S_IDLE && p.state !== S_MOVE) || this.outcome !== null) { this.deny(); return false; }
+    if (!this.inv.equip(slot, id)) { this.deny(); return false; }
+    p.applyLoadout(); this.sfx('thud', 0.35); this.sfx('ready', 0.35); this.haptic('medium', 0.5);
+    return true;
   }
   onSwing(p) {
     const mv = p.move;
@@ -2321,7 +2527,7 @@ class Game {
       this.proj.throwItem(p, ITEMS[p.item_key]); if (mv.sfx) this.sfx(mv.sfx[0], mv.sfx[1]); this.haptic('light', 0.5); return;
     }
     if (p.kind === 'flask') {
-      p.hp = Math.min(PLAYER_MAX_HP, p.hp + FLASK_HEAL); p.rally = Math.min(p.rally, PLAYER_MAX_HP - p.hp);
+      p.hp = Math.min(p.maxHp, p.hp + FLASK_HEAL); p.rally = Math.min(p.rally, p.maxHp - p.hp);
       this.fx.heal(p); this.sfx('flask', 0.9); this.haptic('light', 0.5); return;
     }
     if (mv.sfx) this.sfx(mv.sfx[0], mv.sfx[1]);
@@ -2399,6 +2605,34 @@ class Game {
     if (b.alive && hypot(b.gx - gx, b.gy - gy) <= R + b.RADIUS && b.elev < 60)
       this.hitBoss(item.damage, item.poise, Math.atan2(b.gy - gy, b.gx - gx), true, false);
   }
+  /** Chests: who is close enough to open one, lids opening, loot handed over once the lid is up. */
+  updateChests(dt) {
+    const p = this.player; this.chestNear = null;
+    for (const ch of this.chests) {
+      if (ch.open_t >= 0 && ch.open_t < 99) {
+        ch.open_t += dt;
+        if (!ch.given && ch.open_t >= CHEST_OPEN_TIME * 0.8) { ch.given = true; this.giveLoot(ch.id, ch.items); this.fx.chestBurst(ch); }
+      }
+      if (ch.closed && p.alive && this.outcome === null && hypot(p.gx - ch.gx, p.gy - ch.gy) <= CHEST_REACH) this.chestNear = ch;
+    }
+    if (this.loot) { this.loot.t -= dt; if (this.loot.t <= 0) this.loot = null; }
+  }
+  openChest() {
+    const ch = this.chestNear, p = this.player;
+    if (!ch || (p.state !== S_IDLE && p.state !== S_MOVE)) return this.deny();
+    ch.open_t = 0; this.chestNear = null;
+    p.vx = p.vy = 0; p.turnTo(Math.atan2(ch.gy - p.gy, ch.gx - p.gx));
+    this.sfx('clank', 0.5); this.sfx('thud', 0.5); this.haptic('medium', 0.6);
+  }
+  /** Items into the inventory (once per save for this source), with the banner. */
+  giveLoot(source, items) {
+    const inv = this.inv;
+    if (inv.flags[source]) return [];
+    for (const id of items) inv.add(id);
+    inv.flags[source] = 1; inv.save();
+    this.loot = { items: items.slice(), t: 3.4 }; this.sfx('ready', 0.8); this.sfx('flask', 0.4);
+    return items;
+  }
   updatePickups(dt) {
     const p = this.player;
     for (const pk of this.pickups) {
@@ -2422,7 +2656,7 @@ class Game {
     const c = Math.cos(b.facing), s = Math.sin(b.facing);
     this.fx.quake(b.gx, b.gy, 1.4); this.fx.quake(b.gx + c * 160, b.gy + s * 160, 1.0); this.fx.clank(b.gx + c * 160, b.gy + s * 160, 1.6);
     const p = this.player, dx = p.gx - b.gx, dy = p.gy - b.gy;
-    if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock);
+    if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock, b.atk.impact);
     if (b.phase === 2) {
       let n = 0;
       for (const w of this.waves) {
@@ -2451,7 +2685,7 @@ class Game {
       if (w.r >= S.max_r) { w.live = false; continue; }
       if (!w.hit && p.alive && this.outcome === null) {
         const dx = p.gx - w.x, dy = p.gy - w.y, d = hypot(dx, dy);
-        if (Math.abs(d - w.r) <= S.hit + PLAYER_RADIUS * 0.5) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock);
+        if (Math.abs(d - w.r) <= S.hit + PLAYER_RADIUS * 0.5) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock, 14);
       }
     }
   }
@@ -2505,6 +2739,7 @@ class Game {
     this.fx.staggerBurst(b); this.addShake(Math.PI / 2, 10);
   }
   onBossDeath(b) {
+    this.bossLoot = this.inv.flags[BOSS_DROPS.id] ? [] : this.giveLoot(BOSS_DROPS.id, BOSS_DROPS.items); this.loot = null;
     this.sfx('boss_die', 1.0); this.haptic('heavy', 1.0);
     this.hapticQueue.push([0.18, 'heavy', 1.0]); this.hapticQueue.push([0.45, 'medium', 0.8]);
     this.fx.deathBurst(b); this.addShake(Math.PI / 2, 20); this.hitstop = 0.12; this.setOutcome('victory');
@@ -2517,10 +2752,11 @@ class Game {
     const slack = Math.asin(Math.min(1, PLAYER_RADIUS / dist));
     return Math.abs(wrap(Math.atan2(dy, dx) - b.attack_dir)) <= b.atk.half + slack;
   }
-  damagePlayer(dmg, angle, knock) {
+  damagePlayer(dmg, angle, knock, impact) {
     const p = this.player;
     if (p.invulnerable || this.outcome !== null) return false;
-    p.takeHit(dmg, angle, knock);
+    const poised = impact !== undefined && p.stats.poise >= impact;                // heavy armour shrugs off lighter blows
+    p.takeHit(Math.max(1, Math.round(dmg * p.stats.dmgTaken)), angle, knock, poised);
     this.fx.hurtBurst(p, angle); this.hitstop = 0.06; this.addShake(groundToScreenAngle(angle), 9);
     this.sfx('hurt', 0.9); this.haptic('heavy', 1.0);
     if (!p.alive) { this.sfx('thud', 0.8); this.setOutcome('death'); }
@@ -2543,6 +2779,7 @@ class Game {
   resolveCollisions() {
     const p = this.player, b = this.boss;
     if (b.alive && b.elev < 30) this.pushOut(p, b.gx, b.gy, PLAYER_RADIUS + b.RADIUS);
+    for (const ch of this.chests) { this.pushOut(p, ch.gx, ch.gy, PLAYER_RADIUS + ch.RADIUS); if (b.elev < 30) this.pushOut(b, ch.gx, ch.gy, b.RADIUS + ch.RADIUS); }
     for (const pil of this.pillars) {
       this.pushOut(p, pil.gx, pil.gy, PLAYER_RADIUS + pil.RADIUS);
       if (b.elev < 30) this.pushOut(b, pil.gx, pil.gy, b.RADIUS + pil.RADIUS);
@@ -2586,7 +2823,7 @@ class Game {
     if (this.hitstop > 0) { this.hitstop -= dt; this.updateCamera(dt); return; }   // freeze-frame
     this.updateVisceral();
     this.proj.update(dt);
-    this.updatePickups(dt);
+    this.updatePickups(dt); this.updateChests(dt);
     this.updateWaves(dt);
     if (b.phase === 2) this.phaseMix = Math.min(1, this.phaseMix + dt / 1.6);
     if (this.buffer) {
@@ -3181,11 +3418,37 @@ function buildArt(scale) {
   }
   A.visor = makeTex(22, 10, drawVisor);
   A.weapon = { sword: makeTex(112, 28, drawSword), spear: makeTex(150, 18, drawSpear) };
+  A.weapon.oathsword = A.weapon.sword;                       // 2D fallback only
   A.obelisk = makeTex(88, 196, drawObelisk);
   A.rubble = makeTex(18, 16, (x) => {                     // a chip of floor stone (drawn untinted)
     fillP(x, [[2, 9], [6, 2], [14, 3], [17, 10], [11, 15], [4, 14]], '#2e2b33');
     fillP(x, [[6, 2], [14, 3], [12, 8], [5, 8]], '#4d4855');
     lineP(x, [[6, 2], [14, 3]], 0.8, '#6a6472');
+  });
+  // chest: front face, lid top (closed), lid inner face (open), the lit inside
+  A.chestBody = makeTex(64, 34, (x) => {
+    fillP(x, [[3, 0], [61, 0], [59, 34], [5, 34]], '#1b1c23');
+    fillP(x, [[3, 0], [61, 0], [61, 4], [3, 4]], GOLD_A(0.85));
+    for (const X of [13, 47]) fillP(x, [[X, 0], [X + 4, 0], [X + 4, 34], [X, 34]], GOLD_A(0.7));
+    fillP(x, [[5, 31], [59, 31], [59, 34], [5, 34]], '#0e0e12');
+    fillP(x, [[28, 9], [36, 9], [36, 21], [28, 21]], '#2a2b36'); lineP(x, [[28, 9], [36, 9], [36, 21], [28, 21], [28, 9]], 0.8, GOLD_A(0.9));
+    withGlow(x, HOT_RED, 4, () => { fillOval(x, 30, 11, 4, 4, '#ff2a45'); fillP(x, [[31.2, 14], [32.8, 14], [33.2, 19], [30.8, 19]], '#ff2a45'); });
+  });
+  A.chestLid = makeTex(64, 22, (x) => {
+    fillP(x, [[3, 22], [61, 22], [58, 3], [52, 0], [12, 0], [6, 3]], '#2b2c37');
+    fillP(x, [[6, 3], [12, 0], [52, 0], [58, 3], [56, 6], [8, 6]], '#363744');
+    for (const X of [13, 47]) fillP(x, [[X, 0], [X + 4, 0], [X + 4.5, 22], [X - 0.5, 22]], GOLD_A(0.7));
+    lineP(x, [[3, 22], [61, 22]], 1.2, GOLD_A(0.9));
+  });
+  A.chestLidOpen = makeTex(64, 26, (x) => {
+    fillP(x, [[3, 26], [61, 26], [58, 2], [6, 2]], '#15161b');
+    lineP(x, [[6, 2], [58, 2], [61, 26], [3, 26], [6, 2]], 1.0, GOLD_A(0.85));
+    withGlow(x, GLOW_RED, 3, () => lineP(x, [[20, 16], [32, 10], [44, 16]], 1.0, '#8A2432'));
+  });
+  A.chestInside = makeTex(60, 18, (x) => {
+    fillP(x, [[0, 18], [60, 18], [57, 0], [3, 0]], '#060507');
+    withGlow(x, HOT_RED, 8, () => fillP(x, [[12, 14], [48, 14], [44, 6], [16, 6]], 'rgba(255,90,60,0.55)'));
+    withGlow(x, GLOW_RED, 6, () => fillOval(x, 22, 6, 16, 7, 'rgba(255,210,150,0.55)'));
   });
   A.core = makeTex(22, 30, drawCore); A.plate = makeTex(46, 30, drawPlate); A.halberd = makeTex(230, 50, drawHalberd);
   A.tiles = [11, 23, 37, 51].map(s => makeTex(TILE, TILE, drawTileBase(s)));
@@ -3929,6 +4192,71 @@ const GEAR3D = {
       });
     }
   },
+  // ---- the Obsidian Sentinel's helm and plate, cut down to a hunter's frame
+  sentinel_helm(mb) {
+    const c = v3.add(BIND.head, [0, 0.5, 1.0]), R = [6.5, 6.9, 8.4], ob = C3('#373845'), obS = C3('#2b2c37');
+    const deform = (k) => (p, th, ps) => {
+      const lo = ps < 0 ? 1 + 0.45 * Math.sin(ps) : 1, zs = ps > 0 ? 0.86 : 1.05, front = Math.max(0, Math.cos(th)) * Math.max(0, Math.cos(ps));
+      return [[p[0] * lo * k, (p[1] * (ps < 0 ? 1 + 0.2 * Math.sin(ps) : 1) - 0.8 * front * front) * k, p[2] * zs * k], null];
+    };
+    ellipsoid(mb, c, R, [B.head, B.head, 1], (th) => [Math.abs(th) < 1.0 ? ob : obS, 0, 0.6], 20, 14, { deform: deform(1) });
+    ellipsoid(mb, c, R, [B.head, B.head, 1], () => [MAT.crimson, 1, 0], 10, 2, { th0: -0.64, th1: 0.64, ps0: 0.06, ps1: 0.21, deform: deform(1.04) });
+    box(mb, v3.add(c, [0, 6.9, 2.8]), 4.6, 0.6, 0.55, [1, 0, 0], [0, 1, 0], [0, 0, 1], C3('#4a4d5c'), B.head, 0, 0.8);        // brow
+    box(mb, v3.add(c, [0, -0.6, 6.9]), 0.7, 5.6, 0.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.gold, B.head, 0, 0.75);           // gold crest
+    for (const S of [1, -1]) {
+      const h = [[S * 5, 0.2, 4.2], [S * 7.5, -1, 7.8], [S * 10.2, -2.8, 12.6], [S * 12, -5.2, 18.4], [S * 12.6, -7.6, 23]].map(q => v3.add(c, q));
+      tube(mb, chainSamples(h, [B.head, B.head, B.head, B.head], 9, (u) => [2.0 * (1 - u) + 0.2, 1.7 * (1 - u) + 0.2], C3('#2e2f39'), 1,
+        (u) => ({ spec: 0.5, col: u > 0.8 ? C3('#4a4d5c') : C3('#2e2f39') })), () => [0, 1, 0], 8, true, true);
+    }
+    tube(mb, chainSamples([[0, 0.8, 61.5], [0, 1.0, 65.5]], [B.spine, B.neck], 2, () => [4.6, 4.2], C3('#17181e'), 2, () => ({ spec: 0.35 })), fwdRef, 14, false, false);  // gorget
+  },
+  sentinel_plate(mb) {
+    const ob = C3('#2b2c37'), ob2 = C3('#373845'), obD = C3('#17181e');
+    loftZ(mb, BODY_TORSO, 37, 65.2, 22, 24, torsoBones, (th, z) => {
+      if ((z > 59.4 && z < 60.6) || (z > 47.4 && z < 48.8)) return [MAT.gold, 0, 0.7];
+      if (z > 63) return [obD, 0, 0.3];
+      if (Math.abs(th) < 1.0 && z > 48.8 && z < 59.4) return [ob2, 0, 0.65];
+      if (Math.abs(th) > 2.3 && z > 49 && z < 58) return [ob2, 0, 0.5];
+      return [ob, 0, 0.45];
+    }, null, [1.25, 1.05]);
+    // chest core: dark disc, glowing ring, crystal
+    const cz = 54.6, q = sectionAt(BODY_TORSO, cz), cf = (q.f || 0) + q.b + 1.1;
+    ellipsoid(mb, [0, cf - 0.3, cz], [2.9, 0.8, 2.9], [B.spine, B.spine, 1], () => [MAT.black, 0, 0.3], 12, 6);
+    const ring = []; for (let i = 0; i <= 18; i++) { const a = i / 18 * TAU; ring.push({ p: [Math.cos(a) * 2.6, cf + 0.35, cz + Math.sin(a) * 2.6], r: [0.42, 0.42], bones: [B.spine, B.spine, 1], col: MAT.crimson, emit: 1, spec: 0 }); }
+    tube(mb, ring, () => [0, 1, 0], 6, false, false);
+    const P = [[0, cf + 0.7, cz + 1.9], [1.2, cf + 0.6, cz], [0, cf + 0.7, cz - 1.9], [-1.2, cf + 0.6, cz]], ctr = [0, cf + 1.5, cz];
+    const ids = P.map(p => mb.vert(p, v3.norm(v3.sub(p, [0, cf - 3, cz])), [1, 0.78, 0.82], B.spine, B.spine, 1, 1, 0));
+    const ic = mb.vert(ctr, [0, 1, 0], [1, 0.78, 0.82], B.spine, B.spine, 1, 1, 0);
+    for (let i = 0; i < 4; i++) mb.tri(ids[i], ids[(i + 1) % 4], ic);
+    // circuit lines out from the core
+    for (const S of [1, -1]) for (const [th0, z0, th1, z1] of [[0.32, 56, 0.6, 58.6], [0.32, 53.2, 0.55, 50]]) {
+      const pt = (th, z) => { const s = sectionAt(BODY_TORSO, z), a = s.a + 1.25, b = s.b + 1.05; return [S * a * Math.sin(th), (s.f || 0) + b * Math.cos(th) + 0.15, z]; };
+      strip(mb, pt(th0, z0), pt(th1, z1), [S * 0.5, 0.85, 0], 0.18, 0.12, MAT.crimson, [B.spine, B.spine, 1], 1, 0);
+    }
+    // back vents
+    for (const [i, z] of [[0, 57], [1, 54.4], [2, 51.8]].map(v => v)) {
+      const s = sectionAt(BODY_TORSO, z); box(mb, [0, (s.f || 0) - s.b - 1.15, z], 1.9, 0.2, 0.5, [1, 0, 0], [0, -1, 0], [0, 0, 1], i % 2 ? MAT.crimsonD : MAT.crimson, B.spine, 1, 0);
+    }
+    // tassets: split lames over the hips that follow the thighs
+    const SK = [{ z: 27, a: 10.6, b: 8.0 }, { z: 37, a: 9.4, b: 6.8 }, { z: 47.6, a: 8.2, b: 5.8, f: 0.3 }];
+    const gaps = [0, 1.2, -1.2, 2.3, -2.3, Math.PI, -Math.PI];
+    loftZ(mb, SK, 28, 47.6, 7, 36, (z, th) => {
+      const drop = smoothstep(43, 29, z);
+      if (Math.abs(th) > 2.3) return [B.pelvis, B.pelvis, 1];
+      return [B.pelvis, th > 0 ? B.thighR : B.thighL, 1 - 0.65 * drop];
+    }, (th, z) => [z < 29.6 ? MAT.gold : ob, 0, z < 29.6 ? 0.7 : 0.45], (th) => gaps.some(g => Math.abs(th - g) < 0.07));
+    // pauldrons: a black joint under three obsidian lames rimmed in gold
+    for (const [sd, S] of [['R', 1], ['L', -1]]) {
+      const sh = BIND['sh' + sd];
+      ellipsoid(mb, v3.add(sh, [S * 0.6, 0, 0.3]), [4.4, 4.4, 4.4], [B['upper' + sd], B.spine, 0.6], () => [MAT.black, 0, 0.35], 12, 8);
+      [[[1.6, 0, 2.6], [8.0, 7.6, 5.0]], [[2.6, 0, -0.8], [7.2, 7.0, 4.0]], [[3.2, 0, -3.8], [6.2, 6.2, 3.2]]].forEach(([off, R], k) => {
+        const c = v3.add(sh, [off[0] * S, off[1], off[2]]);
+        ellipsoid(mb, c, R, (p) => (p[2] > 0 && k === 0 ? [B['upper' + sd], B.spine, 0.5] : [B['upper' + sd], B.spine, 0.85]),
+          (th, ps) => [ps < 0.12 ? MAT.gold : (k === 0 && Math.abs(th - S * Math.PI / 2) < 0.3 && ps > 0.9 ? MAT.crimson : ob2), k === 0 && ps > 0.9 && Math.abs(th - S * Math.PI / 2) < 0.3 ? 1 : 0, 0.65], 14, 6,
+          { ps0: 0, ps1: Math.PI / 2, th0: S > 0 ? -0.3 : -Math.PI + 0.3, th1: S > 0 ? Math.PI + 0.3 : 0.3 });
+      });
+    }
+  },
   hunter_gauntlets(mb) {
     for (const [sd, S] of [['R', 1], ['L', -1]]) {
       const el = BIND['el' + sd], wr = BIND['wr' + sd];
@@ -4005,6 +4333,15 @@ const WEAPON3D = {
     for (const y of [-11.5, 11.5]) box(mb, [7, y, 0], 1.6, 1.4, 1.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.crimsonD, B.weapon, 0.3, 0.4);
     tube(mb, chainSamples([[-10, 0, 0], [6, 0, 0]], [B.weapon], 4, () => [1.5, 1.5], MAT.leather, 1), upRef, 8, false, false);   // grip
     ellipsoid(mb, [-11, 0, 0], [2.2, 2.2, 2.2], [B.weapon, B.weapon, 1], () => [MAT.plateD, 0, 0.7], 8, 6);                   // pommel
+  },
+  oathsword(mb) {                                    // straight one-handed blade, short guard, wrapped grip
+    bladeMesh(mb, 5, 56, 3.8, 0.9, 1.0, true, MAT.crimson);
+    box(mb, [4.5, 0, 0], 1.0, 6.8, 1.3, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.plateD, B.weapon, 0, 0.75);           // crossguard
+    for (const y of [-6.8, 6.8]) box(mb, [4.5, y, 0], 1.2, 1.0, 1.5, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.gold, B.weapon, 0, 0.7);
+    tube(mb, chainSamples([[-6.5, 0, 0], [3.8, 0, 0]], [B.weapon], 4, () => [1.3, 1.3], MAT.leather, 1), upRef, 8, false, false);
+    for (const x of [-4.5, -1.5, 1.5]) tube(mb, chainSamples([[x, 0, 0], [x + 0.5, 0, 0]], [B.weapon], 1, () => [1.45, 1.45], MAT.leatherL, 1), upRef, 8, false, false);
+    ellipsoid(mb, [-7.6, 0, 0], [1.8, 1.8, 1.8], [B.weapon, B.weapon, 1], () => [MAT.plateD, 0, 0.7], 8, 6);
+    ellipsoid(mb, [-8.8, 0, 0], [0.7, 0.7, 0.7], [B.weapon, B.weapon, 1], () => [MAT.crimson, 1, 0], 6, 4);
   },
   spear(mb) {
     tube(mb, chainSamples([[-44, 0, 0], [108, 0, 0]], [B.weapon], 6, () => [1.25, 1.25], MAT.wood, 1, () => ({ spec: 0.2 })), upRef, 8, true, false);
@@ -4135,7 +4472,7 @@ class CharGL {
     for (const slot of GEAR_SLOTS) { const id = p.gear[slot]; if (id && this.gear[id]) g.draw(this.gear[id]); }
     const drawn = p.gunDrawn;
     const drinking = p.kind === 'flask' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
-    g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
+    if (p.hasPistol) g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
     if (!drinking) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
     if (drawn) g.draw(this.weapons.pistol);
     if (drinking) g.draw(this.weapons.flaskHand);
@@ -4884,6 +5221,7 @@ class Renderer {
     const list = [];
     for (const pil of g.pillars) list.push([-pil.gy, () => this.drawPillar(pil, t)]);
     for (const pk of g.pickups) if (!pk.taken) list.push([-pk.gy, () => this.drawPickup(pk, t)]);
+    for (const ch of g.chests) list.push([-ch.gy, () => this.drawChest(ch, t)]);
     list.push([-g.boss.gy, () => this.drawBoss(g.boss)]);
     list.push([-g.player.gy, () => this.drawPlayer(g.player)]);
     for (const bm of g.proj.bombs) if (bm.live) list.push([-bm.gy + 0.5, () => this.drawBomb(bm, t)]);
@@ -4896,6 +5234,23 @@ class Renderer {
     this.local(ART.shadow, 0, 0, 110, 66);
     this.local(ART.obelisk, 0, 0, 70, 157, { ax: 0.5, ay: 0.03 });
     this.local(ART.glow, 0, 95, 56, 56, { color: CRIMSON, alpha: 0.45 + 0.2 * Math.sin(t * 2.2 + pil.phase), blend: 'add' });
+  }
+  /** Chest: body, then the lid swinging up on its back hinge (top face while closed, inner face once past upright). */
+  drawChest(ch, t) {
+    this.entityFrame(ch.gx, ch.gy);
+    this.local(ART.shadow, 0, 0, 92, 40, { alpha: 0.8 });
+    const s = 0.9, u = ch.open_t < 0 ? 0 : clamp(ch.open_t / CHEST_OPEN_TIME, 0, 1), a = 1.9 * (1 - Math.pow(1 - u, 3)) + (u >= 1 ? 0 : 0);
+    const bounce = ch.open_t > CHEST_OPEN_TIME && ch.open_t < CHEST_OPEN_TIME + 0.25 ? -0.12 * Math.sin((ch.open_t - CHEST_OPEN_TIME) / 0.25 * Math.PI) : 0;
+    const ang = a + bounce, hinge = 50 * s, free = hinge + (-Math.cos(ang) * 17.6 + Math.sin(ang) * 26) * s;
+    this.local(ART.chestBody, 0, 0, 64 * s, 34 * s, { ax: 0.5, ay: 0 });
+    if (ang > 0.05) {
+      const fresh = ch.open_t < 50 ? clamp(1 - (ch.open_t - CHEST_OPEN_TIME) / 2.5, 0.25, 1) : 0.25;
+      this.local(ART.chestInside, 0, 30 * s, 60 * s, 20 * s, { ax: 0.5, ay: 0, alpha: fresh });
+      if (ch.open_t < 50) this.local(ART.glow, 0, 40 * s, 90, 90, { color: RUNE_GOLD, alpha: 0.35 * fresh, blend: 'add' });
+    }
+    if (free < hinge) this.local(ART.chestLid, 0, free, 64 * s, hinge - free, { ax: 0.5, ay: 0 });
+    else this.local(ART.chestLidOpen, 0, hinge, 64 * s, free - hinge, { ax: 0.5, ay: 0 });
+    if (ch.closed) this.local(ART.glow, 0, 22 * s, 30, 30, { color: CRIMSON, alpha: 0.25 + 0.12 * Math.sin(t * 2.4), blend: 'add' });
   }
   drawPickup(pk, t) {
     const k = 0.5 + 0.5 * Math.sin(t * 3 + pk.phase);
@@ -4974,7 +5329,8 @@ class Renderer {
   /** Soft halos over the 3D body: visor and blade. */
   drawPlayerGlows(p) {
     const R = p.rig, a = p.bodyAlpha;
-    if (p.visorAlpha > 0.01) this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a * 0.8, blend: 'add' });
+    const hv = p.gear && p.gear.head && GEAR[p.gear.head] && GEAR[p.gear.head].visor;
+    if (hv && p.visorAlpha > 0.01) this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a * 0.8, blend: 'add' });
     // (no 2D blade halo: drawn over the finished body it would show through him; the blade glows in 3D)
   }
   /** The jointed player, drawn at the current transform's origin (his feet). */
@@ -5003,7 +5359,7 @@ class Renderer {
       if (part.kind === 'prop') { this.drawProp(p, part); continue; }
       const layers = p.rigLayers[part.name];
       for (let i = 0; i < layers.length; i++) {
-        const v = ART.rig[layers[i][0]][layers[i][1]];
+        const fam = ART.rig[layers[i][0]], v = fam && fam[layers[i][1]];
         if (!v) continue;
         this.rigPart(v, part, R, a, null);
         if (glowA > 0.01) this.rigPart(v, part, R, glowA, glowC);
@@ -5171,7 +5527,8 @@ class Renderer {
     const c = this.ctx, p = g.player, b = g.boss, W = this.W, H = this.H, SX = HUD.SAFE_X, top = H - HUD.TOP;
     this.base(); c.globalAlpha = 1; c.drawImage(this.vignette, 0, 0, W, H);
     // player bars
-    this.bar(SX, top - 26, 212, 8, p.hp / PLAYER_MAX_HP, (p.hp + p.rally) / PLAYER_MAX_HP, '#c0283c', '#e8903a');
+    const hw = Math.round(212 * p.maxHp / PLAYER_MAX_HP);
+    this.bar(SX, top - 26, hw, 8, p.hp / p.maxHp, (p.hp + p.rally) / p.maxHp, '#c0283c', '#e8903a');
     const deny = g.stamDeny > 0;
     this.bar(SX, top - 45, 162, 6, p.stamina / STAM_MAX, p.stam_lag / STAM_MAX, deny ? CRIMSON : '#c9a24a', 'rgba(242,230,208,0.6)',
       deny && ((g.stamDeny * 20) | 0) % 2 === 0 ? CRIMSON : null);
@@ -5180,7 +5537,8 @@ class Renderer {
     this.base(); c.fillStyle = 'rgba(5,5,8,0.78)'; rrectPath(c, SX, H - cy - 11, 172, 22, 4); c.fill();
     c.strokeStyle = 'rgba(176,138,61,0.6)'; c.lineWidth = 1; rrectPath(c, SX + 0.5, H - cy - 10.5, 171, 21, 4); c.stroke();
     this.text(p.weapon.name, SX + 10, cy, 9, '#e8dcc4', 'left');
-    this.text('SWAP', SX + 164, cy, 8, '#ff5a6a', 'right');
+    this.text('GEAR', SX + 164, cy, 8, '#ff5a6a', 'right');
+    if (ui.menu && ui.menu.hasUnseen()) { this.base(); c.fillStyle = CRIMSON; c.beginPath(); c.arc(SX + 170, H - cy - 9, 3.2, 0, TAU); c.fill(); }
     ui.chip = { x: SX, y: cy, w: 172 };
     if (SHOW_FPS) this.text('FPS ' + ui.fps, SX + 4, top - 88, 9, 'rgba(201,180,138,0.6)', 'left');
     // boss bar
@@ -5209,8 +5567,33 @@ class Renderer {
       this.text(String(n), pos[0], pos[1], 12, '#c9b48a', 'center', 'bold', n > 0 ? 0.9 : 0.45);
     }
     if (g.toast_t > 0 && g.toast_key) this.serif(ITEMS[g.toast_key].name, W / 2, top - 42, 15, '#ffb070', clamp(g.toast_t / 0.4, 0, 1));
+    // OPEN prompt beside a chest
+    ui.prompt = null;
+    if (g.chestNear) {
+      const px = W / 2, py = HUD.SAFE_BOTTOM + 62, pw = 128, ph = 34;
+      this.base(); c.fillStyle = 'rgba(8,8,11,0.88)'; rrectPath(c, px - pw / 2, H - py - ph / 2, pw, ph, 8); c.fill();
+      c.strokeStyle = 'rgba(217,180,92,0.8)'; c.lineWidth = 1.2; rrectPath(c, px - pw / 2 + 0.5, H - py - ph / 2 + 0.5, pw - 1, ph - 1, 8); c.stroke();
+      this.serif('OPEN', px, py, 15, '#e8dcc4');
+      ui.prompt = { x: px - pw / 2, y: py - ph / 2, w: pw, h: ph };
+    }
+    if (g.loot) this.drawLoot(g.loot.items, W / 2, H / 2 + 70, clamp(g.loot.t / 0.5, 0, 1) * clamp((3.4 - g.loot.t) / 0.25, 0, 1));
   }
 
+  /** 'Obtained' banner with each item's icon and name (y-up centre). */
+  drawLoot(items, cx, cy, a) {
+    if (a <= 0 || !items.length) return;
+    const c = this.ctx, H = this.H, rowH = 22, w = 300, h = 34 + items.length * rowH;
+    this.base(); c.globalAlpha = a;
+    c.fillStyle = 'rgba(8,7,10,0.9)'; rrectPath(c, cx - w / 2, H - cy - 14, w, h, 6); c.fill();
+    c.strokeStyle = 'rgba(176,138,61,0.65)'; c.lineWidth = 1; rrectPath(c, cx - w / 2 + 0.5, H - cy - 13.5, w - 1, h - 1, 6); c.stroke();
+    this.serif('OBTAINED', cx, cy - 2, 12, '#d9b45c', a);
+    items.forEach((id, i) => {
+      const y = H - cy + 20 + i * rowH; this.base(); c.globalAlpha = a;
+      drawItemIcon(c, ITEM_DB[id].icon, cx - w / 2 + 28, y + 2, 16, '#e8dcc4', a);
+      c.font = 'bold 10px Menlo, Consolas, monospace'; c.fillStyle = '#e8dcc4'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(ITEM_DB[id].name, cx - w / 2 + 46, y + 3);
+    });
+    c.globalAlpha = 1;
+  }
   drawOverlay(g, ui) {
     const lvl = g.overlayLevel();
     if (lvl <= 0) return;
@@ -5218,7 +5601,11 @@ class Renderer {
     this.base(); c.globalAlpha = 0.45 * lvl; c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
     c.globalAlpha = 0.7 * lvl; c.fillRect(0, H / 2 - 20 - 55, W, 110);
     if (died) this.serif('YOU DIED', W / 2, H / 2 + 26, 50, '#b3202f', lvl);
-    else { this.serif('VICTORY', W / 2, H / 2 + 30, 50, '#d9b45c', lvl); this.serif('THE OBSIDIAN SENTINEL HAS FALLEN', W / 2, H / 2 - 12, 13, '#d9c9a0', lvl, false); }
+    else {
+      const loot = g.bossLoot && g.bossLoot.length, vx = loot ? W * 0.31 : W / 2;
+      this.serif('VICTORY', vx, H / 2 + 30, 50, '#d9b45c', lvl); this.serif('THE OBSIDIAN SENTINEL HAS FALLEN', vx, H / 2 - 12, 13, '#d9c9a0', lvl, false);
+      if (loot) this.drawLoot(g.bossLoot, W * 0.73, H / 2 + 58, lvl);
+    }
     const ra = clamp((lvl - 0.5) * 2, 0, 1);
     if (ra > 0) {
       const rx = W / 2, ry = H / 2 - 78;
@@ -5253,6 +5640,218 @@ class Renderer {
     this.base(); c.fillStyle = '#040406'; c.fillRect(0, 0, W, H);
     this.serif('Rotate your phone', W / 2, H * 0.55, 22, '#e8dcc4');
     this.text('NULLRITE plays in landscape', W / 2, H * 0.45, 11, '#c9b48a');
+  }
+}
+
+// ============================================================ EQUIPMENT SCREEN (Souls-style, touch)
+// Three columns: the ten equipment slots, the owned items that fit the selected slot, and a detail panel
+// (stats, comparison with what is worn, lore, and the totals: HP, damage taken, poise, equip load).
+// Tapping an item equips it. The fight does not pause. Drawn in CSS pixels, origin top-left.
+
+const MENU_SLOTS = [
+  ['right', 'R. HAND', 'sword'], ['left', 'L. HAND', 'pistol'], ['head', 'HEAD', 'head'], ['chest', 'CHEST', 'chest'],
+  ['hands', 'HANDS', 'hands'], ['legs', 'LEGS', 'legs'], ['feet', 'FEET', 'feet'], ['back', 'BACK', 'back'],
+  ['necklace', 'AMULET', 'necklace'], ['ring', 'RING', 'ring'],
+];
+const SLOT_TITLE = { right: 'RIGHT HAND', left: 'LEFT HAND', head: 'HEAD', chest: 'CHEST', hands: 'HANDS', legs: 'LEGS', feet: 'FEET',
+  back: 'BACK', necklace: 'AMULET', ring: 'RING' };
+const WEAPON_KIND = { oathsword: 'Straight Sword', greatsword: 'Greatsword', spear: 'Spear', pistol: 'Firearm' };
+const MENU_COL = { gold: '#d9b45c', goldD: 'rgba(176,138,61,0.55)', text: '#e8dcc4', dim: '#8f8574', lore: '#b3a68c',
+  panel: 'rgba(10,9,13,0.9)', up: '#8fd07a', down: '#e0606a', crimson: '#ff3048' };
+
+/** Item and slot icons, drawn as simple vector shapes in a 2x2 box around (cx, cy). */
+function drawItemIcon(c, name, cx, cy, size, col, alpha) {
+  c.save(); c.translate(cx, cy); const k = size / 2; c.scale(k, k);
+  c.globalAlpha = alpha === undefined ? 1 : alpha; c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 1.6 / k * 1.2;
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const P = (pts, fill) => { c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]); c.closePath(); fill ? c.fill() : c.stroke(); };
+  const L = (pts) => { c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]); c.stroke(); };
+  switch (name) {
+    case 'head': P([[-0.55, 0.75], [-0.62, -0.1], [-0.3, -0.7], [0, -0.85], [0.3, -0.7], [0.62, -0.1], [0.55, 0.75]]);
+      c.fillRect(-0.4, -0.12, 0.8, 0.14); break;
+    case 'chest': P([[-0.8, -0.65], [-0.3, -0.75], [0, -0.55], [0.3, -0.75], [0.8, -0.65], [0.62, 0.05], [0.5, 0.8], [-0.5, 0.8], [-0.62, 0.05]]);
+      P([[0, -0.15], [0.14, 0.05], [0, 0.25], [-0.14, 0.05]], true); break;
+    case 'hands': P([[-0.45, 0.85], [-0.5, -0.1], [-0.35, -0.75], [0.1, -0.8], [0.45, -0.45], [0.55, 0.1], [0.4, 0.85]]);
+      L([[-0.5, 0.35], [0.5, 0.35]]); break;
+    case 'legs': P([[-0.55, -0.8], [0.55, -0.8], [0.5, 0.85], [0.12, 0.85], [0, -0.1], [-0.12, 0.85], [-0.5, 0.85]]); break;
+    case 'feet': P([[-0.35, -0.85], [0.15, -0.85], [0.15, 0.2], [0.8, 0.45], [0.8, 0.8], [-0.4, 0.8]]); break;
+    case 'back': P([[-0.3, -0.85], [0.3, -0.85], [0.75, 0.85], [0.35, 0.65], [0, 0.85], [-0.35, 0.65], [-0.75, 0.85]]); break;
+    case 'sword': L([[-0.6, 0.6], [0.7, -0.7]]); L([[-0.62, 0.22], [-0.22, 0.62]]); L([[-0.6, 0.6], [-0.8, 0.8]]); break;
+    case 'greatsword': c.lineWidth *= 1.9; L([[-0.5, 0.5], [0.75, -0.75]]); c.lineWidth /= 1.9; L([[-0.72, 0.12], [-0.12, 0.72]]); L([[-0.5, 0.5], [-0.82, 0.82]]); break;
+    case 'spear': L([[-0.85, 0.85], [0.55, -0.55]]); P([[0.45, -0.75], [0.85, -0.85], [0.75, -0.45]], true); break;
+    case 'pistol': P([[-0.8, -0.35], [0.8, -0.35], [0.8, -0.05], [-0.2, -0.05], [-0.35, 0.75], [-0.75, 0.75], [-0.55, -0.05], [-0.8, -0.05]]); break;
+    case 'ring': c.beginPath(); c.ellipse(0, 0.15, 0.55, 0.55, 0, 0, TAU); c.stroke(); P([[0, -0.75], [0.25, -0.45], [0, -0.2], [-0.25, -0.45]], true); break;
+    case 'necklace': c.beginPath(); c.ellipse(0, -0.25, 0.7, 0.55, 0, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+      P([[0, 0.25], [0.28, 0.55], [0, 0.88], [-0.28, 0.55]], true); break;
+    case 'lock': c.beginPath(); c.arc(0, -0.15, 0.38, Math.PI, 0); c.stroke(); c.fillRect(-0.55, -0.15, 1.1, 0.9); break;
+  }
+  c.restore();
+}
+
+class EquipMenu {
+  constructor(game) { this.g = game; this.open = false; this.slot = 'right'; this.focus = null; this.msg = ''; this.msg_t = 0; this.hold = null; this.rects = []; }
+  toggle() { if (this.open) this.close(); else this.show(); }
+  show() { this.open = true; this.pick(this.slot); }
+  close() { this.open = false; this.hold = null; }
+  pick(slot) {
+    const inv = this.g.inv; this.slot = slot; this.focus = inv.eq[slot] || null;
+    let changed = false; for (const id of inv.candidates(slot)) if (!inv.seen[id]) { inv.seen[id] = 1; changed = true; }
+    if (changed) inv.save();
+  }
+  hasUnseen() { const inv = this.g.inv; return Object.keys(inv.items).some(id => inv.has(id) && !inv.seen[id] && STARTER_ITEMS.indexOf(id) < 0); }
+  unseenIn(slot) { const inv = this.g.inv; return inv.candidates(slot).some(id => !inv.seen[id] && STARTER_ITEMS.indexOf(id) < 0); }
+  say(m) { this.msg = m; this.msg_t = 1.6; }
+  update(dt) {
+    if (this.msg_t > 0) this.msg_t -= dt;
+    if (this.hold && this.g.t - this.hold.t0 >= 1.2) {                  // reset progress (held)
+      const inv = this.g.inv; inv.reset(); inv.flags = {}; inv.save(); this.g.player.applyLoadout(); this.hold = null; this.pick('right');
+      this.say('PROGRESS RESET'); this.g.sfx('thud', 0.6);
+    }
+  }
+  /** Touch down at CSS pixel (x, y) from the top-left. */
+  touchStart(id, x, y) {
+    for (const r of this.rects) {
+      if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h) continue;
+      if (r.kind === 'close') { this.close(); this.g.sfx('ready', 0.25); return; }
+      if (r.kind === 'slot') { this.pick(r.slot); this.g.sfx('ready', 0.2); return; }
+      if (r.kind === 'reset') { this.hold = { id, t0: this.g.t }; return; }
+      if (r.kind === 'item') {
+        const inv = this.g.inv;
+        if (this.focus !== r.id) { this.focus = r.id; this.g.sfx('ready', 0.15); return; }     // first tap: preview + compare
+        if (inv.eq[this.slot] === r.id) return;                                                   // second tap: equip
+        if (this.slot === 'left' && inv.leftLocked() && r.id !== null) { this.say('LEFT HAND HELD BY A TWO-HANDED WEAPON'); }
+        if (!this.g.equip(this.slot, r.id)) this.say(this.g.player.state === S_IDLE || this.g.player.state === S_MOVE ? "CAN'T EQUIP THAT HERE" : "CAN'T CHANGE EQUIPMENT NOW");
+        return;
+      }
+    }
+  }
+  touchEnd(id) { if (this.hold && this.hold.id === id) this.hold = null; }
+
+  // ------------------------------------------------------------ drawing
+  draw(R) {
+    const c = R.ctx, W = R.W, H = R.H, inv = this.g.inv, p = this.g.player;
+    R.base(); this.rects = [];
+    c.fillStyle = 'rgba(3,3,5,0.9)'; c.fillRect(0, 0, W, H);
+    const sx = HUD.SAFE_X, top = HUD.TOP + 10, bot = H - 12;
+    // header + close
+    this.serif(c, 'EQUIPMENT', sx, top + 14, 17, MENU_COL.gold, 'left');
+    const cx = W - sx - 18, cy = top + 14;
+    c.strokeStyle = MENU_COL.goldD; c.lineWidth = 1; c.beginPath(); c.arc(cx, cy, 15, 0, TAU); c.stroke();
+    c.strokeStyle = MENU_COL.text; c.lineWidth = 1.6; c.beginPath(); c.moveTo(cx - 5, cy - 5); c.lineTo(cx + 5, cy + 5); c.moveTo(cx + 5, cy - 5); c.lineTo(cx - 5, cy + 5); c.stroke();
+    this.rects.push({ kind: 'close', x: cx - 24, y: cy - 22, w: 48, h: 44 });
+    const y0 = top + 34, ts = Math.min(52, Math.floor((bot - y0 - 26 - 4 * 5) / 5)), gap = 5;
+    // ---- column A: slots (2 x 5)
+    MENU_SLOTS.forEach(([slot, label, glyph], i) => {
+      const col = i % 2, row = (i / 2) | 0, x = sx + col * (ts + gap), y = y0 + row * (ts + gap), sel = slot === this.slot;
+      this.panel(c, x, y, ts, ts, sel);
+      const id = inv.eq[slot], locked = slot === 'left' && inv.leftLocked();
+      if (locked) drawItemIcon(c, 'lock', x + ts / 2, y + ts / 2 - 5, ts * 0.42, MENU_COL.dim, 0.9);
+      else if (id) drawItemIcon(c, ITEM_DB[id].icon, x + ts / 2, y + ts / 2 - 5, ts * 0.5, sel ? MENU_COL.gold : MENU_COL.text, 0.95);
+      else drawItemIcon(c, glyph, x + ts / 2, y + ts / 2 - 5, ts * 0.46, MENU_COL.dim, 0.35);
+      this.text(c, label, x + ts / 2, y + ts - 7, 7, sel ? MENU_COL.gold : MENU_COL.dim, 'center');
+      if (this.unseenIn(slot)) { c.fillStyle = MENU_COL.crimson; c.beginPath(); c.arc(x + ts - 6, y + 6, 3, 0, TAU); c.fill(); }
+      this.rects.push({ kind: 'slot', slot, x, y, w: ts, h: ts });
+    });
+    // reset (hold)
+    const ry = y0 + 5 * (ts + gap) + 4, rw = 2 * ts + gap;
+    const hk = this.hold ? clamp((this.g.t - this.hold.t0) / 1.2, 0, 1) : 0;
+    c.fillStyle = 'rgba(60,20,26,0.5)'; c.fillRect(sx, ry, rw * hk, 16);
+    this.text(c, this.hold ? 'KEEP HOLDING...' : 'HOLD: RESET PROGRESS', sx + rw / 2, ry + 9, 7, this.hold ? MENU_COL.crimson : '#5d564c', 'center');
+    this.rects.push({ kind: 'reset', x: sx, y: ry - 4, w: rw, h: 24 });
+    // ---- column B: items for this slot
+    const bx = sx + 2 * ts + gap + 14, bw = Math.min(230, (W - 2 * sx) * 0.32), by = y0;
+    this.text(c, SLOT_TITLE[this.slot], bx, by + 6, 9, MENU_COL.gold, 'left');
+    const list = inv.candidates(this.slot);
+    list.sort((a, b) => (ITEM_DB[a].name < ITEM_DB[b].name ? -1 : 1));
+    if (this.slot !== 'right') list.push(null);
+    const rh = 34;
+    list.forEach((id, i) => {
+      const y = by + 16 + i * (rh + 4), worn = inv.eq[this.slot] === id, foc = this.focus === id;
+      if (y + rh > bot) return;
+      this.panel(c, bx, y, bw, rh, foc, worn);
+      if (id) {
+        drawItemIcon(c, ITEM_DB[id].icon, bx + 18, y + rh / 2, 22, worn ? MENU_COL.gold : MENU_COL.text, 0.95);
+        this.text(c, ITEM_DB[id].name, bx + 36, y + rh / 2 + 1, 9, worn ? MENU_COL.gold : MENU_COL.text, 'left');
+        if (!inv.seen[id] && STARTER_ITEMS.indexOf(id) < 0) { c.fillStyle = MENU_COL.crimson; c.beginPath(); c.arc(bx + bw - 22, y + rh / 2, 3, 0, TAU); c.fill(); }
+      } else this.text(c, '— NOTHING —', bx + 36, y + rh / 2 + 1, 9, MENU_COL.dim, 'left');
+      if (worn) { c.fillStyle = MENU_COL.gold; c.font = 'bold 9px Menlo, monospace'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('E', bx + bw - 10, y + rh / 2 + 1); }
+      this.rects.push({ kind: 'item', id, x: bx, y, w: bw, h: rh });
+    });
+    if (this.slot === 'left' && inv.leftLocked()) this.text(c, 'Held by your two-handed weapon', bx, by + 16 + list.length * (rh + 4) + 8, 8, MENU_COL.dim, 'left');
+    // ---- column C: detail + totals
+    const dx = bx + bw + 14, dw = W - sx - dx, totH = 74, dy = y0, dh = bot - y0 - totH - 8;
+    this.panel(c, dx, dy, dw, dh, false);
+    this.detail(c, dx + 12, dy + 14, dw - 24, dh - 20);
+    this.totals(c, dx, bot - totH, dw, totH, p.stats);
+    if (this.msg_t > 0) {
+      c.globalAlpha = clamp(this.msg_t / 0.3, 0, 1);
+      this.serif(c, this.msg, W / 2, bot - totH - 16, 12, '#ffb070', 'center'); c.globalAlpha = 1;
+    }
+  }
+  detail(c, x, y, w, h) {
+    const id = this.focus, inv = this.g.inv, d = id && ITEM_DB[id];
+    if (!d) { this.text(c, 'Nothing equipped', x, y + 4, 10, MENU_COL.dim, 'left'); return; }
+    this.serif(c, d.name, x, y + 4, 14, MENU_COL.text, 'left');
+    let type = '';
+    if (d.cat === 'weapon') type = (WEAPON_KIND[id] || 'Weapon') + ' · ' + (d.hands === '2h' ? 'Two-handed, locks the left hand' : d.hands === 'shield' ? 'Shield, left hand' : 'One-handed, ' + d.allowed.map(s => s === 'right' ? 'right' : 'left').join(' / ') + ' hand');
+    else if (d.cat === 'armor') type = SLOT_TITLE[d.slot].charAt(0) + SLOT_TITLE[d.slot].slice(1).toLowerCase() + ' armour';
+    else type = d.slot === 'ring' ? 'Ring' : 'Amulet';
+    this.text(c, type, x, y + 22, 8, MENU_COL.dim, 'left');
+    // stats with a comparison against what is worn in this slot
+    const worn = inv.eq[this.slot] === id, cur = !worn && inv.eq[this.slot] ? ITEM_DB[inv.eq[this.slot]] : null;
+    const rows = [];
+    const num = (label, v, cv, better) => rows.push([label, v, worn || cv === null || cv === undefined ? null : v - cv, better]);
+    if (d.cat === 'weapon' && d.weapon) {
+      const W = WEAPONS[d.weapon], cw = cur && cur.weapon && WEAPONS[cur.weapon];
+      num('Attack', W.light[0].damage, cw ? cw.light[0].damage : null, 1);
+      num('Heavy', W.heavy.damage, cw ? cw.heavy.damage : null, 1);
+      num('Charged', W.charged.damage, cw ? cw.charged.damage : null, 1);
+    } else if (id === 'pistol') { num('Shot damage', BULLET_DAMAGE, null, 1); num('Ammunition', BULLETS_MAX, null, 1); }
+    else if (d.cat === 'armor') { num('Defence', d.defense, cur ? cur.defense : 0, 1); num('Poise', d.poise, cur ? cur.poise : 0, 1); }
+    if (d.cat === 'talisman') rows.push([d.effect, null, null, 0]);
+    num('Weight', d.weight, cur ? cur.weight : (d.cat === 'armor' || d.cat === 'talisman' ? 0 : null), -1);
+    let ry = y + 40;
+    for (const [label, v, dv, better] of rows) {
+      this.text(c, label, x, ry, 9, MENU_COL.text, 'left');
+      if (v !== null) this.text(c, String(+v.toFixed(1)), x + w - 34, ry, 9, MENU_COL.text, 'right');
+      if (dv) this.text(c, (dv > 0 ? '+' : '') + (+dv.toFixed(1)), x + w, ry, 8, dv * better > 0 ? MENU_COL.up : MENU_COL.down, 'right');
+      ry += 15;
+    }
+    // lore
+    ry += 4; c.strokeStyle = MENU_COL.goldD; c.lineWidth = 0.6; c.beginPath(); c.moveTo(x, ry - 6); c.lineTo(x + w, ry - 6); c.stroke();
+    c.font = 'italic 9px Georgia, serif'; c.fillStyle = MENU_COL.lore; c.textAlign = 'left'; c.textBaseline = 'middle';
+    for (const line of this.wrap(c, d.lore || '', w)) { if (ry > y + h - 16) break; c.fillText(line, x, ry + 2); ry += 12; }
+    if (!worn) this.text(c, 'TAP AGAIN TO EQUIP', x + w / 2, y + h - 4, 8, MENU_COL.gold, 'center');
+    else this.text(c, 'EQUIPPED', x + w / 2, y + h - 4, 8, MENU_COL.dim, 'center');
+  }
+  totals(c, x, y, w, h, st) {
+    this.panel(c, x, y, w, h, false);
+    const l = x + 12, r = x + w - 12, col = MENU_COL.text;
+    const row = (label, val, yy, cc) => { this.text(c, label, l, yy, 8.5, MENU_COL.dim, 'left'); this.text(c, val, r, yy, 9, cc || col, 'right'); };
+    row('HP', String(st.maxHp), y + 12);
+    row('Damage taken', Math.round(st.dmgTaken * 100) + '%', y + 25);
+    row('Poise', String(st.poise), y + 38);
+    const tc = st.tier.name === 'LIGHT' ? MENU_COL.up : st.tier.name === 'MEDIUM' ? MENU_COL.text : st.tier.name === 'HEAVY' ? '#ffb070' : MENU_COL.down;
+    row('Equip load', st.weight.toFixed(1) + ' / ' + st.maxLoad + '  ' + st.tier.name, y + 51, tc);
+    const bw = w - 24, by = y + 61;
+    c.fillStyle = 'rgba(255,255,255,0.08)'; c.fillRect(l, by, bw, 4);
+    c.fillStyle = tc; c.fillRect(l, by, bw * clamp(st.ratio, 0, 1), 4);
+    c.fillStyle = 'rgba(0,0,0,0.9)'; for (const m of [0.3, 0.7]) c.fillRect(l + bw * m - 0.5, by - 1, 1.2, 6);
+  }
+  panel(c, x, y, w, h, sel, worn) {
+    c.fillStyle = sel ? 'rgba(40,30,18,0.92)' : worn ? 'rgba(24,20,16,0.92)' : MENU_COL.panel; rrectPath(c, x, y, w, h, 4); c.fill();
+    c.strokeStyle = sel ? MENU_COL.gold : MENU_COL.goldD; c.lineWidth = sel ? 1.4 : 0.8; rrectPath(c, x + 0.5, y + 0.5, w - 1, h - 1, 4); c.stroke();
+  }
+  text(c, s, x, y, size, col, align) {
+    c.font = `bold ${size}px Menlo, Consolas, monospace`; c.fillStyle = col; c.textAlign = align || 'left'; c.textBaseline = 'middle'; c.fillText(s, x, y);
+  }
+  serif(c, s, x, y, size, col, align) {
+    c.font = `bold ${size}px Georgia, 'Times New Roman', serif`; c.fillStyle = col; c.textAlign = align || 'left'; c.textBaseline = 'middle'; c.fillText(s, x, y);
+  }
+  wrap(c, text, w) {
+    const out = []; let line = '';
+    for (const word of text.split(' ')) { const t = line ? line + ' ' + word : word; if (c.measureText(t).width > w && line) { out.push(line); line = word; } else line = t; }
+    if (line) out.push(line); return out;
   }
 }
 
@@ -5325,7 +5924,7 @@ class Controls {
     this.item = new ActionButton('item', ART.btn.item, SMALL_R, true);
     this.buttons = [this.light, this.heavy, this.dodge, this.shoot, this.flask, this.item];
     this.slotButtons = [this.dodge, this.heavy, this.shoot, null];
-    this.ui = { buttons: this.buttons, emptySlots: [], stick: null, fps: 60, chip: null, retry: null };
+    this.ui = { buttons: this.buttons, emptySlots: [], stick: null, fps: 60, chip: null, retry: null, menu: null, prompt: null };
     this.W = 852; this.H = 393;
   }
   layout(W, H) {
@@ -5347,6 +5946,7 @@ class Controls {
   releaseAll() { this.owner.clear(); this.stick.end(); for (const b of this.buttons) b.cancel(); }
   touchStart(id, x, y) {
     const g = this.g;
+    if (this.menu && this.menu.open) { this.menu.touchStart(id, x, this.H - y); return; }
     if (g.outcome !== null) {
       const r = this.ui.retry;
       if (r && g.overlayLevel() >= 0.6 && Math.abs(x - r.x) < 140 && Math.abs(y - r.y) < 50) { g.resetRound(); this.releaseAll(); }
@@ -5359,14 +5959,17 @@ class Controls {
       if (best.instant) g.press(best.kind, null, false);
       return;
     }
+    const pr = this.ui.prompt;
+    if (pr && x >= pr.x && x <= pr.x + pr.w && y >= pr.y && y <= pr.y + pr.h) { g.openChest(); return; }
     const c = this.ui.chip;
     if (c && x >= c.x - 6 && x <= c.x + c.w + 4 && Math.abs(y - c.y) <= 16) {
-      g.swapWeapon(this.light.id !== null || this.heavy.id !== null); return;
+      this.releaseAll(); if (this.menu) this.menu.toggle(); return;
     }
     if (x < this.W * 0.5 && this.stick.id === null) { this.stick.begin(id, x, y); this.owner.set(id, this.stick); }
   }
   touchMove(id, x, y) { const o = this.owner.get(id); if (o) o.move(x, y); }
   touchEnd(id) {
+    if (this.menu && this.menu.open) this.menu.touchEnd(id);
     const o = this.owner.get(id);
     if (!o) return;
     this.owner.delete(id);
@@ -5384,7 +5987,7 @@ class Controls {
     for (const b of [this.heavy, this.light, this.shoot, this.item]) if (b.id !== null && b.aiming) { aimDir = b.groundDir(); break; }
     this.flask.dim = p.flasks > 0 ? 1 : 0.4;
     this.item.dim = p.items[p.item_key] > 0 ? 1 : 0.4;
-    this.shoot.dim = p.bullets > 0 ? 1 : 0.4;
+    this.shoot.dim = p.leftItem !== 'pistol' ? 0.18 : p.bullets > 0 ? 1 : 0.4;
     p.aimHold = this.shoot.id !== null;                    // held: draw and aim; release fires
     for (const b of this.buttons) b.updateVisual(dt);
     this.ui.stick = this.stick.visual();
@@ -5408,6 +6011,7 @@ const sound = new SoundBank();
 const game = new Game({ sfx: (n, v) => sound.play(n, v), haptic: (s, i) => haptic(s, i) });
 const renderer = new Renderer(canvas);
 const controls = new Controls(game);
+const menu = new EquipMenu(game); controls.menu = menu; controls.ui.menu = menu;
 let screen = 'title';           // 'title' | 'play'
 let W = 0, H = 0;
 
@@ -5473,12 +6077,14 @@ function frame(now) {
     game.update(raw, ctl);
     if (game.outcome !== null && controls.owner.size) controls.releaseAll();
     renderer.draw(game, controls.ui, game.t);
+    if (game.outcome !== null && menu.open) menu.close();
+    if (menu.open) { menu.update(raw); menu.draw(renderer); }
     sound.setDrone(game.outcome === null, game.boss.phase);
   }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); } };
+window.__nullrite = { game, controls, renderer, sound, menu, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); } };
 
 }
 </script>

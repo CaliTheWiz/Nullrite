@@ -573,11 +573,37 @@ function buildArt(scale) {
   }
   A.visor = makeTex(22, 10, drawVisor);
   A.weapon = { sword: makeTex(112, 28, drawSword), spear: makeTex(150, 18, drawSpear) };
+  A.weapon.oathsword = A.weapon.sword;                       // 2D fallback only
   A.obelisk = makeTex(88, 196, drawObelisk);
   A.rubble = makeTex(18, 16, (x) => {                     // a chip of floor stone (drawn untinted)
     fillP(x, [[2, 9], [6, 2], [14, 3], [17, 10], [11, 15], [4, 14]], '#2e2b33');
     fillP(x, [[6, 2], [14, 3], [12, 8], [5, 8]], '#4d4855');
     lineP(x, [[6, 2], [14, 3]], 0.8, '#6a6472');
+  });
+  // chest: front face, lid top (closed), lid inner face (open), the lit inside
+  A.chestBody = makeTex(64, 34, (x) => {
+    fillP(x, [[3, 0], [61, 0], [59, 34], [5, 34]], '#1b1c23');
+    fillP(x, [[3, 0], [61, 0], [61, 4], [3, 4]], GOLD_A(0.85));
+    for (const X of [13, 47]) fillP(x, [[X, 0], [X + 4, 0], [X + 4, 34], [X, 34]], GOLD_A(0.7));
+    fillP(x, [[5, 31], [59, 31], [59, 34], [5, 34]], '#0e0e12');
+    fillP(x, [[28, 9], [36, 9], [36, 21], [28, 21]], '#2a2b36'); lineP(x, [[28, 9], [36, 9], [36, 21], [28, 21], [28, 9]], 0.8, GOLD_A(0.9));
+    withGlow(x, HOT_RED, 4, () => { fillOval(x, 30, 11, 4, 4, '#ff2a45'); fillP(x, [[31.2, 14], [32.8, 14], [33.2, 19], [30.8, 19]], '#ff2a45'); });
+  });
+  A.chestLid = makeTex(64, 22, (x) => {
+    fillP(x, [[3, 22], [61, 22], [58, 3], [52, 0], [12, 0], [6, 3]], '#2b2c37');
+    fillP(x, [[6, 3], [12, 0], [52, 0], [58, 3], [56, 6], [8, 6]], '#363744');
+    for (const X of [13, 47]) fillP(x, [[X, 0], [X + 4, 0], [X + 4.5, 22], [X - 0.5, 22]], GOLD_A(0.7));
+    lineP(x, [[3, 22], [61, 22]], 1.2, GOLD_A(0.9));
+  });
+  A.chestLidOpen = makeTex(64, 26, (x) => {
+    fillP(x, [[3, 26], [61, 26], [58, 2], [6, 2]], '#15161b');
+    lineP(x, [[6, 2], [58, 2], [61, 26], [3, 26], [6, 2]], 1.0, GOLD_A(0.85));
+    withGlow(x, GLOW_RED, 3, () => lineP(x, [[20, 16], [32, 10], [44, 16]], 1.0, '#8A2432'));
+  });
+  A.chestInside = makeTex(60, 18, (x) => {
+    fillP(x, [[0, 18], [60, 18], [57, 0], [3, 0]], '#060507');
+    withGlow(x, HOT_RED, 8, () => fillP(x, [[12, 14], [48, 14], [44, 6], [16, 6]], 'rgba(255,90,60,0.55)'));
+    withGlow(x, GLOW_RED, 6, () => fillOval(x, 22, 6, 16, 7, 'rgba(255,210,150,0.55)'));
   });
   A.core = makeTex(22, 30, drawCore); A.plate = makeTex(46, 30, drawPlate); A.halberd = makeTex(230, 50, drawHalberd);
   A.tiles = [11, 23, 37, 51].map(s => makeTex(TILE, TILE, drawTileBase(s)));

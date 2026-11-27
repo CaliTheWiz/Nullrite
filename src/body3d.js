@@ -239,6 +239,71 @@ const GEAR3D = {
       });
     }
   },
+  // ---- the Obsidian Sentinel's helm and plate, cut down to a hunter's frame
+  sentinel_helm(mb) {
+    const c = v3.add(BIND.head, [0, 0.5, 1.0]), R = [6.5, 6.9, 8.4], ob = C3('#373845'), obS = C3('#2b2c37');
+    const deform = (k) => (p, th, ps) => {
+      const lo = ps < 0 ? 1 + 0.45 * Math.sin(ps) : 1, zs = ps > 0 ? 0.86 : 1.05, front = Math.max(0, Math.cos(th)) * Math.max(0, Math.cos(ps));
+      return [[p[0] * lo * k, (p[1] * (ps < 0 ? 1 + 0.2 * Math.sin(ps) : 1) - 0.8 * front * front) * k, p[2] * zs * k], null];
+    };
+    ellipsoid(mb, c, R, [B.head, B.head, 1], (th) => [Math.abs(th) < 1.0 ? ob : obS, 0, 0.6], 20, 14, { deform: deform(1) });
+    ellipsoid(mb, c, R, [B.head, B.head, 1], () => [MAT.crimson, 1, 0], 10, 2, { th0: -0.64, th1: 0.64, ps0: 0.06, ps1: 0.21, deform: deform(1.04) });
+    box(mb, v3.add(c, [0, 6.9, 2.8]), 4.6, 0.6, 0.55, [1, 0, 0], [0, 1, 0], [0, 0, 1], C3('#4a4d5c'), B.head, 0, 0.8);        // brow
+    box(mb, v3.add(c, [0, -0.6, 6.9]), 0.7, 5.6, 0.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.gold, B.head, 0, 0.75);           // gold crest
+    for (const S of [1, -1]) {
+      const h = [[S * 5, 0.2, 4.2], [S * 7.5, -1, 7.8], [S * 10.2, -2.8, 12.6], [S * 12, -5.2, 18.4], [S * 12.6, -7.6, 23]].map(q => v3.add(c, q));
+      tube(mb, chainSamples(h, [B.head, B.head, B.head, B.head], 9, (u) => [2.0 * (1 - u) + 0.2, 1.7 * (1 - u) + 0.2], C3('#2e2f39'), 1,
+        (u) => ({ spec: 0.5, col: u > 0.8 ? C3('#4a4d5c') : C3('#2e2f39') })), () => [0, 1, 0], 8, true, true);
+    }
+    tube(mb, chainSamples([[0, 0.8, 61.5], [0, 1.0, 65.5]], [B.spine, B.neck], 2, () => [4.6, 4.2], C3('#17181e'), 2, () => ({ spec: 0.35 })), fwdRef, 14, false, false);  // gorget
+  },
+  sentinel_plate(mb) {
+    const ob = C3('#2b2c37'), ob2 = C3('#373845'), obD = C3('#17181e');
+    loftZ(mb, BODY_TORSO, 37, 65.2, 22, 24, torsoBones, (th, z) => {
+      if ((z > 59.4 && z < 60.6) || (z > 47.4 && z < 48.8)) return [MAT.gold, 0, 0.7];
+      if (z > 63) return [obD, 0, 0.3];
+      if (Math.abs(th) < 1.0 && z > 48.8 && z < 59.4) return [ob2, 0, 0.65];
+      if (Math.abs(th) > 2.3 && z > 49 && z < 58) return [ob2, 0, 0.5];
+      return [ob, 0, 0.45];
+    }, null, [1.25, 1.05]);
+    // chest core: dark disc, glowing ring, crystal
+    const cz = 54.6, q = sectionAt(BODY_TORSO, cz), cf = (q.f || 0) + q.b + 1.1;
+    ellipsoid(mb, [0, cf - 0.3, cz], [2.9, 0.8, 2.9], [B.spine, B.spine, 1], () => [MAT.black, 0, 0.3], 12, 6);
+    const ring = []; for (let i = 0; i <= 18; i++) { const a = i / 18 * TAU; ring.push({ p: [Math.cos(a) * 2.6, cf + 0.35, cz + Math.sin(a) * 2.6], r: [0.42, 0.42], bones: [B.spine, B.spine, 1], col: MAT.crimson, emit: 1, spec: 0 }); }
+    tube(mb, ring, () => [0, 1, 0], 6, false, false);
+    const P = [[0, cf + 0.7, cz + 1.9], [1.2, cf + 0.6, cz], [0, cf + 0.7, cz - 1.9], [-1.2, cf + 0.6, cz]], ctr = [0, cf + 1.5, cz];
+    const ids = P.map(p => mb.vert(p, v3.norm(v3.sub(p, [0, cf - 3, cz])), [1, 0.78, 0.82], B.spine, B.spine, 1, 1, 0));
+    const ic = mb.vert(ctr, [0, 1, 0], [1, 0.78, 0.82], B.spine, B.spine, 1, 1, 0);
+    for (let i = 0; i < 4; i++) mb.tri(ids[i], ids[(i + 1) % 4], ic);
+    // circuit lines out from the core
+    for (const S of [1, -1]) for (const [th0, z0, th1, z1] of [[0.32, 56, 0.6, 58.6], [0.32, 53.2, 0.55, 50]]) {
+      const pt = (th, z) => { const s = sectionAt(BODY_TORSO, z), a = s.a + 1.25, b = s.b + 1.05; return [S * a * Math.sin(th), (s.f || 0) + b * Math.cos(th) + 0.15, z]; };
+      strip(mb, pt(th0, z0), pt(th1, z1), [S * 0.5, 0.85, 0], 0.18, 0.12, MAT.crimson, [B.spine, B.spine, 1], 1, 0);
+    }
+    // back vents
+    for (const [i, z] of [[0, 57], [1, 54.4], [2, 51.8]].map(v => v)) {
+      const s = sectionAt(BODY_TORSO, z); box(mb, [0, (s.f || 0) - s.b - 1.15, z], 1.9, 0.2, 0.5, [1, 0, 0], [0, -1, 0], [0, 0, 1], i % 2 ? MAT.crimsonD : MAT.crimson, B.spine, 1, 0);
+    }
+    // tassets: split lames over the hips that follow the thighs
+    const SK = [{ z: 27, a: 10.6, b: 8.0 }, { z: 37, a: 9.4, b: 6.8 }, { z: 47.6, a: 8.2, b: 5.8, f: 0.3 }];
+    const gaps = [0, 1.2, -1.2, 2.3, -2.3, Math.PI, -Math.PI];
+    loftZ(mb, SK, 28, 47.6, 7, 36, (z, th) => {
+      const drop = smoothstep(43, 29, z);
+      if (Math.abs(th) > 2.3) return [B.pelvis, B.pelvis, 1];
+      return [B.pelvis, th > 0 ? B.thighR : B.thighL, 1 - 0.65 * drop];
+    }, (th, z) => [z < 29.6 ? MAT.gold : ob, 0, z < 29.6 ? 0.7 : 0.45], (th) => gaps.some(g => Math.abs(th - g) < 0.07));
+    // pauldrons: a black joint under three obsidian lames rimmed in gold
+    for (const [sd, S] of [['R', 1], ['L', -1]]) {
+      const sh = BIND['sh' + sd];
+      ellipsoid(mb, v3.add(sh, [S * 0.6, 0, 0.3]), [4.4, 4.4, 4.4], [B['upper' + sd], B.spine, 0.6], () => [MAT.black, 0, 0.35], 12, 8);
+      [[[1.6, 0, 2.6], [8.0, 7.6, 5.0]], [[2.6, 0, -0.8], [7.2, 7.0, 4.0]], [[3.2, 0, -3.8], [6.2, 6.2, 3.2]]].forEach(([off, R], k) => {
+        const c = v3.add(sh, [off[0] * S, off[1], off[2]]);
+        ellipsoid(mb, c, R, (p) => (p[2] > 0 && k === 0 ? [B['upper' + sd], B.spine, 0.5] : [B['upper' + sd], B.spine, 0.85]),
+          (th, ps) => [ps < 0.12 ? MAT.gold : (k === 0 && Math.abs(th - S * Math.PI / 2) < 0.3 && ps > 0.9 ? MAT.crimson : ob2), k === 0 && ps > 0.9 && Math.abs(th - S * Math.PI / 2) < 0.3 ? 1 : 0, 0.65], 14, 6,
+          { ps0: 0, ps1: Math.PI / 2, th0: S > 0 ? -0.3 : -Math.PI + 0.3, th1: S > 0 ? Math.PI + 0.3 : 0.3 });
+      });
+    }
+  },
   hunter_gauntlets(mb) {
     for (const [sd, S] of [['R', 1], ['L', -1]]) {
       const el = BIND['el' + sd], wr = BIND['wr' + sd];
@@ -315,6 +380,15 @@ const WEAPON3D = {
     for (const y of [-11.5, 11.5]) box(mb, [7, y, 0], 1.6, 1.4, 1.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.crimsonD, B.weapon, 0.3, 0.4);
     tube(mb, chainSamples([[-10, 0, 0], [6, 0, 0]], [B.weapon], 4, () => [1.5, 1.5], MAT.leather, 1), upRef, 8, false, false);   // grip
     ellipsoid(mb, [-11, 0, 0], [2.2, 2.2, 2.2], [B.weapon, B.weapon, 1], () => [MAT.plateD, 0, 0.7], 8, 6);                   // pommel
+  },
+  oathsword(mb) {                                    // straight one-handed blade, short guard, wrapped grip
+    bladeMesh(mb, 5, 56, 3.8, 0.9, 1.0, true, MAT.crimson);
+    box(mb, [4.5, 0, 0], 1.0, 6.8, 1.3, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.plateD, B.weapon, 0, 0.75);           // crossguard
+    for (const y of [-6.8, 6.8]) box(mb, [4.5, y, 0], 1.2, 1.0, 1.5, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.gold, B.weapon, 0, 0.7);
+    tube(mb, chainSamples([[-6.5, 0, 0], [3.8, 0, 0]], [B.weapon], 4, () => [1.3, 1.3], MAT.leather, 1), upRef, 8, false, false);
+    for (const x of [-4.5, -1.5, 1.5]) tube(mb, chainSamples([[x, 0, 0], [x + 0.5, 0, 0]], [B.weapon], 1, () => [1.45, 1.45], MAT.leatherL, 1), upRef, 8, false, false);
+    ellipsoid(mb, [-7.6, 0, 0], [1.8, 1.8, 1.8], [B.weapon, B.weapon, 1], () => [MAT.plateD, 0, 0.7], 8, 6);
+    ellipsoid(mb, [-8.8, 0, 0], [0.7, 0.7, 0.7], [B.weapon, B.weapon, 1], () => [MAT.crimson, 1, 0], 6, 4);
   },
   spear(mb) {
     tube(mb, chainSamples([[-44, 0, 0], [108, 0, 0]], [B.weapon], 6, () => [1.25, 1.25], MAT.wood, 1, () => ({ spec: 0.2 })), upRef, 8, true, false);
@@ -445,7 +519,7 @@ class CharGL {
     for (const slot of GEAR_SLOTS) { const id = p.gear[slot]; if (id && this.gear[id]) g.draw(this.gear[id]); }
     const drawn = p.gunDrawn;
     const drinking = p.kind === 'flask' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
-    g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
+    if (p.hasPistol) g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
     if (!drinking) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
     if (drawn) g.draw(this.weapons.pistol);
     if (drinking) g.draw(this.weapons.flaskHand);

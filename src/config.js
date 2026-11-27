@@ -41,6 +41,31 @@ const DODGE_ATTACK_WINDOW = 0.30;
 const CHARGE_START = 0.20, CHARGE_FULL = 0.65, CHARGE_WALK = 0.45;
 
 const WEAPONS = {
+  // one-handed: quick cuts, the left hand free (pistol on the hip) and swung out for balance
+  oathsword: {
+    name: 'OATHBOUND SWORD', tex: 'oathsword', size: [70, 16], grip: 8, handGap: 0, glow: [30, 62, 10], speed: 1.06,
+    stance: { hands: 1, offhand: { s: -13, f: -5, z: 40 },
+              rest: { off: -0.5, r: 16, elev: 34, point: -0.2, up: 0.15, sway: 2.0 },       // point forward, a little raised
+              move: { off: -1.3, r: 13, elev: 30, point: -0.85, up: -0.5 },                    // low at his side, tip forward-down
+              dash: { off: -(Math.PI - 0.9), r: 16, elev: 28, point: -(Math.PI - 0.35), up: -0.3 } },   // trailing behind
+    light: [
+      move({ windup: 0.08, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 10, damage: 26, poise: 5, lunge: 300,
+             hitbox: ['arc', 122, 50], motion: ['swing', 70, -62], reach: 40 }),
+      move({ windup: 0.07, active: 0.08, recovery: 0.21, cancel: 0.07, stamina: 10, damage: 27, poise: 5, lunge: 300,
+             hitbox: ['arc', 124, 52], motion: ['swing', -72, 64], reach: 42 }),
+      move({ windup: 0.10, active: 0.08, recovery: 0.26, cancel: 0.10, stamina: 12, damage: 33, poise: 8, lunge: 380,
+             hitbox: ['thrust', 150, 32], motion: ['thrust'], reach: 62, slash: ['thrust', 'gold'], shake: 6, sparks: 12, flash: 110 }),
+    ],
+    heavy: move({ windup: 0.30, active: 0.12, recovery: 0.40, cancel: 0.18, stamina: 24, damage: 62, poise: 22,
+                  lunge: 420, hitbox: ['thrust', 150, 62], motion: ['overhead'], reach: 52, heft: 0.6,
+                  slash: ['slam', 'crimson'], sfx: ['whoosh_heavy', 0.85], haptic: ['medium', 0.8], shake: 10, sparks: 22, flash: 150 }),
+    charged: move({ windup: 0.12, active: 0.15, recovery: 0.44, cancel: 0.22, stamina: 34, damage: 92, poise: 34,
+                    lunge: 520, hitbox: ['arc', 168, 80], motion: ['swing', 150, -150], reach: 50, heft: 0.8,
+                    hyper: true, slash: ['arc', 'white'], sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
+                    shake: 15, sparks: 32, flash: 210, hitstop: 0.08, thud: true }),
+    dodge: move({ windup: 0.05, active: 0.10, recovery: 0.22, cancel: 0.08, stamina: 12, damage: 29, poise: 6,
+                  lunge: 720, hitbox: ['thrust', 170, 34], motion: ['thrust'], reach: 64, slash: ['thrust', 'gold'], sparks: 12 }),
+  },
   greatsword: {
     name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, handGap: 8, glow: [50, 96, 16], speed: 0.95,
     // stance: how this weapon is carried (angle offset from facing, distance, height, blade tilt: 1 upright, <0 tip down)
@@ -97,7 +122,7 @@ const WEAPONS = {
                   slash: ['thrust', 'gold'], sparks: 12 }),
   },
 };
-const WEAPON_ORDER = ['greatsword', 'spear'];
+const WEAPON_ORDER = ['oathsword', 'greatsword', 'spear'];
 function weaponMoves(w) { return w.light.concat([w.heavy, w.charged, w.dodge]); }
 
 const FLASK_MOVE = move({ windup: 0.62, active: 0.05, recovery: 0.32, cancel: 0.18, stamina: 0, damage: 0,
@@ -120,10 +145,18 @@ const ITEMS = {
 const ITEM_STACK_MAX = 6;
 const PICKUPS = [[[-430, -150], 'firebomb', 3], [[440, 330], 'firebomb', 3]];
 const PICKUP_RADIUS = 38;
+// chests (test room) and boss drops; each gives its items once per save
+const CHESTS = [
+  { id: 'chest_west', pos: [-610, 40], items: ['greatsword', 'ember_ring'] },
+  { id: 'chest_east', pos: [610, -40], items: ['spear', 'crimson_locket'] },
+];
+const CHEST_REACH = 82, CHEST_RADIUS = 26, CHEST_OPEN_TIME = 0.5;
+const BOSS_DROPS = { id: 'boss_sentinel', items: ['sentinel_helm', 'sentinel_plate', 'sentinel_sigil', 'oath_ring'] };
 const THROW_MOVE = move({ windup: 0.18, active: 0.05, recovery: 0.30, cancel: 0.14, stamina: 8, damage: 0, poise: 0,
                           lunge: 0, hitbox: null, motion: ['rest'], slash: null, sfx: ['whoosh', 0.5],
                           haptic: ['light', 0.5] });
 
+const INV_SAVE_KEY = 'nullrite.inventory.v1';
 const PLAYER_MAX_HP = 100, HURT_TIME = 0.32, HURT_IFRAMES = 0.65, FLASK_CHARGES = 3, FLASK_HEAL = 45;
 
 // ---- boss
@@ -133,11 +166,11 @@ const BOSS_START = [0, 170], PLAYER_START = [0, -300];
 const RAD = Math.PI / 180;
 const BOSS_ATTACKS = {
   sweep: { windup: 0.85, track: 0.4, active: 0.22, recovery: 0.9, range: 250, half: 80 * RAD,
-           damage: 28, knock: 260, want: 205, parry: true },
+           damage: 28, knock: 260, want: 205, parry: true, impact: 18 },
   slam:  { windup: 1.05, crouch: 0.3, active: 0.12, recovery: 1.1, radius: 230, hop: 170,
-           damage: 36, knock: 360, want: 330, parry: false },
+           damage: 36, knock: 360, want: 330, parry: false, impact: 32 },
   lance: { windup: 1.12, lock: 0.8, recovery: 1.0, speed: 1500, max_dist: 680,
-           damage: 32, knock: 320, want: 9999, parry: true },
+           damage: 32, knock: 320, want: 9999, parry: true, impact: 24 },
 };
 // Phase 2 (below half HP): lance chains straight into a quicker sweep; slam sends out radial waves
 BOSS_ATTACKS.sweep_follow = Object.assign({}, BOSS_ATTACKS.sweep, { windup: 0.52, track: 0.26, recovery: 1.05 });

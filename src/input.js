@@ -67,7 +67,7 @@ class Controls {
     this.item = new ActionButton('item', ART.btn.item, SMALL_R, true);
     this.buttons = [this.light, this.heavy, this.dodge, this.shoot, this.flask, this.item];
     this.slotButtons = [this.dodge, this.heavy, this.shoot, null];
-    this.ui = { buttons: this.buttons, emptySlots: [], stick: null, fps: 60, chip: null, retry: null };
+    this.ui = { buttons: this.buttons, emptySlots: [], stick: null, fps: 60, chip: null, retry: null, menu: null, prompt: null };
     this.W = 852; this.H = 393;
   }
   layout(W, H) {
@@ -89,6 +89,7 @@ class Controls {
   releaseAll() { this.owner.clear(); this.stick.end(); for (const b of this.buttons) b.cancel(); }
   touchStart(id, x, y) {
     const g = this.g;
+    if (this.menu && this.menu.open) { this.menu.touchStart(id, x, this.H - y); return; }
     if (g.outcome !== null) {
       const r = this.ui.retry;
       if (r && g.overlayLevel() >= 0.6 && Math.abs(x - r.x) < 140 && Math.abs(y - r.y) < 50) { g.resetRound(); this.releaseAll(); }
@@ -101,14 +102,17 @@ class Controls {
       if (best.instant) g.press(best.kind, null, false);
       return;
     }
+    const pr = this.ui.prompt;
+    if (pr && x >= pr.x && x <= pr.x + pr.w && y >= pr.y && y <= pr.y + pr.h) { g.openChest(); return; }
     const c = this.ui.chip;
     if (c && x >= c.x - 6 && x <= c.x + c.w + 4 && Math.abs(y - c.y) <= 16) {
-      g.swapWeapon(this.light.id !== null || this.heavy.id !== null); return;
+      this.releaseAll(); if (this.menu) this.menu.toggle(); return;
     }
     if (x < this.W * 0.5 && this.stick.id === null) { this.stick.begin(id, x, y); this.owner.set(id, this.stick); }
   }
   touchMove(id, x, y) { const o = this.owner.get(id); if (o) o.move(x, y); }
   touchEnd(id) {
+    if (this.menu && this.menu.open) this.menu.touchEnd(id);
     const o = this.owner.get(id);
     if (!o) return;
     this.owner.delete(id);
@@ -126,7 +130,7 @@ class Controls {
     for (const b of [this.heavy, this.light, this.shoot, this.item]) if (b.id !== null && b.aiming) { aimDir = b.groundDir(); break; }
     this.flask.dim = p.flasks > 0 ? 1 : 0.4;
     this.item.dim = p.items[p.item_key] > 0 ? 1 : 0.4;
-    this.shoot.dim = p.bullets > 0 ? 1 : 0.4;
+    this.shoot.dim = p.leftItem !== 'pistol' ? 0.18 : p.bullets > 0 ? 1 : 0.4;
     p.aimHold = this.shoot.id !== null;                    // held: draw and aim; release fires
     for (const b of this.buttons) b.updateVisual(dt);
     this.ui.stick = this.stick.visual();

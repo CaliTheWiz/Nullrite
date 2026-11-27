@@ -178,6 +178,7 @@ class Renderer {
     const list = [];
     for (const pil of g.pillars) list.push([-pil.gy, () => this.drawPillar(pil, t)]);
     for (const pk of g.pickups) if (!pk.taken) list.push([-pk.gy, () => this.drawPickup(pk, t)]);
+    for (const ch of g.chests) list.push([-ch.gy, () => this.drawChest(ch, t)]);
     list.push([-g.boss.gy, () => this.drawBoss(g.boss)]);
     list.push([-g.player.gy, () => this.drawPlayer(g.player)]);
     for (const bm of g.proj.bombs) if (bm.live) list.push([-bm.gy + 0.5, () => this.drawBomb(bm, t)]);
@@ -190,6 +191,23 @@ class Renderer {
     this.local(ART.shadow, 0, 0, 110, 66);
     this.local(ART.obelisk, 0, 0, 70, 157, { ax: 0.5, ay: 0.03 });
     this.local(ART.glow, 0, 95, 56, 56, { color: CRIMSON, alpha: 0.45 + 0.2 * Math.sin(t * 2.2 + pil.phase), blend: 'add' });
+  }
+  /** Chest: body, then the lid swinging up on its back hinge (top face while closed, inner face once past upright). */
+  drawChest(ch, t) {
+    this.entityFrame(ch.gx, ch.gy);
+    this.local(ART.shadow, 0, 0, 92, 40, { alpha: 0.8 });
+    const s = 0.9, u = ch.open_t < 0 ? 0 : clamp(ch.open_t / CHEST_OPEN_TIME, 0, 1), a = 1.9 * (1 - Math.pow(1 - u, 3)) + (u >= 1 ? 0 : 0);
+    const bounce = ch.open_t > CHEST_OPEN_TIME && ch.open_t < CHEST_OPEN_TIME + 0.25 ? -0.12 * Math.sin((ch.open_t - CHEST_OPEN_TIME) / 0.25 * Math.PI) : 0;
+    const ang = a + bounce, hinge = 50 * s, free = hinge + (-Math.cos(ang) * 17.6 + Math.sin(ang) * 26) * s;
+    this.local(ART.chestBody, 0, 0, 64 * s, 34 * s, { ax: 0.5, ay: 0 });
+    if (ang > 0.05) {
+      const fresh = ch.open_t < 50 ? clamp(1 - (ch.open_t - CHEST_OPEN_TIME) / 2.5, 0.25, 1) : 0.25;
+      this.local(ART.chestInside, 0, 30 * s, 60 * s, 20 * s, { ax: 0.5, ay: 0, alpha: fresh });
+      if (ch.open_t < 50) this.local(ART.glow, 0, 40 * s, 90, 90, { color: RUNE_GOLD, alpha: 0.35 * fresh, blend: 'add' });
+    }
+    if (free < hinge) this.local(ART.chestLid, 0, free, 64 * s, hinge - free, { ax: 0.5, ay: 0 });
+    else this.local(ART.chestLidOpen, 0, hinge, 64 * s, free - hinge, { ax: 0.5, ay: 0 });
+    if (ch.closed) this.local(ART.glow, 0, 22 * s, 30, 30, { color: CRIMSON, alpha: 0.25 + 0.12 * Math.sin(t * 2.4), blend: 'add' });
   }
   drawPickup(pk, t) {
     const k = 0.5 + 0.5 * Math.sin(t * 3 + pk.phase);
@@ -268,7 +286,8 @@ class Renderer {
   /** Soft halos over the 3D body: visor and blade. */
   drawPlayerGlows(p) {
     const R = p.rig, a = p.bodyAlpha;
-    if (p.visorAlpha > 0.01) this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a * 0.8, blend: 'add' });
+    const hv = p.gear && p.gear.head && GEAR[p.gear.head] && GEAR[p.gear.head].visor;
+    if (hv && p.visorAlpha > 0.01) this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a * 0.8, blend: 'add' });
     // (no 2D blade halo: drawn over the finished body it would show through him; the blade glows in 3D)
   }
   /** The jointed player, drawn at the current transform's origin (his feet). */
@@ -297,7 +316,7 @@ class Renderer {
       if (part.kind === 'prop') { this.drawProp(p, part); continue; }
       const layers = p.rigLayers[part.name];
       for (let i = 0; i < layers.length; i++) {
-        const v = ART.rig[layers[i][0]][layers[i][1]];
+        const fam = ART.rig[layers[i][0]], v = fam && fam[layers[i][1]];
         if (!v) continue;
         this.rigPart(v, part, R, a, null);
         if (glowA > 0.01) this.rigPart(v, part, R, glowA, glowC);
@@ -465,7 +484,8 @@ class Renderer {
     const c = this.ctx, p = g.player, b = g.boss, W = this.W, H = this.H, SX = HUD.SAFE_X, top = H - HUD.TOP;
     this.base(); c.globalAlpha = 1; c.drawImage(this.vignette, 0, 0, W, H);
     // player bars
-    this.bar(SX, top - 26, 212, 8, p.hp / PLAYER_MAX_HP, (p.hp + p.rally) / PLAYER_MAX_HP, '#c0283c', '#e8903a');
+    const hw = Math.round(212 * p.maxHp / PLAYER_MAX_HP);
+    this.bar(SX, top - 26, hw, 8, p.hp / p.maxHp, (p.hp + p.rally) / p.maxHp, '#c0283c', '#e8903a');
     const deny = g.stamDeny > 0;
     this.bar(SX, top - 45, 162, 6, p.stamina / STAM_MAX, p.stam_lag / STAM_MAX, deny ? CRIMSON : '#c9a24a', 'rgba(242,230,208,0.6)',
       deny && ((g.stamDeny * 20) | 0) % 2 === 0 ? CRIMSON : null);
@@ -474,7 +494,8 @@ class Renderer {
     this.base(); c.fillStyle = 'rgba(5,5,8,0.78)'; rrectPath(c, SX, H - cy - 11, 172, 22, 4); c.fill();
     c.strokeStyle = 'rgba(176,138,61,0.6)'; c.lineWidth = 1; rrectPath(c, SX + 0.5, H - cy - 10.5, 171, 21, 4); c.stroke();
     this.text(p.weapon.name, SX + 10, cy, 9, '#e8dcc4', 'left');
-    this.text('SWAP', SX + 164, cy, 8, '#ff5a6a', 'right');
+    this.text('GEAR', SX + 164, cy, 8, '#ff5a6a', 'right');
+    if (ui.menu && ui.menu.hasUnseen()) { this.base(); c.fillStyle = CRIMSON; c.beginPath(); c.arc(SX + 170, H - cy - 9, 3.2, 0, TAU); c.fill(); }
     ui.chip = { x: SX, y: cy, w: 172 };
     if (SHOW_FPS) this.text('FPS ' + ui.fps, SX + 4, top - 88, 9, 'rgba(201,180,138,0.6)', 'left');
     // boss bar
@@ -503,8 +524,33 @@ class Renderer {
       this.text(String(n), pos[0], pos[1], 12, '#c9b48a', 'center', 'bold', n > 0 ? 0.9 : 0.45);
     }
     if (g.toast_t > 0 && g.toast_key) this.serif(ITEMS[g.toast_key].name, W / 2, top - 42, 15, '#ffb070', clamp(g.toast_t / 0.4, 0, 1));
+    // OPEN prompt beside a chest
+    ui.prompt = null;
+    if (g.chestNear) {
+      const px = W / 2, py = HUD.SAFE_BOTTOM + 62, pw = 128, ph = 34;
+      this.base(); c.fillStyle = 'rgba(8,8,11,0.88)'; rrectPath(c, px - pw / 2, H - py - ph / 2, pw, ph, 8); c.fill();
+      c.strokeStyle = 'rgba(217,180,92,0.8)'; c.lineWidth = 1.2; rrectPath(c, px - pw / 2 + 0.5, H - py - ph / 2 + 0.5, pw - 1, ph - 1, 8); c.stroke();
+      this.serif('OPEN', px, py, 15, '#e8dcc4');
+      ui.prompt = { x: px - pw / 2, y: py - ph / 2, w: pw, h: ph };
+    }
+    if (g.loot) this.drawLoot(g.loot.items, W / 2, H / 2 + 70, clamp(g.loot.t / 0.5, 0, 1) * clamp((3.4 - g.loot.t) / 0.25, 0, 1));
   }
 
+  /** 'Obtained' banner with each item's icon and name (y-up centre). */
+  drawLoot(items, cx, cy, a) {
+    if (a <= 0 || !items.length) return;
+    const c = this.ctx, H = this.H, rowH = 22, w = 300, h = 34 + items.length * rowH;
+    this.base(); c.globalAlpha = a;
+    c.fillStyle = 'rgba(8,7,10,0.9)'; rrectPath(c, cx - w / 2, H - cy - 14, w, h, 6); c.fill();
+    c.strokeStyle = 'rgba(176,138,61,0.65)'; c.lineWidth = 1; rrectPath(c, cx - w / 2 + 0.5, H - cy - 13.5, w - 1, h - 1, 6); c.stroke();
+    this.serif('OBTAINED', cx, cy - 2, 12, '#d9b45c', a);
+    items.forEach((id, i) => {
+      const y = H - cy + 20 + i * rowH; this.base(); c.globalAlpha = a;
+      drawItemIcon(c, ITEM_DB[id].icon, cx - w / 2 + 28, y + 2, 16, '#e8dcc4', a);
+      c.font = 'bold 10px Menlo, Consolas, monospace'; c.fillStyle = '#e8dcc4'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(ITEM_DB[id].name, cx - w / 2 + 46, y + 3);
+    });
+    c.globalAlpha = 1;
+  }
   drawOverlay(g, ui) {
     const lvl = g.overlayLevel();
     if (lvl <= 0) return;
@@ -512,7 +558,11 @@ class Renderer {
     this.base(); c.globalAlpha = 0.45 * lvl; c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
     c.globalAlpha = 0.7 * lvl; c.fillRect(0, H / 2 - 20 - 55, W, 110);
     if (died) this.serif('YOU DIED', W / 2, H / 2 + 26, 50, '#b3202f', lvl);
-    else { this.serif('VICTORY', W / 2, H / 2 + 30, 50, '#d9b45c', lvl); this.serif('THE OBSIDIAN SENTINEL HAS FALLEN', W / 2, H / 2 - 12, 13, '#d9c9a0', lvl, false); }
+    else {
+      const loot = g.bossLoot && g.bossLoot.length, vx = loot ? W * 0.31 : W / 2;
+      this.serif('VICTORY', vx, H / 2 + 30, 50, '#d9b45c', lvl); this.serif('THE OBSIDIAN SENTINEL HAS FALLEN', vx, H / 2 - 12, 13, '#d9c9a0', lvl, false);
+      if (loot) this.drawLoot(g.bossLoot, W * 0.73, H / 2 + 58, lvl);
+    }
     const ra = clamp((lvl - 0.5) * 2, 0, 1);
     if (ra > 0) {
       const rx = W / 2, ry = H / 2 - 78;
