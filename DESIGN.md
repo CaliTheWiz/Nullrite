@@ -81,7 +81,16 @@ Steps (1 done):
    Per-weapon stances (WEAPONS[w].stance: rest / move / dash with off, r, elev, point, up); 2h weapons held in both hands.
    Cloth is general (`Cloth`, kinds back/front); every cloth panel is depth-sorted with the limbs individually, and air
    drag streams it out when running. `python3 tools/sprint_sheet.py` renders sprint frames.
-4. Shading: crimson rim light, darker undersides, tighter contact shadow.
+4. Shading: crimson rim light, darker undersides, tighter contact shadow.  (Largely covered by the 3D renderer below.)
+**3D character (current renderer):** `src/gl3d.js` (WebGL core: 2-bone skinning shader, 2.5D projection
+x=X, y=Y*K+Z, depth=Y-K*Z; key light + hemisphere fill, crimson rim, plate specular, emissive, additive flash;
+inside faces detected by normal vs view and shown in the back/lining colour) and `src/body3d.js` (bind-pose skeleton
+BIND, boneFrames(), mesh builders tube/chainSamples/ellipsoid/loftZ/box, base body, GEAR3D hunter set, WEAPON3D
+sword/spear/pistol, belt props, cloth meshes refreshed from the Cloth sim). The rig is fully 3D in the char frame
+(3D arm IK with down/out/back elbow pole, 3D weapon grip + blade direction from animateSword's bladeH/bladeE,
+continuous facing). Renderer draws the GL canvas into the player layer; the 2D picture path stays as a fallback
+when WebGL is unavailable. Blade flat is turned toward the camera. Headless tests use software GL (slow) - judge
+frame rate on the phone.
 5. Life: idle breathing, weight shift, head leads turns, dash landing stagger.
 Then: gear system (stats, weight, equip screen, pickups), pistol aims with the left stick (option 2),
 shot feedback (muzzle flash + streak, option 4), player gun animation, more distinct boss wind-up poses.

@@ -17,6 +17,10 @@ class Renderer {
     const s = dpr * CAMERA_ZOOM, L = PLAYER_LAYER;
     const mk = () => { const c = newCanvas(L.w * s, L.h * s); return { c, x: c.getContext('2d') }; };
     this.pl = mk(); this.plScale = s;
+    if (this.gl3d === undefined) {                             // the 3D character renderer (falls back to 2D pictures)
+      try { this.gl3d = new CharGL(newCanvas(L.w * s, L.h * s)); USE_3D = true; }
+      catch (e) { this.gl3d = null; USE_3D = false; console.warn('3D character off:', e.message); }
+    }
     this.ghosts = []; for (let i = 0; i < 6; i++) { const q = mk(); q.live = false; q.t0 = 0; q.gx = 0; q.gy = 0; this.ghosts.push(q); }
     this.ghostSeq = 0;
   }
@@ -197,12 +201,9 @@ class Renderer {
     c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
   }
   drawPlayer(p) {
-    const L = PLAYER_LAYER, s = this.plScale, o = this.pl, main = this.ctx;
-    o.x.setTransform(1, 0, 0, 1, 0, 0); o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
-    o.x.clearRect(0, 0, o.c.width, o.c.height);
-    o.x.setTransform(s, 0, 0, s, L.ox * s, L.oy * s);
-    this.ctx = o.x; this.drawRigBody(p, true); this.ctx = main;
-    if (p.glowAlpha > 0.01) {                                  // flash tint over the whole body at once
+    const L = PLAYER_LAYER, s = this.plScale, main = this.ctx;
+    const o = this.renderLayer(p);
+    if (!this.gl3d && p.glowAlpha > 0.01) {                    // flash tint over the whole body at once (3D does it in the shader)
       o.x.setTransform(1, 0, 0, 1, 0, 0); o.x.globalCompositeOperation = 'source-atop'; o.x.globalAlpha = p.glowAlpha;
       o.x.fillStyle = p.glowColor; o.x.fillRect(0, 0, o.c.width, o.c.height);
       o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
@@ -211,7 +212,7 @@ class Renderer {
       this.ghostSeq = p.ghostSeq || 0;
       const q = this.ghosts.find(z => !z.live) || this.ghosts.reduce((a, z) => (z.t0 < a.t0 ? z : a));
       q.x.setTransform(1, 0, 0, 1, 0, 0); q.x.globalCompositeOperation = 'source-over'; q.x.globalAlpha = 1;
-      q.x.clearRect(0, 0, q.c.width, q.c.height); q.x.drawImage(o.c, 0, 0);
+      q.x.clearRect(0, 0, q.c.width, q.c.height); q.x.drawImage(o.c, 0, 0, q.c.width, q.c.height);
       q.x.globalCompositeOperation = 'source-atop'; q.x.fillStyle = CRIMSON; q.x.fillRect(0, 0, q.c.width, q.c.height);
       q.x.globalCompositeOperation = 'source-over';
       q.live = true; q.t0 = this.g.t; q.gx = p.gx; q.gy = p.gy;
@@ -221,6 +222,36 @@ class Renderer {
     main.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); main.globalAlpha = p.bodyAlpha; main.globalCompositeOperation = 'source-over';
     main.drawImage(o.c, this.sx(p.gx) - L.ox * CAMERA_ZOOM, this.sy(p.gy * K) - L.oy * CAMERA_ZOOM, L.w * CAMERA_ZOOM, L.h * CAMERA_ZOOM);
     main.globalAlpha = 1;
+    if (this.gl3d) { this.entityFrame(p.gx, p.gy); this.drawPlayerGlows(p); }
+  }
+  /** Draw the player's body into his layer canvas (3D if available, else the 2D pictures). Returns {c}. */
+  renderLayer(p) {
+    const L = PLAYER_LAYER, s = this.plScale;
+    if (this.gl3d) { this.gl3d.render(p, L, s); return this._glLayer || (this._glLayer = { c: this.gl3d.g.canvas, x: null }); }
+    const o = this.pl, main = this.ctx;
+    o.x.setTransform(1, 0, 0, 1, 0, 0); o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
+    o.x.clearRect(0, 0, o.c.width, o.c.height);
+    o.x.setTransform(s, 0, 0, s, L.ox * s, L.oy * s);
+    this.ctx = o.x; this.drawRigBody(p, true); this.ctx = main;
+    return o;
+  }
+  /** The player at the current transform's origin (title screen, pose sheets). */
+  drawRigImage(p) {
+    const L = PLAYER_LAYER, o = this.renderLayer(p);
+    this.local(ART.shadow, 0, 0, 50, 30);
+    this.ctx.drawImage(o.c, -L.ox, -L.oy, L.w, L.h);
+    if (this.gl3d) this.drawPlayerGlows(p);
+  }
+  /** Soft halos over the 3D body: visor and blade. */
+  drawPlayerGlows(p) {
+    const R = p.rig, a = p.bodyAlpha;
+    if (p.visorAlpha > 0.01) this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a * 0.8, blend: 'add' });
+    const w = p.weapon, c = this.ctx;
+    c.save(); c.translate(R.weaponX, -R.weaponY); c.rotate(-R.weaponRot);
+    const yc = Math.cos(R.yaw), ys = Math.sin(R.yaw), bd = R.blade;          // on-screen length of the blade direction
+    const bX = bd.s * ys + bd.f * yc, bY = -bd.s * yc + bd.f * ys, bl = Math.hypot(bX, bY * K + bd.z);
+    this.local(ART.spark, w.glow[0] * Math.min(1, bl), 0, w.glow[1] * Math.min(1, bl), w.glow[2], { color: CRIMSON, alpha: p.swordGlow * 0.45, blend: 'add' });
+    c.restore();
   }
   /** The jointed player, drawn at the current transform's origin (his feet). */
   drawRigBody(p, layered) {
@@ -462,7 +493,7 @@ class Renderer {
     this.img(ART.shadow, W / 2 + 95, H * 0.74, 170 * k, 60 * k, {});
     if (player) {
       c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.translate(W / 2 - 95, H * 0.745); c.scale(1.25 * k, 1.25 * k);
-      this.drawRigBody(player);
+      this.drawRigImage(player);
     } else this.img(ART.knight.S, W / 2 - 95, H * 0.745, 64 * 1.3 * k, 96 * 1.3 * k, { ay: 0.04 });
     this.img(ART.sentinel.S, W / 2 + 95, H * 0.745, 132 * 0.95 * k, 170 * 0.95 * k, { ay: 0.03 });
     this.serif('NULLRITE', W / 2, H * 0.86, 34, '#e8dcc4');

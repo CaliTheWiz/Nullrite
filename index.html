@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = 'bb2393';
+const BUILD = '318cc5';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -284,7 +284,8 @@ const RIG = {
   THIGH: 18.5, SHIN: 18.5, UPPER: 14, FORE: 13.5, FOOT: 7.5, HAND: 4.5,
 };
 
-const RIG_LIGHT = [-0.45, -0.35, 0.8];          // light from the camera side, upper left (art + cloth shading)
+const RIG_LIGHT = [-0.45, -0.35, 0.8];
+let USE_3D = false;                                  // set true when the WebGL character renderer is running          // light from the camera side, upper left (art + cloth shading)
 function V3() { return { s: 0, f: 0, z: 0, x: 0, y: 0, d: 0 }; }   // char frame + projected screen + depth
 
 /** Two-bone IK in screen space. Writes the elbow into `mid` and the reached end into `end`.
@@ -326,6 +327,7 @@ class Rig {
     this.yaw = 0; this.view = 'S'; this.flip = 1; this.dir = 12;
     this.lean = 0; this.tilt = 0; this.spin = 0; this.crouch = 0;
     this.phase = 0; this.weaponRot = 0; this.weaponX = 0; this.weaponY = 0; this.weaponKey = 0;
+    this.grip = { s: 0, f: 0, z: 0 }; this.blade = { s: 1, f: 0, z: 0 };
   }
 
   /** char frame -> world -> screen for one joint. */
@@ -376,7 +378,7 @@ class Rig {
       const toe = side < 0 ? J.toeL : J.toeR;
       toe.s = ank.s + side * 1.2; toe.f = ank.f + RIG.FOOT; toe.z = Math.max(0.5, ank.z - 2.5);
     }
-    // ---- spine (3D), then upper body lean in screen space around the waist
+    // ---- spine, all in the char frame; a little roll into the direction he is moving
     J.waist.s = 0; J.waist.f = 0.5; J.waist.z = J.pelvis.z + (RIG.WAIST_Z - RIG.HIP_Z);
     J.neck.s = 0; J.neck.f = 1.0 + o.hunch; J.neck.z = J.pelvis.z + (RIG.NECK_Z - RIG.HIP_Z);
     J.head.s = 0; J.head.f = 1.5 + o.hunch; J.head.z = J.neck.z + 9;
@@ -384,55 +386,59 @@ class Rig {
     for (const sh of [J.shL, J.shR]) { sh.f = 0.5 + o.hunch * 0.6; sh.z = J.pelvis.z + (RIG.SHOULDER_Z - RIG.HIP_Z); }
     J.holster.s = -8.4; J.holster.f = -0.8; J.holster.z = J.pelvis.z + 1.5;
     J.flaskProp.s = 7.9; J.flaskProp.f = 2.2; J.flaskProp.z = J.pelvis.z + 3;
-    for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR', 'shL', 'shR', 'holster', 'flaskProp']) this.project(J[n]);
-    const lc = Math.cos(o.lean), ls = Math.sin(o.lean), px = J.waist.x, py = J.waist.y;
-    for (const n of ['neck', 'head', 'shL', 'shR']) {
-      const q = J[n], dx = q.x - px, dy = q.y - py;
-      q.x = px + dx * lc - dy * ls; q.y = py + dx * ls + dy * lc;
+    if (o.roll) {
+      const rc = Math.cos(o.roll), rs = Math.sin(o.roll), wz = J.waist.z;
+      for (const q of [J.neck, J.head, J.shL, J.shR]) { const ds = q.s, dz = q.z - wz; q.s = ds * rc + dz * rs; q.z = wz - ds * rs + dz * rc; }
     }
-    // ---- arms
-    this.weaponRot0 = o.weaponRot; this.leanNow = o.lean;
-    this.arm(J.shR, J.elR, J.wrR, J.handR, o.rightTarget, o.rightRest, 1);
-    if (o.twoHand && o.rightTarget) {
-      const gx = J.handR.x - Math.cos(o.weaponRot) * o.twoHand.gap, gy = J.handR.y - Math.sin(o.weaponRot) * o.twoHand.gap;
-      this._t2.x = gx; this._t2.y = gy;
-      this.arm(J.shL, J.elL, J.wrL, J.handL, this._t2, null, -1);
-    } else this.arm(J.shL, J.elL, J.wrL, J.handL, o.leftTarget, o.leftRest, -1);
-    // ---- whole-figure tilt (around the feet) and roll spin (around the pelvis)
-    if (o.tilt || o.spin) {
-      const all = this._all;
-      if (o.spin) { const c = Math.cos(o.spin), s = Math.sin(o.spin), cx = J.pelvis.x, cy = J.pelvis.y + 6;
-        for (const q of all) { const dx = q.x - cx, dy = q.y - cy; q.x = cx + dx * c - dy * s; q.y = cy + dx * s + dy * c; } }
-      if (o.tilt) { const c = Math.cos(o.tilt), s = Math.sin(o.tilt);
-        for (const q of all) { const dx = q.x, dy = q.y; q.x = dx * c - dy * s; q.y = dx * s + dy * c; } }
+    // ---- arms (3D IK, elbows fold down / out / back)
+    const G = o.grip, B = o.blade, HG = RIG.HAND * 0.5;
+    this._w.s = G.s - B.s * HG; this._w.f = G.f - B.f * HG; this._w.z = G.z - B.z * HG;
+    this.arm3(J.shR, J.elR, J.wrR, J.handR, this._w, 1, B);
+    // the weapon sits where the right hand actually got to
+    this.grip.s = J.wrR.s + B.s * HG; this.grip.f = J.wrR.f + B.f * HG; this.grip.z = J.wrR.z + B.z * HG;
+    this.blade.s = B.s; this.blade.f = B.f; this.blade.z = B.z;
+    if (o.twoHand) {
+      const gap = o.twoHand.gap;
+      this._w.s = this.grip.s - B.s * (gap + HG); this._w.f = this.grip.f - B.f * (gap + HG); this._w.z = this.grip.z - B.z * (gap + HG);
+      this.arm3(J.shL, J.elL, J.wrL, J.handL, this._w, -1, B);
+    } else this.arm3(J.shL, J.elL, J.wrL, J.handL, o.leftTarget || o.leftRest, -1, null);
+    // ---- death: fall backward around the feet
+    if (o.tilt) {
+      const c = Math.cos(o.tilt), sn = Math.sin(o.tilt);
+      for (const q of this._all) { const f = q.f, z = q.z; q.f = f * c - z * sn; q.z = f * sn + z * c; }
+      for (const q of [this.grip, this.blade]) { const f = q.f, z = q.z; q.f = f * c - z * sn; q.z = f * sn + z * c; }
     }
-    this.weaponRot = o.weaponRot + (o.spin || 0) + (o.tilt || 0);
-    this.weaponX = J.handR.x; this.weaponY = J.handR.y;
-    this.bodyRot = o.lean + (o.spin || 0) + (o.tilt || 0);
+    // ---- screen projection (2D fallback renderer, visor glow, props)
+    for (const q of this._all) this.project(q);
+    const gq = this._tmp; gq.s = this.grip.s; gq.f = this.grip.f; gq.z = this.grip.z; this.project(gq);
+    const tx = gq.x, ty = gq.y, td = gq.d;
+    gq.s += this.blade.s * 20; gq.f += this.blade.f * 20; gq.z += this.blade.z * 20; this.project(gq);
+    this.weaponX = tx; this.weaponY = ty; this.weaponRot = Math.atan2(gq.y - ty, gq.x - tx);
+    this.weaponRot0 = this.weaponRot; this.leanNow = 0;
+    this.bodyRot = 0;
+    o.weaponDepth = td;
     this.place(o);
   }
 
-  /** One arm. target (screen) -> IK; otherwise rest (char frame) -> project -> IK. */
-  arm(sh, el, wr, hand, target, rest, side) {
-    let tx, ty;
-    if (target) { tx = target.x; ty = target.y; }
-    else { const q = this._tmp; q.s = rest.s; q.f = rest.f; q.z = rest.z; this.project(q); tx = q.x; ty = q.y; }
-    // elbow folds outward (away from the body centre on screen) and down: try both folds, keep the better one
-    const ox = sh.x - this.j.waist.x;
-    const out = Math.abs(ox) > 3 ? Math.sign(ox) : -(Math.sign(this._c) || 1);   // side views: elbow folds back
-    ik2(sh.x, sh.y, tx, ty, RIG.UPPER, RIG.FORE, 1, this._m1, this._e1);
-    ik2(sh.x, sh.y, tx, ty, RIG.UPPER, RIG.FORE, -1, this._m2, this._e2);
-    const score = (m) => (m.x - sh.x) * out - (m.y - sh.y) * 0.6;
-    const m = score(this._m1) >= score(this._m2) ? this._m1 : this._m2, e = this._e1;
-    el.x = m.x; el.y = m.y; wr.x = e.x; wr.y = e.y;
-    // depth: blend shoulder depth toward the target's depth
-    el.d = sh.d + (this._tdepth(target, rest, sh) - sh.d) * 0.5; wr.d = this._tdepth(target, rest, sh);
-    const ang = target ? this.weaponRot0 : Math.atan2(wr.y - el.y, wr.x - el.x);
-    hand.x = wr.x + Math.cos(ang) * RIG.HAND; hand.y = wr.y + Math.sin(ang) * RIG.HAND; hand.d = wr.d;
-  }
-  _tdepth(target, rest, sh) {
-    if (target) return target.d === undefined ? sh.d : target.d;
-    return -rest.s * this._c + rest.f * this._s;
+  /** Two-bone arm IK in the char frame. side +1 right / -1 left; handDir: where the hand points (or along the forearm). */
+  arm3(sh, el, wr, hand, t, side, handDir) {
+    const L1 = RIG.UPPER, L2 = RIG.FORE;
+    const ds = t.s - sh.s, df = t.f - sh.f, dz = t.z - sh.z, d = Math.hypot(ds, df, dz) || 1e-4;
+    const dd = clamp(d, Math.abs(L1 - L2) + 0.5, L1 + L2 - 0.05);
+    const us = ds / d, uf = df / d, uz = dz / d;
+    // pole: out to his side, a little back, and down
+    let ps = side * 0.6, pf = -0.35, pz = -1;
+    const k = ps * us + pf * uf + pz * uz; ps -= k * us; pf -= k * uf; pz -= k * uz;
+    let pl = Math.hypot(ps, pf, pz);
+    if (pl < 1e-3) { ps = side; pf = 0; pz = 0; pl = 1; }
+    ps /= pl; pf /= pl; pz /= pl;
+    const a = (L1 * L1 - L2 * L2 + dd * dd) / (2 * dd), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+    el.s = sh.s + us * a + ps * h; el.f = sh.f + uf * a + pf * h; el.z = sh.z + uz * a + pz * h;
+    wr.s = sh.s + us * dd; wr.f = sh.f + uf * dd; wr.z = sh.z + uz * dd;
+    let hs, hf, hz;
+    if (handDir) { hs = handDir.s; hf = handDir.f; hz = handDir.z; }
+    else { hs = wr.s - el.s; hf = wr.f - el.f; hz = wr.z - el.z; const hl = Math.hypot(hs, hf, hz) || 1; hs /= hl; hf /= hl; hz /= hl; }
+    hand.s = wr.s + hs * RIG.HAND; hand.f = wr.f + hf * RIG.HAND; hand.z = wr.z + hz * RIG.HAND;
   }
 
   /** Fill each part's screen placement + sort key (bigger key = drawn first = further back). */
@@ -459,13 +465,13 @@ class Rig {
     P.pelvis.rot = this.bodyRot - this.leanNow;
     P.weapon.key = o.weaponDepth;
     P.handR.key = Math.min(P.handR.key, o.weaponDepth - 0.05);
-    if (o.twoHand && o.rightTarget) P.handL.key = Math.min(P.handL.key, o.weaponDepth - 0.05);
+    if (o.twoHand) P.handL.key = Math.min(P.handL.key, o.weaponDepth - 0.05);
     P.offhand.key = P.handL.key + 0.05;
     this.order.sort((a, b) => b.key - a.key);
   }
 }
 // scratch objects (allocated once)
-Rig.prototype._tmp = V3(); Rig.prototype._t2 = { x: 0, y: 0, d: undefined };
+Rig.prototype._tmp = V3(); Rig.prototype._w = V3();
 Rig.prototype._m1 = { x: 0, y: 0 }; Rig.prototype._m2 = { x: 0, y: 0 }; Rig.prototype._e1 = { x: 0, y: 0 }; Rig.prototype._e2 = { x: 0, y: 0 };
 Object.defineProperty(Rig.prototype, '_all', { get() { if (!this.__all) this.__all = Object.values(this.j); return this.__all; } });
 Rig.prototype.weaponRot0 = 0;
@@ -477,6 +483,7 @@ function pickDir16(facing, cur) {
   return Math.abs(wrap(facing - cur * step)) <= step / 2 + 6 * RAD ? cur : n;     // hysteresis
 }
 const _rt = { x: 0, y: 0, d: 0 }, _lt = { x: 0, y: 0, d: 0 }, _lr = { s: 0, f: 0, z: 0 }, _rr = { s: 0, f: 0, z: 0 };
+const _grip = { s: 0, f: 0, z: 0 }, _blade = { s: 1, f: 0, z: 0 };
 const _feet = { spread: 0, f: 0, fwd: 0, z: 0 }, _walk = { ms: 0, mf: 1, amp: 0, phase: 0 }, _two = { gap: 8 };
 const _pose = { yaw: 0, view: 'S', flip: 1, walk: _walk, feet: _feet, crouch: 0, lean: 0, hunch: 0, tilt: 0, spin: 0,
   rightTarget: _rt, leftTarget: null, leftRest: _lr, rightRest: _rr, weaponRot: 0, weaponDepth: 0, twoHand: null };
@@ -484,7 +491,7 @@ const _pose = { yaw: 0, view: 'S', flip: 1, walk: _walk, feet: _feet, crouch: 0,
 function poseRig(p, dt, t) {
   const R = p.rig, st = p.state, mv = p.move, o = _pose, W = p.weapon;
   p.rigDir = pickDir16(p.facing, p.rigDir);
-  const yaw = p.rigDir * TAU / RIG_DIRS, cy = Math.cos(yaw), sy = Math.sin(yaw);
+  const yaw = USE_3D ? p.facing : p.rigDir * TAU / RIG_DIRS, cy = Math.cos(yaw), sy = Math.sin(yaw);
   o.yaw = yaw;
   // ---- walking
   const spd = hypot(p.vx, p.vy), loco = st === S_IDLE || st === S_MOVE;
@@ -544,11 +551,16 @@ function poseRig(p, dt, t) {
     crouch = 6 + 12 * Math.min(1, p.state_t / 0.35); tilt = p.bodyRot; lean = 0;
     void k;
   }
-  o.crouch = crouch; o.hunch = hunch; o.lean = lean * 0.8; o.tilt = tilt; o.spin = spin;
-  // ---- right hand holds the weapon where the weapon animation puts its grip
-  _rt.x = p.swordX; _rt.y = p.swordY; _rt.d = Math.sin(p.sword_angle) * p.sword_r * 0.6;
-  o.weaponRot = p.sword_rot; o.weaponDepth = _rt.d;
-  o.rightTarget = _rt;
+  // lean into the direction of travel (a roll toward the side he is moving to)
+  const roll = loco || st === S_DODGE ? clamp(_walk.ms * Math.min(1.4, spd / PLAYER_SPEED), -1.4, 1.4) * 0.1 : 0;
+  o.crouch = crouch; o.hunch = hunch; o.roll = roll; o.tilt = st === S_DEAD ? Math.abs(tilt) : 0; o.spin = 0; o.lean = 0;
+  void lean; void spin;
+  // ---- the weapon in 3D: grip position and blade direction from the weapon animation, in the char frame
+  const ga = p.sword_angle, gr = p.sword_r, gX = Math.cos(ga) * gr, gY = Math.sin(ga) * gr;
+  _grip.s = gX * sy - gY * cy; _grip.f = gX * cy + gY * sy; _grip.z = p.sword_elev;
+  const bh = p.bladeH, be = p.bladeE, bX = Math.cos(be) * Math.cos(bh), bY = Math.cos(be) * Math.sin(bh);
+  _blade.s = bX * sy - bY * cy; _blade.f = bX * cy + bY * sy; _blade.z = Math.sin(be);
+  o.grip = _grip; o.blade = _blade;
   o.capeLow = p.cloths.cape && p.cloths.cape.live ? p.cloths.cape.lowDepth() : undefined;
   o.tabardDepth = p.cloths.tabard && p.cloths.tabard.live ? p.cloths.tabard.lowDepth() : undefined;
   R.pose(o);
@@ -571,7 +583,7 @@ class Cloth {
     const F = () => new Float64Array(n);
     this.x = F(); this.y = F(); this.z = F(); this.px = F(); this.py = F(); this.pz = F();
     this.rx = F(); this.ry = F(); this.rz = F(); this.lenV = F(); this.lenH = F();
-    this.sx = F(); this.sy = F(); this.sd = F();
+    this.sx = F(); this.sy = F(); this.sd = F(); this._cs = new Float32Array(n * 3);   // char-frame copy for the 3D renderer
     this.live = false; this.cloth = cl; this.t = 0; this.joint = cl.kind === 'front' ? 'pelvis' : 'neck';
     this.quads = []; for (let i = 0; i < (this.cols - 1) * (this.rows - 1); i++) this.quads.push({ i: 0, d: 0, key: 0, outer: true, light: 0, row: 0, quad: true, cloth: this });
     this.shape(cl);
@@ -681,11 +693,12 @@ class Cloth {
   /** Project into the player's layer space (origin at his feet, y up) and prepare the sorted quads. */
   project(p) {
     const n = this.x.length, C = this.cols, front = this.cloth.kind === 'front', R = p.rig;
+    const fx = Math.cos(R.yaw), fy = Math.sin(R.yaw);
     for (let k = 0; k < n; k++) {
       const X = this.x[k] - p.gx, Y = this.y[k] - p.gy;
       this.sx[k] = X; this.sy[k] = Y * K + this.z[k]; this.sd[k] = Y;
+      this._cs[k * 3] = X * fy - Y * fx; this._cs[k * 3 + 1] = X * fx + Y * fy; this._cs[k * 3 + 2] = this.z[k];
     }
-    const fx = Math.cos(R.yaw), fy = Math.sin(R.yaw);
     let qi = 0;
     for (let j = 0; j < this.rows - 1; j++) for (let i = 0; i < C - 1; i++) {
       const k = j * C + i, Q = this.quads[qi++];
@@ -1254,6 +1267,10 @@ class Player {
     this.swordX = Math.cos(a) * this.sword_r;
     this.swordY = Math.sin(a) * this.sword_r * K + this.sword_elev;
     const radial = groundToScreenAngle(point === null ? a : point);       // stances aim the blade on their own
+    // 3D blade direction for the jointed body: horizontal heading + elevation (up 1 = straight up, -1 = tip down)
+    const bh_t = point === null ? a : point;
+    this.bladeH = (direct || dt === 0 || this.bladeH === undefined) ? bh_t : approachAngle(this.bladeH, bh_t, 18 * dt);
+    this.bladeE = this.sword_up * Math.PI / 2 * 0.95;
     const upright = Math.PI / 2 - 0.3 * (Math.cos(a) > 0 ? 1 : -1) + 0.1 * Math.sin(t * 1.7);
     const rot_t = this.sword_up >= 0 ? radial + wrap(upright - radial) * this.sword_up
       : radial + wrap(-Math.PI / 2 - radial) * -this.sword_up;          // negative tilt: tip toward the floor
@@ -2818,6 +2835,591 @@ function buildRigArt(A) {
   for (const id in GEAR_ART) bake(id, GEAR_ART[id]);
 }
 
+// ============================================================ GL3D (WebGL character renderer core)
+// One small shader: 2-bone skinning, the game's 2.5D projection, soft key light + sky/ground fill,
+// crimson rim light, plate specular, emissive glows and a hit-flash tint. Depth buffer does the sorting.
+
+const GL_BONES = 20;                         // skin matrices uploaded per frame
+const GL_STRIDE = 14;                        // pos3 nrm3 col3 bone2 weight1 emit1 spec1
+
+const GL_VS = `
+precision highp float;
+attribute vec3 aPos; attribute vec3 aNrm; attribute vec3 aCol; attribute vec2 aBone; attribute float aW;
+attribute float aEmit; attribute float aSpec;
+uniform mat4 uBones[${GL_BONES}];
+uniform vec2 uYaw;           // cos, sin of facing
+uniform vec4 uBox;           // layer: origin x, origin y (points from top-left), width, height
+uniform float uK;
+varying vec3 vN; varying vec3 vCol; varying float vEmit; varying float vSpec; varying float vZ;
+void main() {
+  mat4 m = uBones[int(aBone.x)] * aW + uBones[int(aBone.y)] * (1.0 - aW);
+  vec3 p = (m * vec4(aPos, 1.0)).xyz;
+  vec3 n = (m * vec4(aNrm, 0.0)).xyz;
+  // char frame (s right, f forward, z up) -> world (X, Y away from camera, Z up)
+  float c = uYaw.x, s = uYaw.y;
+  vec3 W = vec3(p.x * s + p.y * c, -p.x * c + p.y * s, p.z);
+  vN = vec3(n.x * s + n.y * c, -n.x * c + n.y * s, n.z);
+  float sx = uBox.x + W.x, sy = uBox.y - (W.y * uK + W.z);
+  gl_Position = vec4(sx / uBox.z * 2.0 - 1.0, 1.0 - sy / uBox.w * 2.0, (W.y - uK * W.z) / 420.0, 1.0);
+  vCol = aCol; vEmit = aEmit; vSpec = aSpec; vZ = W.z;
+}`;
+
+const GL_FS = `
+precision mediump float;
+varying vec3 vN; varying vec3 vCol; varying float vEmit; varying float vSpec; varying float vZ;
+uniform vec3 uLight; uniform vec3 uView; uniform vec3 uRim; uniform vec4 uFlash; uniform vec3 uBack;
+uniform float uBackMix; uniform float uEmitGain;
+void main() {
+  vec3 N = normalize(vN);
+  vec3 col = vCol;
+  if (dot(N, uView) < 0.0) { N = -N; col = mix(col, uBack, uBackMix); }   // seeing the inside / underside of a surface
+  float diff = max(dot(N, uLight), 0.0);
+  float hemi = mix(0.45, 1.0, N.z * 0.5 + 0.5);                     // darker undersides
+  float facing = max(dot(N, uView), 0.0);
+  float rim = pow(1.0 - facing, 4.0);
+  vec3 H = normalize(uLight + uView);
+  float spec = pow(max(dot(N, H), 0.0), 28.0) * vSpec;
+  vec3 lit = col * (0.32 * hemi + 0.95 * diff) + spec * vec3(0.85, 0.86, 0.95) + rim * uRim;
+  lit = mix(lit, col * uEmitGain, vEmit);
+  lit += uFlash.rgb * uFlash.a;                                         // hit / glow flash (additive)
+  gl_FragColor = vec4(lit, 1.0);
+}`;
+
+function glCompile(gl, type, src) {
+  const sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+
+/** A mesh under construction: plain arrays, uploaded once by GLChar.upload(). */
+class MeshBuilder {
+  constructor() { this.v = []; this.i = []; }
+  get count() { return this.v.length / GL_STRIDE; }
+  vert(p, n, col, b0, b1, w, emit, spec) {
+    this.v.push(p[0], p[1], p[2], n[0], n[1], n[2], col[0], col[1], col[2], b0, b1, w, emit || 0, spec || 0);
+    return this.count - 1;
+  }
+  tri(a, b, c) { this.i.push(a, b, c); }
+  quad(a, b, c, d) { this.i.push(a, b, c, a, c, d); }
+}
+
+function hexRGB(h) { const v = parseInt(h.slice(1), 16); return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255]; }
+const v3 = {
+  add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+  mul: (a, k) => [a[0] * k, a[1] * k, a[2] * k], dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  len: (a) => Math.hypot(a[0], a[1], a[2]), norm: (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+  lerp: (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t],
+};
+
+/** Orthonormal frame (as a 3x4 column matrix in a Float32Array(16), mat4 layout) from origin, axis and a reference. */
+function frameFrom(out, o, axis, ref) {
+  const x = v3.norm(axis); let y = v3.sub(ref, v3.mul(x, v3.dot(ref, x)));
+  if (v3.len(y) < 1e-4) y = Math.abs(x[2]) < 0.9 ? v3.sub([0, 0, 1], v3.mul(x, x[2])) : v3.sub([0, 1, 0], v3.mul(x, x[1]));
+  y = v3.norm(y); const z = v3.cross(x, y);
+  out[0] = x[0]; out[1] = x[1]; out[2] = x[2]; out[3] = 0;
+  out[4] = y[0]; out[5] = y[1]; out[6] = y[2]; out[7] = 0;
+  out[8] = z[0]; out[9] = z[1]; out[10] = z[2]; out[11] = 0;
+  out[12] = o[0]; out[13] = o[1]; out[14] = o[2]; out[15] = 1;
+  return out;
+}
+function mat4Mul(out, a, b) {                  // out = a * b (column-major)
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++)
+    out[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+  return out;
+}
+function mat4InvRigid(out, m) {                // inverse of rotation+translation (+uniform scale 1)
+  out[0] = m[0]; out[1] = m[4]; out[2] = m[8]; out[3] = 0;
+  out[4] = m[1]; out[5] = m[5]; out[6] = m[9]; out[7] = 0;
+  out[8] = m[2]; out[9] = m[6]; out[10] = m[10]; out[11] = 0;
+  out[12] = -(m[0] * m[12] + m[1] * m[13] + m[2] * m[14]);
+  out[13] = -(m[4] * m[12] + m[5] * m[13] + m[6] * m[14]);
+  out[14] = -(m[8] * m[12] + m[9] * m[13] + m[10] * m[14]); out[15] = 1;
+  return out;
+}
+
+class GLChar {
+  constructor(canvas) {
+    const gl = canvas.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true, depth: true });
+    if (!gl) throw new Error('no webgl');
+    this.gl = gl; this.canvas = canvas;
+    const pr = gl.createProgram();
+    gl.attachShader(pr, glCompile(gl, gl.VERTEX_SHADER, GL_VS)); gl.attachShader(pr, glCompile(gl, gl.FRAGMENT_SHADER, GL_FS));
+    gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+    this.pr = pr; gl.useProgram(pr);
+    const A = (n) => gl.getAttribLocation(pr, n), U = (n) => gl.getUniformLocation(pr, n);
+    this.a = { pos: A('aPos'), nrm: A('aNrm'), col: A('aCol'), bone: A('aBone'), w: A('aW'), emit: A('aEmit'), spec: A('aSpec') };
+    this.u = { bones: U('uBones'), yaw: U('uYaw'), box: U('uBox'), k: U('uK'), light: U('uLight'), view: U('uView'), rim: U('uRim'),
+      flash: U('uFlash'), back: U('uBack'), backMix: U('uBackMix'), emitGain: U('uEmitGain') };
+    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.disable(gl.CULL_FACE);
+    gl.uniform1f(this.u.k, K);
+    const L = v3.norm([-0.5, -0.65, 0.75]), V = v3.norm([0, -1, K]);
+    gl.uniform3f(this.u.light, L[0], L[1], L[2]); gl.uniform3f(this.u.view, V[0], V[1], V[2]);
+    gl.uniform3f(this.u.rim, 0.30, 0.04, 0.07);
+  }
+  /** Upload a finished MeshBuilder. dynamic: positions/normals rewritten each frame (cloth). */
+  upload(mb, dynamic) {
+    const gl = this.gl, vb = gl.createBuffer(), ib = gl.createBuffer();
+    const data = new Float32Array(mb.v);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, data, dynamic ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(mb.i), gl.STATIC_DRAW);
+    return { vb, ib, n: mb.i.length, data: dynamic ? data : null };
+  }
+  begin(w, h, box) {
+    const gl = this.gl;
+    if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
+    gl.viewport(0, 0, w, h); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.uniform4f(this.u.box, box[0], box[1], box[2], box[3]);
+  }
+  draw(m) {
+    const gl = this.gl, a = this.a, S = GL_STRIDE * 4;
+    gl.bindBuffer(gl.ARRAY_BUFFER, m.vb); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ib);
+    const at = (loc, n, off) => { if (loc < 0) return; gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, n, gl.FLOAT, false, S, off * 4); };
+    at(a.pos, 3, 0); at(a.nrm, 3, 3); at(a.col, 3, 6); at(a.bone, 2, 9); at(a.w, 1, 11); at(a.emit, 1, 12); at(a.spec, 1, 13);
+    gl.drawElements(gl.TRIANGLES, m.n, gl.UNSIGNED_SHORT, 0);
+  }
+  updateDynamic(m) {
+    const gl = this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, m.vb); gl.bufferSubData(gl.ARRAY_BUFFER, 0, m.data);
+  }
+}
+
+// ============================================================ BODY 3D (meshes + skeleton for the WebGL character)
+// Everything is modelled once at boot in a bind pose (standing, arms down) in the char frame
+// (s = his right, f = forward, z = up). Each vertex is skinned to two bones, so elbows and knees bend
+// smoothly. Armor pieces are their own meshes worn over the body; cloth is rebuilt from the simulation.
+
+const B = { pelvis: 0, spine: 1, neck: 2, head: 3, upperR: 4, foreR: 5, handR: 6, upperL: 7, foreL: 8, handL: 9,
+  thighR: 10, shinR: 11, footR: 12, thighL: 13, shinL: 14, footL: 15, weapon: 16, offhand: 17, world: 18 };
+
+// bind pose joints (char frame)
+const BIND = {
+  pelvis: [0, 0, 40], waist: [0, 0.5, 47], neck: [0, 1, 64], head: [0, 1.5, 73],
+  shR: [10.5, 0.5, 60], elR: [11.4, 0.2, 46.2], wrR: [12, 0.8, 32.8], handR: [12, 1.0, 28.3],
+  shL: [-10.5, 0.5, 60], elL: [-11.4, 0.2, 46.2], wrL: [-12, 0.8, 32.8], handL: [-12, 1.0, 28.3],
+  hipR: [5, 0, 40], kneeR: [5, 0.6, 21.5], ankleR: [5, 0, 3.5], toeR: [6.2, 7.5, 1],
+  hipL: [-5, 0, 40], kneeL: [-5, 0.6, 21.5], ankleL: [-5, 0, 3.5], toeL: [-6.2, 7.5, 1],
+};
+const FWD = [0, 1, 0], UP = [0, 0, 1];
+/** Bone frames from a joint set (bind arrays or the rig's {s,f,z} joints). */
+function boneFrames(J, out) {
+  const g = (n) => { const q = J[n]; return Array.isArray(q) ? q : [q.s, q.f, q.z]; };
+  const F = (i, o, a, ref) => frameFrom(out[i], g(o), v3.sub(g(a), g(o)), ref);
+  F(B.pelvis, 'pelvis', 'waist', FWD); F(B.spine, 'waist', 'neck', FWD);
+  frameFrom(out[B.neck], g('neck'), v3.sub(g('head'), g('neck')), FWD);
+  frameFrom(out[B.head], g('head'), v3.sub(g('head'), g('neck')), FWD);
+  for (const [sd, S] of [['R', 1], ['L', -1]]) {
+    const side = [S, 0, 0];
+    F(B['upper' + sd], 'sh' + sd, 'el' + sd, side); F(B['fore' + sd], 'el' + sd, 'wr' + sd, side); F(B['hand' + sd], 'wr' + sd, 'hand' + sd, side);
+    F(B['thigh' + sd], 'hip' + sd, 'knee' + sd, FWD); F(B['shin' + sd], 'knee' + sd, 'ankle' + sd, FWD); F(B['foot' + sd], 'ankle' + sd, 'toe' + sd, UP);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- mesh helpers (bind space)
+const C3 = (h) => hexRGB(h);
+const MAT = {
+  suit: C3('#18161f'), cloth: C3('#1d1a25'), clothD: C3('#121019'), plate: C3('#3a3c4a'), plateD: C3('#24252f'),
+  leather: C3('#1c140f'), leatherL: C3('#3a2a1c'), gold: C3('#a8823c'), crimson: C3('#ff2a45'), crimsonD: C3('#8A2432'),
+  black: C3('#050407'), steel: C3('#3a3b48'), steelD: C3('#1c1d25'), iron: C3('#5c6070'), wood: C3('#3a2a1c'), glass: C3('#3a0b12'), skin: C3('#1a1820'),
+};
+/** Ring-based tube along a list of samples { p, r:[ru, rv], bones:[b0, b1, w], col | colFn(theta) , emit, spec }. */
+function tube(mb, S, refFn, n, capStart, capEnd, skip) {
+  n = n || 12;
+  const rings = [];
+  for (let k = 0; k < S.length; k++) {
+    const q = S[k], prev = S[Math.max(0, k - 1)].p, next = S[Math.min(S.length - 1, k + 1)].p;
+    const t = v3.norm(v3.sub(next, prev));
+    let u = refFn(q, t); u = v3.norm(v3.sub(u, v3.mul(t, v3.dot(u, t)))); const v = v3.cross(t, u);
+    const ring = [];
+    for (let i = 0; i < n; i++) {
+      const th = i / n * TAU, cu = Math.cos(th), sv = Math.sin(th);
+      const p = v3.add(q.p, v3.add(v3.mul(u, cu * q.r[0]), v3.mul(v, sv * q.r[1])));
+      const nr = v3.norm(v3.add(v3.mul(u, cu / q.r[0]), v3.mul(v, sv / q.r[1])));
+      const m = q.colFn ? q.colFn(th, k) : [q.col, q.emit || 0, q.spec || 0];
+      ring.push(mb.vert(p, nr, m[0], q.bones[0], q.bones[1], q.bones[2], m[1], m[2]));
+    }
+    rings.push(ring);
+  }
+  for (let k = 0; k < rings.length - 1; k++) for (let i = 0; i < n; i++) {
+    if (skip && skip(k, i)) continue;
+    const a = rings[k][i], b = rings[k][(i + 1) % n], c = rings[k + 1][(i + 1) % n], d = rings[k + 1][i];
+    mb.quad(a, b, c, d);
+  }
+  const cap = (k, dir) => {
+    const q = S[k], r = rings[k], t = v3.norm(v3.sub(S[Math.min(S.length - 1, k + 1)].p, S[Math.max(0, k - 1)].p));
+    const m = q.colFn ? q.colFn(0, k) : [q.col, q.emit || 0, q.spec || 0];
+    const tip = mb.vert(v3.add(q.p, v3.mul(t, dir * Math.min(q.r[0], q.r[1]) * 0.6)), v3.mul(t, dir), m[0], q.bones[0], q.bones[1], q.bones[2], m[1], m[2]);
+    for (let i = 0; i < r.length; i++) mb.tri(r[i], r[(i + 1) % r.length], tip);
+  };
+  if (capStart) cap(0, -1); if (capEnd) cap(S.length - 1, 1);
+  return rings;
+}
+/** Samples along a joint chain with smooth two-bone weights at the inner joints. */
+function chainSamples(J, bones, count, radius, col, blend, extra) {
+  const segL = []; let total = 0;
+  for (let i = 0; i < J.length - 1; i++) { const l = v3.len(v3.sub(J[i + 1], J[i])); segL.push(l); total += l; }
+  const out = [];
+  for (let k = 0; k <= count; k++) {
+    const d = total * k / count; let acc = 0, i = 0;
+    while (i < segL.length - 1 && d > acc + segL[i]) { acc += segL[i]; i++; }
+    const t = (d - acc) / segL[i], p = v3.lerp(J[i], J[i + 1], t);
+    // weights: blend across each inner joint over +/- blend units
+    let b0 = bones[i], b1 = bones[i], w = 1;
+    const toEnd = (1 - t) * segL[i], toStart = t * segL[i];
+    if (i < segL.length - 1 && toEnd < blend) { b1 = bones[i + 1]; w = 0.5 + 0.5 * toEnd / blend; }
+    else if (i > 0 && toStart < blend) { b1 = bones[i - 1]; w = 0.5 + 0.5 * toStart / blend; }
+    const r = radius(d / total, i, t);
+    out.push(Object.assign({ p, r, bones: [b0, b1, w], col }, extra ? extra(d / total, i, t) : {}));
+  }
+  return out;
+}
+/** Ellipsoid (optionally a patch: theta 0 = front/+f, psi up). Returns nothing; colFn(th, ps) -> [col, emit, spec]. */
+function ellipsoid(mb, c, R, bones, colFn, nLon, nLat, opts) {
+  opts = opts || {}; nLon = nLon || 16; nLat = nLat || 10;
+  const th0 = opts.th0 === undefined ? -Math.PI : opts.th0, th1 = opts.th1 === undefined ? Math.PI : opts.th1;
+  const ps0 = opts.ps0 === undefined ? -Math.PI / 2 : opts.ps0, ps1 = opts.ps1 === undefined ? Math.PI / 2 : opts.ps1;
+  const grid = [];
+  for (let j = 0; j <= nLat; j++) {
+    const row = [], ps = ps0 + (ps1 - ps0) * j / nLat;
+    for (let i = 0; i <= nLon; i++) {
+      const th = th0 + (th1 - th0) * i / nLon;
+      let p = [R[0] * Math.cos(ps) * Math.sin(th), R[1] * Math.cos(ps) * Math.cos(th), R[2] * Math.sin(ps)];
+      let nr = v3.norm([p[0] / (R[0] * R[0]), p[1] / (R[1] * R[1]), p[2] / (R[2] * R[2])]);
+      if (opts.deform) { const q = opts.deform(p, th, ps); p = q[0]; nr = q[1] || nr; }
+      const m = colFn(th, ps), bw = typeof bones === 'function' ? bones(p) : bones;
+      row.push(mb.vert(v3.add(c, p), nr, m[0], bw[0], bw[1], bw[2], m[1], m[2]));
+    }
+    grid.push(row);
+  }
+  for (let j = 0; j < nLat; j++) for (let i = 0; i < nLon; i++) {
+    if (opts.skip && opts.skip(th0 + (th1 - th0) * (i + 0.5) / nLon, ps0 + (ps1 - ps0) * (j + 0.5) / nLat)) continue;
+    mb.quad(grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]);
+  }
+}
+/** Vertical loft through horizontal ellipse sections [{z, a, b, f}], theta 0 = front. */
+function loftZ(mb, secs, z0, z1, nz, nt, bonesAt, colFn, skip, grow) {
+  grow = grow || [0, 0];
+  const rows = [];
+  for (let j = 0; j <= nz; j++) {
+    const z = z0 + (z1 - z0) * j / nz, q = sectionAt(secs, z), a = q.a + grow[0], b = q.b + grow[1], f = q.f || 0;
+    const dz = 0.6, qa = sectionAt(secs, z - dz), qb = sectionAt(secs, z + dz), slopeA = (qb.a - qa.a) / (2 * dz), slopeB = (qb.b - qa.b) / (2 * dz);
+    const row = [];
+    for (let i = 0; i <= nt; i++) {
+      const th = -Math.PI + TAU * i / nt, s = Math.sin(th), c = Math.cos(th);
+      const p = [a * s, f + b * c, z];
+      const nr = v3.norm([s / a, c / b, -(slopeA * s * s / a + slopeB * c * c / b)]);
+      const m = colFn(th, z), bw = bonesAt(z, th);
+      row.push(mb.vert(p, nr, m[0], bw[0], bw[1], bw[2], m[1], m[2]));
+    }
+    rows.push(row);
+  }
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nt; i++) {
+    if (skip && skip(-Math.PI + TAU * (i + 0.5) / nt, z0 + (z1 - z0) * (j + 0.5) / nz)) continue;
+    mb.quad(rows[j][i], rows[j][i + 1], rows[j + 1][i + 1], rows[j + 1][i]);
+  }
+}
+/** Box from 8 corners helper (centre, half sizes, local axes). */
+function box(mb, c, hx, hy, hz, ax, ay, az, col, bone, emit, spec) {
+  const faces = [[ax, ay, az, hx, hy, hz], [v3.mul(ax, -1), ay, v3.mul(az, -1), hx, hy, hz], [ay, v3.mul(ax, -1), az, hy, hx, hz],
+                 [v3.mul(ay, -1), ax, az, hy, hx, hz], [az, ay, v3.mul(ax, -1), hz, hy, hx], [v3.mul(az, -1), ay, ax, hz, hy, hx]];
+  for (const [n, u, w, hn, hu, hw] of faces) {
+    const o = v3.add(c, v3.mul(n, hn)), P = (a, b) => v3.add(o, v3.add(v3.mul(u, a * hu), v3.mul(w, b * hw)));
+    const i0 = mb.vert(P(-1, -1), n, col, bone, bone, 1, emit, spec), i1 = mb.vert(P(1, -1), n, col, bone, bone, 1, emit, spec);
+    const i2 = mb.vert(P(1, 1), n, col, bone, bone, 1, emit, spec), i3 = mb.vert(P(-1, 1), n, col, bone, bone, 1, emit, spec);
+    mb.quad(i0, i1, i2, i3);
+  }
+}
+const sideRef = (S) => () => [S, 0, 0];
+const fwdRef = () => FWD;
+const upRef = () => UP;
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+// ---------------------------------------------------------------- the base body (under-suit)
+const BODY_TORSO = [
+  { z: 31.5, a: 5.6, b: 4.0 }, { z: 36, a: 7.6, b: 5.2 }, { z: 41, a: 7.7, b: 5.2 }, { z: 46.5, a: 6.8, b: 4.5, f: 0.3 },
+  { z: 51, a: 8.0, b: 5.0, f: 0.5 }, { z: 55, a: 9.4, b: 5.5, f: 0.7 }, { z: 59.5, a: 11.0, b: 5.1, f: 0.3 },
+  { z: 62.5, a: 7.4, b: 4.3 }, { z: 65, a: 3.4, b: 3.1, f: 0.6 },
+];
+function torsoBones(z) {
+  if (z < 43) return [B.pelvis, B.pelvis, 1];
+  if (z < 49) { const w = smoothstep(43, 49, z); return [B.spine, B.pelvis, w]; }
+  if (z > 63.5) return [B.spine, B.neck, 0.6];
+  return [B.spine, B.spine, 1];
+}
+function buildBase(mb) {
+  const suit = (th, z) => [MAT.suit, 0, 0.05];
+  loftZ(mb, BODY_TORSO, 31.5, 65, 22, 20, torsoBones, suit);
+  // neck + skull
+  tube(mb, chainSamples([BIND.neck, BIND.head], [B.neck], 3, () => [3.0, 3.0], MAT.suit, 1), fwdRef, 10, false, false);
+  ellipsoid(mb, v3.add(BIND.head, [0, 1, 0]), [5.2, 5.8, 7.0], [B.head, B.head, 1], (th, ps) =>
+    [Math.abs(th) < 0.7 && ps > -0.45 && ps < 0.35 ? C3('#22202a') : MAT.suit, 0, 0.1], 16, 10);
+  for (const [sd, S] of [['R', 1], ['L', -1]]) {
+    // legs: one smooth tube hip -> knee -> ankle, flat foot
+    const leg = chainSamples([BIND['hip' + sd], BIND['knee' + sd], BIND['ankle' + sd]], [B['thigh' + sd], B['shin' + sd]], 16,
+      (u, i, t) => i === 0 ? [5.2 - 1.4 * t, 5.4 - 1.6 * t] : [3.8 - 1.4 * t + 0.6 * Math.sin(Math.PI * Math.min(1, t * 1.6)) * (1 - t), 3.6 - 1.4 * t + 0.7 * Math.sin(Math.PI * Math.min(1, t * 1.6)) * (1 - t)], MAT.suit, 3.5);
+    tube(mb, leg, fwdRef, 12, true, false);
+    const foot = chainSamples([BIND['ankle' + sd], BIND['toe' + sd]], [B['foot' + sd]], 5, (u) => [2.5 - 0.3 * u, 1.7 - 0.6 * u], MAT.suit, 1);
+    foot[0].bones = [B['foot' + sd], B['shin' + sd], 0.5];
+    tube(mb, foot, upRef, 10, true, true);
+    // arms: shoulder -> elbow -> wrist, then a fist
+    const arm = chainSamples([BIND['sh' + sd], BIND['el' + sd], BIND['wr' + sd]], [B['upper' + sd], B['fore' + sd]], 14,
+      (u, i, t) => i === 0 ? [3.5 - 0.8 * t, 3.4 - 0.8 * t] : [2.7 + 0.4 * Math.sin(Math.PI * Math.min(1, t * 1.8)) * (1 - t) - 0.6 * t, 2.6 + 0.3 * Math.sin(Math.PI * Math.min(1, t * 1.8)) * (1 - t) - 0.6 * t], MAT.suit, 3);
+    tube(mb, arm, sideRef(S), 12, true, false);
+    const fist = chainSamples([BIND['wr' + sd], BIND['hand' + sd]], [B['hand' + sd]], 4, (u) => [2.2 + 0.3 * Math.sin(Math.PI * u), 1.7 + 0.2 * Math.sin(Math.PI * u)], MAT.suit, 1);
+    fist[0].bones = [B['hand' + sd], B['fore' + sd], 0.5];
+    tube(mb, fist, sideRef(S), 10, false, true);
+  }
+}
+
+// ---------------------------------------------------------------- starter set: the hooded hunter
+const GEAR3D = {
+  hunter_hood(mb) {
+    // hood shell with a peak, a real face opening (the dark mask and visor slit show through), and a mantle
+    const c = v3.add(BIND.head, [0, 0.2, 0.6]);
+    ellipsoid(mb, c, [7.0, 7.6, 8.6], [B.head, B.head, 1], (th, ps) => [MAT.cloth, 0, 0.08], 20, 14, {
+      deform: (p, th, ps) => {
+        const back = Math.max(0, -Math.cos(th)), top = Math.max(0, Math.sin(ps));
+        return [[p[0], p[1] - 3.5 * back * top * top, p[2] + 3.2 * Math.pow(top, 3) * back], null];
+      },
+      skip: (th, ps) => Math.abs(th) < 0.72 && ps > -0.5 && ps < 0.42,
+    });
+    // the visor: a glowing slit across the mask
+    ellipsoid(mb, v3.add(BIND.head, [0, 1, 0]), [5.35, 5.95, 7.1], [B.head, B.head, 1], () => [MAT.crimson, 1, 0], 10, 2,
+      { th0: -0.55, th1: 0.55, ps0: 0.02, ps1: 0.16 });
+    // mantle: a short cowl over the shoulders
+    loftZ(mb, [{ z: 55.5, a: 13.2, b: 7.4, f: -0.3 }, { z: 60, a: 11.8, b: 6.6 }, { z: 63.5, a: 7.6, b: 5.4, f: 0.3 }, { z: 66, a: 5.8, b: 4.8, f: 0.4 }],
+      55.5, 66, 6, 22, (z) => z > 62 ? [B.spine, B.neck, 0.7] : [B.spine, B.spine, 1],
+      (th, z) => [z < 56.5 ? MAT.crimsonD : MAT.cloth, z < 56.5 ? 0.35 : 0, 0.06], (th) => Math.abs(th) < 0.45);
+  },
+  hunter_coat(mb) {
+    const col = (th, z) => {
+      if (z > 47.6 && z < 49.6) return [Math.abs(th) < 0.16 ? C3('#d6b46a') : MAT.gold, 0, 0.6];         // belt + buckle
+      if (Math.abs(th) < 0.95 && z > 51 && z < 59.5) return [MAT.plate, 0, 0.55];                         // chest plate
+      if (z > 63) return [MAT.clothD, 0, 0.05];                                                              // collar
+      return [MAT.cloth, 0, 0.06];
+    };
+    loftZ(mb, BODY_TORSO, 36, 65.2, 20, 22, torsoBones, col, null, [0.8, 0.7]);
+    // chest core
+    const cz = 55.5, q = sectionAt(BODY_TORSO, cz), cf = (q.f || 0) + q.b + 0.9;
+    const P = [[0, cf + 0.6, cz + 3.2], [1.9, cf + 0.3, cz], [0, cf + 0.6, cz - 3.2], [-1.9, cf + 0.3, cz]], ctr = [0, cf + 1.4, cz];
+    const ids = P.map(p => mb.vert(p, v3.norm(v3.sub(p, [0, cf - 3, cz])), MAT.crimson, B.spine, B.spine, 1, 1, 0));
+    const ic = mb.vert(ctr, [0, 1, 0], MAT.crimson, B.spine, B.spine, 1, 1, 0);
+    for (let i = 0; i < 4; i++) mb.tri(ids[i], ids[(i + 1) % 4], ic);
+    // coat skirt: split at the front (the tabard hangs there), flaps follow the thighs
+    const SK = [{ z: 24.5, a: 10.2, b: 7.6 }, { z: 36, a: 9.0, b: 6.4 }, { z: 47.5, a: 7.8, b: 5.4, f: 0.3 }];
+    loftZ(mb, SK, 25, 47.5, 8, 24, (z, th) => {
+      const drop = smoothstep(42, 27, z);
+      if (Math.abs(th) > 2.2) return [B.pelvis, B.pelvis, 1];
+      return [B.pelvis, th > 0 ? B.thighR : B.thighL, 1 - 0.6 * drop];
+    }, (th, z) => [z < 26.3 ? MAT.crimsonD : MAT.cloth, z < 26.3 ? 0.4 : 0, 0.05], (th) => Math.abs(th) < 0.28);
+    // pauldrons: three stacked lames over each shoulder
+    for (const [sd, S] of [['R', 1], ['L', -1]]) {
+      const sh = BIND['sh' + sd];
+      [[[1.2, 0, 1.6], [6.6, 6.8, 4.6]], [[2.0, 0, -1.4], [6.0, 6.3, 3.6]], [[2.6, 0, -4.0], [5.2, 5.6, 3.0]]].forEach(([off, R], k) => {
+        const c = v3.add(sh, [off[0] * S, off[1], off[2]]);
+        ellipsoid(mb, c, R, (p) => (p[2] > 0 && k === 0 ? [B['upper' + sd], B.spine, 0.55] : [B['upper' + sd], B.spine, 0.85]),
+          (th, ps) => [ps > 1.0 && Math.abs(th - S * Math.PI / 2) < 0.4 && k === 0 ? MAT.crimsonD : MAT.plate, 0, 0.6], 14, 6,
+          { ps0: -0.2, ps1: Math.PI / 2, th0: S > 0 ? -0.25 : -Math.PI + 0.25 - 0.0, th1: S > 0 ? Math.PI + 0.25 : 0.25 });
+      });
+    }
+  },
+  hunter_gauntlets(mb) {
+    for (const [sd, S] of [['R', 1], ['L', -1]]) {
+      const el = BIND['el' + sd], wr = BIND['wr' + sd];
+      const a = v3.lerp(el, wr, 0.32);
+      const s = chainSamples([a, wr], [B['fore' + sd]], 6, (u) => [3.6 - 0.9 * u, 3.4 - 0.9 * u], MAT.plate, 1,
+        (u) => ({ colFn: (th) => [u < 0.08 ? MAT.crimsonD : MAT.plate, u < 0.08 ? 0.3 : 0, 0.6] }));
+      s[s.length - 1].bones = [B['fore' + sd], B['hand' + sd], 0.6];
+      tube(mb, s, sideRef(S), 12, false, false);
+      const f = chainSamples([wr, BIND['hand' + sd]], [B['hand' + sd]], 4, (u) => [2.6 + 0.4 * Math.sin(Math.PI * u), 2.0 + 0.3 * Math.sin(Math.PI * u)], MAT.plateD, 1, () => ({ spec: 0.5 }));
+      f[0].bones = [B['hand' + sd], B['fore' + sd], 0.6];
+      tube(mb, f, sideRef(S), 10, false, true);
+    }
+  },
+  hunter_greaves(mb) {
+    for (const [sd, S] of [['R', 1], ['L', -1]]) {
+      const hip = BIND['hip' + sd], kn = BIND['knee' + sd], an = BIND['ankle' + sd];
+      // cloth over the thigh, plate cuisse on its lower half
+      tube(mb, chainSamples([hip, kn], [B['thigh' + sd]], 7, (u) => [5.9 - 1.5 * u, 6.0 - 1.6 * u], MAT.cloth, 1,
+        (u) => ({ colFn: () => u > 0.45 ? [MAT.plate, 0, 0.55] : [MAT.cloth, 0, 0.05] })), fwdRef, 12, false, false);
+      // greave with a calf swell
+      const g = chainSamples([v3.lerp(kn, an, 0.06), v3.lerp(kn, an, 0.88)], [B['shin' + sd]], 8,
+        (u) => [4.3 - 1.5 * u + 0.6 * Math.sin(Math.PI * Math.min(1, u * 1.6)) * (1 - u), 4.2 - 1.5 * u + 0.7 * Math.sin(Math.PI * Math.min(1, u * 1.6)) * (1 - u)], MAT.plate, 1, () => ({ spec: 0.6 }));
+      tube(mb, g, fwdRef, 12, false, false);
+      // knee cop: a low plate dome on the front of the knee
+      ellipsoid(mb, v3.add(kn, [0, 2.6, 0.4]), [3.9, 2.4, 3.9], [B['shin' + sd], B['thigh' + sd], 0.5],
+        (th, ps) => [Math.abs(ps) < 0.25 && Math.abs(th) < 0.3 ? MAT.crimsonD : MAT.plate, 0, 0.7], 12, 8, { th0: -1.6, th1: 1.6 });
+    }
+  },
+  hunter_boots(mb) {
+    for (const [sd, S] of [['R', 1], ['L', -1]]) {
+      const kn = BIND['knee' + sd], an = BIND['ankle' + sd], toe = BIND['toe' + sd];
+      const shaft = chainSamples([v3.lerp(kn, an, 0.6), an], [B['shin' + sd]], 4, (u) => [3.6 - 0.6 * u, 3.6 - 0.4 * u], MAT.leather, 1,
+        (u) => ({ colFn: () => u < 0.12 ? [MAT.gold, 0, 0.5] : [MAT.leather, 0, 0.15] }));
+      shaft[shaft.length - 1].bones = [B['shin' + sd], B['foot' + sd], 0.6];
+      tube(mb, shaft, fwdRef, 12, false, false);
+      const f = chainSamples([v3.add(an, [0, -1.6, 0]), toe], [B['foot' + sd]], 6, (u) => [3.1 - 0.4 * u, 2.3 - 0.8 * u], MAT.leather, 1,
+        (u) => ({ colFn: () => u > 0.7 ? [MAT.plateD, 0, 0.6] : [MAT.leather, 0, 0.15] }));
+      f[0].bones = [B['foot' + sd], B['shin' + sd], 0.6];
+      tube(mb, f, upRef, 12, true, true);
+    }
+  },
+};
+
+// ---------------------------------------------------------------- weapons, props (local space: x along the blade, grip at 0)
+function bladeMesh(mb, x0, x1, w0, wTip, thick, guard, emitCol) {
+  // diamond cross-section blade with a glowing fuller down the middle
+  const n = 10;
+  for (let k = 0; k < n; k++) {
+    const ua = k / n, ub = (k + 1) / n, xa = x0 + (x1 - x0) * ua, xb = x0 + (x1 - x0) * ub;
+    const wa = w0 + (wTip - w0) * Math.pow(ua, 1.6), wb = k === n - 1 ? 0 : w0 + (wTip - w0) * Math.pow(ub, 1.6);
+    for (const sz of [1, -1]) {
+      for (const sy of [1, -1]) {
+        const nr = v3.norm([0, sy * thick, sz * 1]);
+        const a = mb.vert([xa, 0, sz * thick], nr, MAT.steel, B.weapon, B.weapon, 1, 0, 0.9);
+        const b = mb.vert([xb, 0, sz * thick * (k === n - 1 ? 0.2 : 1)], nr, MAT.steel, B.weapon, B.weapon, 1, 0, 0.9);
+        const c = mb.vert([xb, sy * wb, 0], nr, MAT.steelD, B.weapon, B.weapon, 1, 0, 0.9);
+        const d = mb.vert([xa, sy * wa, 0], nr, MAT.steelD, B.weapon, B.weapon, 1, 0, 0.9);
+        mb.quad(a, b, c, d);
+      }
+      // fuller: an emissive strip just above the steel on both faces
+      if (k < n - 1) {
+        const fw = 0.9 * (1 - ua * 0.6), z = sz * (thick + 0.05);
+        const a = mb.vert([xa, fw, z], [0, 0, sz], emitCol, B.weapon, B.weapon, 1, 1, 0), b = mb.vert([xb, fw, z], [0, 0, sz], emitCol, B.weapon, B.weapon, 1, 1, 0);
+        const c = mb.vert([xb, -fw, z], [0, 0, sz], emitCol, B.weapon, B.weapon, 1, 1, 0), d = mb.vert([xa, -fw, z], [0, 0, sz], emitCol, B.weapon, B.weapon, 1, 1, 0);
+        mb.quad(a, b, c, d);
+      }
+    }
+  }
+}
+const WEAPON3D = {
+  sword(mb) {
+    bladeMesh(mb, 8, 100, 6.6, 1.2, 1.3, true, MAT.crimson);
+    box(mb, [7, 0, 0], 1.2, 11.5, 1.6, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.plateD, B.weapon, 0, 0.7);          // crossguard
+    for (const y of [-11.5, 11.5]) box(mb, [7, y, 0], 1.6, 1.4, 1.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.crimsonD, B.weapon, 0.3, 0.4);
+    tube(mb, chainSamples([[-10, 0, 0], [6, 0, 0]], [B.weapon], 4, () => [1.5, 1.5], MAT.leather, 1), upRef, 8, false, false);   // grip
+    ellipsoid(mb, [-11, 0, 0], [2.2, 2.2, 2.2], [B.weapon, B.weapon, 1], () => [MAT.plateD, 0, 0.7], 8, 6);                   // pommel
+  },
+  spear(mb) {
+    tube(mb, chainSamples([[-44, 0, 0], [108, 0, 0]], [B.weapon], 6, () => [1.25, 1.25], MAT.wood, 1, () => ({ spec: 0.2 })), upRef, 8, true, false);
+    box(mb, [108, 0, 0], 2.2, 2.0, 2.0, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.plateD, B.weapon, 0, 0.6);
+    bladeMesh(mb, 110, 150, 4.2, 0.6, 1.1, false, MAT.crimson);
+    for (const x of [-20, 30]) tube(mb, chainSamples([[x, 0, 0], [x + 3, 0, 0]], [B.weapon], 1, () => [1.6, 1.6], MAT.gold, 1, () => ({ spec: 0.6 })), upRef, 8, false, false);
+  },
+  pistol(mb) {
+    const bo = B.offhand;
+    box(mb, [6, 0, 1.0], 6, 0.9, 0.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.iron, bo, 0, 0.8);                    // barrel
+    box(mb, [0.5, 0, -1.6], 1.4, 0.9, 2.6, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.wood, bo, 0, 0.2);               // grip
+    box(mb, [1.2, 0, 1.0], 1.6, 1.0, 1.1, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.plateD, bo, 0, 0.6);               // lock
+    box(mb, [2.4, 0, -0.8], 0.8, 0.4, 0.6, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.gold, bo, 0, 0.5);                // trigger guard
+  },
+};
+function propsMesh(mb, which) {
+  if (which === 'holster' || which === 'holsterEmpty') {
+    const c = [-8.6, -0.8, 37.5];
+    box(mb, c, 1.4, 2.4, 4.0, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.leather, B.pelvis, 0, 0.15);
+    box(mb, v3.add(c, [0, 0, 3.6]), 1.5, 2.5, 0.5, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.leatherL, B.pelvis, 0, 0.2);
+    if (which === 'holster') {                                                       // pistol grip sticking out
+      box(mb, v3.add(c, [0, -0.6, 6.0]), 0.9, 1.1, 2.4, [1, 0, 0], v3.norm([0, 1, 0.35]), v3.norm([0, -0.35, 1]), MAT.wood, B.pelvis, 0, 0.2);
+      box(mb, v3.add(c, [0, 0.9, 4.8]), 0.8, 1.2, 0.8, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.steelD, B.pelvis, 0, 0.7);
+    }
+  } else {
+    const c = [8.2, 2.0, 40.5], full = which === 'flask';
+    ellipsoid(mb, c, [1.9, 1.9, 2.8], [B.pelvis, B.pelvis, 1], () => [full ? MAT.crimson : MAT.glass, full ? 0.75 : 0, 0.9], 10, 8);
+    tube(mb, chainSamples([v3.add(c, [0, 0, 2.5]), v3.add(c, [0, 0, 4.4])], [B.pelvis], 1, () => [0.9, 0.9], MAT.wood, 1), fwdRef, 8, false, true);
+  }
+}
+
+// ---------------------------------------------------------------- cloth mesh (positions refreshed every frame)
+function clothMeshFor(cp) {
+  const mb = new MeshBuilder(), C = cp.cols, R = cp.rows, cl = cp.cloth, out = hexRGB(cl.outer), hem = hexRGB(cl.hem.startsWith('#') ? cl.hem : '#8A2432');
+  for (let j = 0; j < R; j++) for (let i = 0; i < C; i++) {
+    const bottom = j === R - 1, col = bottom ? hem : v3.lerp(out, hexRGB(cl.outerL), 0.25 * (1 - j / R));
+    mb.vert([0, 0, 0], [0, 1, 0], col, B.world, B.world, 1, bottom ? 0.4 : 0, 0.04);
+  }
+  for (let j = 0; j < R - 1; j++) for (let i = 0; i < C - 1; i++) { const k = j * C + i; mb.quad(k, k + 1, k + C + 1, k + C); }
+  return mb;
+}
+
+/** The whole character on the GL side: meshes per gear piece, bone matrices, per-frame render. */
+class CharGL {
+  constructor(canvas) {
+    this.g = new GLChar(canvas);
+    const mk = (fn) => { const mb = new MeshBuilder(); fn(mb); return this.g.upload(mb); };
+    this.base = mk(buildBase);
+    this.gear = {}; for (const id in GEAR3D) this.gear[id] = mk(GEAR3D[id]);
+    this.weapons = {}; for (const id in WEAPON3D) this.weapons[id] = mk(WEAPON3D[id]);
+    this.props = {}; for (const w of ['holster', 'holsterEmpty', 'flask', 'flaskEmpty']) this.props[w] = mk((mb) => propsMesh(mb, w));
+    this.cloth = new Map();
+    // bind frames -> inverses
+    this.bind = []; this.bindInv = []; this.cur = []; this.skin = new Float32Array(GL_BONES * 16);
+    for (let i = 0; i < GL_BONES; i++) { this.bind.push(new Float32Array(16)); this.bindInv.push(new Float32Array(16)); this.cur.push(new Float32Array(16)); }
+    boneFrames(BIND, this.bind);
+    for (let i = 0; i < GL_BONES; i++) {
+      if (i <= B.footL) mat4InvRigid(this.bindInv[i], this.bind[i]);
+      else { const m = this.bindInv[i]; m.fill(0); m[0] = m[5] = m[10] = m[15] = 1; }
+    }
+    this._tmp = new Float32Array(16);
+  }
+  clothMesh(cp) {
+    let m = this.cloth.get(cp);
+    if (!m) { m = this.g.upload(clothMeshFor(cp), true); this.cloth.set(cp, m); }
+    const d = m.data, R = cp.rows * cp.cols, C = cp.cols, rows = cp.rows;
+    for (let k = 0; k < R; k++) {                                         // world -> char frame, normals from the grid
+      d[k * GL_STRIDE] = cp._cs[k * 3]; d[k * GL_STRIDE + 1] = cp._cs[k * 3 + 1]; d[k * GL_STRIDE + 2] = cp._cs[k * 3 + 2];
+    }
+    for (let j = 0; j < rows; j++) for (let i = 0; i < C; i++) {
+      const k = j * C + i, P = (q) => [d[q * GL_STRIDE], d[q * GL_STRIDE + 1], d[q * GL_STRIDE + 2]];
+      const a = P(j * C + Math.min(C - 1, i + 1)), b = P(j * C + Math.max(0, i - 1));
+      const c = P(Math.min(rows - 1, j + 1) * C + i), e = P(Math.max(0, j - 1) * C + i);
+      const n = v3.norm(v3.cross(v3.sub(a, b), v3.sub(c, e)));
+      d[k * GL_STRIDE + 3] = n[0]; d[k * GL_STRIDE + 4] = n[1]; d[k * GL_STRIDE + 5] = n[2];
+    }
+    this.g.updateDynamic(m);
+    return m;
+  }
+  /** Render player p into the GL canvas (layer box in points, s = pixels per point). */
+  render(p, L, s) {
+    const g = this.g, gl = g.gl, R = p.rig, J = R.j;
+    g.begin(Math.round(L.w * s), Math.round(L.h * s), [L.ox, L.oy, L.w, L.h]);
+    gl.uniform2f(g.u.yaw, Math.cos(R.yaw), Math.sin(R.yaw));
+    boneFrames(J, this.cur);
+    // weapon: grip at the right hand, x along the blade
+    const G = R.grip, Bd = R.blade, wsc = p.sword_scale || 1;
+    // keep the flat of the blade turned toward the camera so it always reads at full width
+    const cyw = Math.cos(R.yaw), syw = Math.sin(R.yaw), Vc = [cyw, -syw, K];
+    let ref = v3.cross([Bd.s, Bd.f, Bd.z], Vc); if (v3.len(ref) < 1e-3) ref = [0, 0, 1];
+    frameFrom(this.cur[B.weapon], [G.s, G.f, G.z], [Bd.s, Bd.f, Bd.z], ref);
+    for (let k = 0; k < 12; k++) if (k % 4 !== 3) this.cur[B.weapon][k] *= wsc;
+    // off-hand item: at the left fist, pointing along the forearm
+    frameFrom(this.cur[B.offhand], [J.handL.s, J.handL.f, J.handL.z], [J.wrL.s - J.elL.s, J.wrL.f - J.elL.f, J.wrL.z - J.elL.z], [0, 0, 1]);
+    const I = this.cur[B.world]; I.fill(0); I[0] = I[5] = I[10] = I[15] = 1;
+    for (let i = 0; i < GL_BONES; i++) {
+      mat4Mul(this._tmp, this.cur[i], this.bindInv[i]);
+      this.skin.set(this._tmp, i * 16);
+    }
+    gl.uniformMatrix4fv(g.u.bones, false, this.skin);
+    const fa = p.glowAlpha > 0.01 ? p.glowAlpha : 0, fc = hexRGB(p.glowColor && p.glowColor[0] === '#' ? p.glowColor : '#ff3048');
+    gl.uniform4f(g.u.flash, fc[0], fc[1], fc[2], fa * 0.4);
+    gl.uniform3f(g.u.back, 0.05, 0.04, 0.06); gl.uniform1f(g.u.backMix, 0.6); gl.uniform1f(g.u.emitGain, 1.5);
+    g.draw(this.base);
+    for (const slot of GEAR_SLOTS) { const id = p.gear[slot]; if (id && this.gear[id]) g.draw(this.gear[id]); }
+    const drawn = p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
+    g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']); g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
+    if (drawn) g.draw(this.weapons.pistol);
+    gl.uniform1f(g.u.emitGain, 1.1 + 1.6 * (p.swordGlow || 0));
+    const wm = this.weapons[p.weapon.tex]; if (wm) g.draw(wm);
+    // cloth: back faces show the lining colour
+    for (const name in p.cloths) {
+      const cp = p.cloths[name]; if (!cp.live) continue;
+      const lin = hexRGB(cp.cloth.lining); gl.uniform3f(g.u.back, lin[0], lin[1], lin[2]); gl.uniform1f(g.u.backMix, 0.85);
+      gl.uniform1f(g.u.emitGain, 1.4);
+      g.draw(this.clothMesh(cp));
+    }
+  }
+}
+
 // ============================================================ AUDIO (WebAudio, synthesized at boot)
 const SR = 22050;
 
@@ -3081,6 +3683,10 @@ class Renderer {
     const s = dpr * CAMERA_ZOOM, L = PLAYER_LAYER;
     const mk = () => { const c = newCanvas(L.w * s, L.h * s); return { c, x: c.getContext('2d') }; };
     this.pl = mk(); this.plScale = s;
+    if (this.gl3d === undefined) {                             // the 3D character renderer (falls back to 2D pictures)
+      try { this.gl3d = new CharGL(newCanvas(L.w * s, L.h * s)); USE_3D = true; }
+      catch (e) { this.gl3d = null; USE_3D = false; console.warn('3D character off:', e.message); }
+    }
     this.ghosts = []; for (let i = 0; i < 6; i++) { const q = mk(); q.live = false; q.t0 = 0; q.gx = 0; q.gy = 0; this.ghosts.push(q); }
     this.ghostSeq = 0;
   }
@@ -3261,12 +3867,9 @@ class Renderer {
     c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
   }
   drawPlayer(p) {
-    const L = PLAYER_LAYER, s = this.plScale, o = this.pl, main = this.ctx;
-    o.x.setTransform(1, 0, 0, 1, 0, 0); o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
-    o.x.clearRect(0, 0, o.c.width, o.c.height);
-    o.x.setTransform(s, 0, 0, s, L.ox * s, L.oy * s);
-    this.ctx = o.x; this.drawRigBody(p, true); this.ctx = main;
-    if (p.glowAlpha > 0.01) {                                  // flash tint over the whole body at once
+    const L = PLAYER_LAYER, s = this.plScale, main = this.ctx;
+    const o = this.renderLayer(p);
+    if (!this.gl3d && p.glowAlpha > 0.01) {                    // flash tint over the whole body at once (3D does it in the shader)
       o.x.setTransform(1, 0, 0, 1, 0, 0); o.x.globalCompositeOperation = 'source-atop'; o.x.globalAlpha = p.glowAlpha;
       o.x.fillStyle = p.glowColor; o.x.fillRect(0, 0, o.c.width, o.c.height);
       o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
@@ -3275,7 +3878,7 @@ class Renderer {
       this.ghostSeq = p.ghostSeq || 0;
       const q = this.ghosts.find(z => !z.live) || this.ghosts.reduce((a, z) => (z.t0 < a.t0 ? z : a));
       q.x.setTransform(1, 0, 0, 1, 0, 0); q.x.globalCompositeOperation = 'source-over'; q.x.globalAlpha = 1;
-      q.x.clearRect(0, 0, q.c.width, q.c.height); q.x.drawImage(o.c, 0, 0);
+      q.x.clearRect(0, 0, q.c.width, q.c.height); q.x.drawImage(o.c, 0, 0, q.c.width, q.c.height);
       q.x.globalCompositeOperation = 'source-atop'; q.x.fillStyle = CRIMSON; q.x.fillRect(0, 0, q.c.width, q.c.height);
       q.x.globalCompositeOperation = 'source-over';
       q.live = true; q.t0 = this.g.t; q.gx = p.gx; q.gy = p.gy;
@@ -3285,6 +3888,36 @@ class Renderer {
     main.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); main.globalAlpha = p.bodyAlpha; main.globalCompositeOperation = 'source-over';
     main.drawImage(o.c, this.sx(p.gx) - L.ox * CAMERA_ZOOM, this.sy(p.gy * K) - L.oy * CAMERA_ZOOM, L.w * CAMERA_ZOOM, L.h * CAMERA_ZOOM);
     main.globalAlpha = 1;
+    if (this.gl3d) { this.entityFrame(p.gx, p.gy); this.drawPlayerGlows(p); }
+  }
+  /** Draw the player's body into his layer canvas (3D if available, else the 2D pictures). Returns {c}. */
+  renderLayer(p) {
+    const L = PLAYER_LAYER, s = this.plScale;
+    if (this.gl3d) { this.gl3d.render(p, L, s); return this._glLayer || (this._glLayer = { c: this.gl3d.g.canvas, x: null }); }
+    const o = this.pl, main = this.ctx;
+    o.x.setTransform(1, 0, 0, 1, 0, 0); o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
+    o.x.clearRect(0, 0, o.c.width, o.c.height);
+    o.x.setTransform(s, 0, 0, s, L.ox * s, L.oy * s);
+    this.ctx = o.x; this.drawRigBody(p, true); this.ctx = main;
+    return o;
+  }
+  /** The player at the current transform's origin (title screen, pose sheets). */
+  drawRigImage(p) {
+    const L = PLAYER_LAYER, o = this.renderLayer(p);
+    this.local(ART.shadow, 0, 0, 50, 30);
+    this.ctx.drawImage(o.c, -L.ox, -L.oy, L.w, L.h);
+    if (this.gl3d) this.drawPlayerGlows(p);
+  }
+  /** Soft halos over the 3D body: visor and blade. */
+  drawPlayerGlows(p) {
+    const R = p.rig, a = p.bodyAlpha;
+    if (p.visorAlpha > 0.01) this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a * 0.8, blend: 'add' });
+    const w = p.weapon, c = this.ctx;
+    c.save(); c.translate(R.weaponX, -R.weaponY); c.rotate(-R.weaponRot);
+    const yc = Math.cos(R.yaw), ys = Math.sin(R.yaw), bd = R.blade;          // on-screen length of the blade direction
+    const bX = bd.s * ys + bd.f * yc, bY = -bd.s * yc + bd.f * ys, bl = Math.hypot(bX, bY * K + bd.z);
+    this.local(ART.spark, w.glow[0] * Math.min(1, bl), 0, w.glow[1] * Math.min(1, bl), w.glow[2], { color: CRIMSON, alpha: p.swordGlow * 0.45, blend: 'add' });
+    c.restore();
   }
   /** The jointed player, drawn at the current transform's origin (his feet). */
   drawRigBody(p, layered) {
@@ -3526,7 +4159,7 @@ class Renderer {
     this.img(ART.shadow, W / 2 + 95, H * 0.74, 170 * k, 60 * k, {});
     if (player) {
       c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.translate(W / 2 - 95, H * 0.745); c.scale(1.25 * k, 1.25 * k);
-      this.drawRigBody(player);
+      this.drawRigImage(player);
     } else this.img(ART.knight.S, W / 2 - 95, H * 0.745, 64 * 1.3 * k, 96 * 1.3 * k, { ay: 0.04 });
     this.img(ART.sentinel.S, W / 2 + 95, H * 0.745, 132 * 0.95 * k, 170 * 0.95 * k, { ay: 0.03 });
     this.serif('NULLRITE', W / 2, H * 0.86, 34, '#e8dcc4');

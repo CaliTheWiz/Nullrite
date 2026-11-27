@@ -11,7 +11,8 @@ const RIG = {
   THIGH: 18.5, SHIN: 18.5, UPPER: 14, FORE: 13.5, FOOT: 7.5, HAND: 4.5,
 };
 
-const RIG_LIGHT = [-0.45, -0.35, 0.8];          // light from the camera side, upper left (art + cloth shading)
+const RIG_LIGHT = [-0.45, -0.35, 0.8];
+let USE_3D = false;                                  // set true when the WebGL character renderer is running          // light from the camera side, upper left (art + cloth shading)
 function V3() { return { s: 0, f: 0, z: 0, x: 0, y: 0, d: 0 }; }   // char frame + projected screen + depth
 
 /** Two-bone IK in screen space. Writes the elbow into `mid` and the reached end into `end`.
@@ -53,6 +54,7 @@ class Rig {
     this.yaw = 0; this.view = 'S'; this.flip = 1; this.dir = 12;
     this.lean = 0; this.tilt = 0; this.spin = 0; this.crouch = 0;
     this.phase = 0; this.weaponRot = 0; this.weaponX = 0; this.weaponY = 0; this.weaponKey = 0;
+    this.grip = { s: 0, f: 0, z: 0 }; this.blade = { s: 1, f: 0, z: 0 };
   }
 
   /** char frame -> world -> screen for one joint. */
@@ -103,7 +105,7 @@ class Rig {
       const toe = side < 0 ? J.toeL : J.toeR;
       toe.s = ank.s + side * 1.2; toe.f = ank.f + RIG.FOOT; toe.z = Math.max(0.5, ank.z - 2.5);
     }
-    // ---- spine (3D), then upper body lean in screen space around the waist
+    // ---- spine, all in the char frame; a little roll into the direction he is moving
     J.waist.s = 0; J.waist.f = 0.5; J.waist.z = J.pelvis.z + (RIG.WAIST_Z - RIG.HIP_Z);
     J.neck.s = 0; J.neck.f = 1.0 + o.hunch; J.neck.z = J.pelvis.z + (RIG.NECK_Z - RIG.HIP_Z);
     J.head.s = 0; J.head.f = 1.5 + o.hunch; J.head.z = J.neck.z + 9;
@@ -111,55 +113,59 @@ class Rig {
     for (const sh of [J.shL, J.shR]) { sh.f = 0.5 + o.hunch * 0.6; sh.z = J.pelvis.z + (RIG.SHOULDER_Z - RIG.HIP_Z); }
     J.holster.s = -8.4; J.holster.f = -0.8; J.holster.z = J.pelvis.z + 1.5;
     J.flaskProp.s = 7.9; J.flaskProp.f = 2.2; J.flaskProp.z = J.pelvis.z + 3;
-    for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR', 'shL', 'shR', 'holster', 'flaskProp']) this.project(J[n]);
-    const lc = Math.cos(o.lean), ls = Math.sin(o.lean), px = J.waist.x, py = J.waist.y;
-    for (const n of ['neck', 'head', 'shL', 'shR']) {
-      const q = J[n], dx = q.x - px, dy = q.y - py;
-      q.x = px + dx * lc - dy * ls; q.y = py + dx * ls + dy * lc;
+    if (o.roll) {
+      const rc = Math.cos(o.roll), rs = Math.sin(o.roll), wz = J.waist.z;
+      for (const q of [J.neck, J.head, J.shL, J.shR]) { const ds = q.s, dz = q.z - wz; q.s = ds * rc + dz * rs; q.z = wz - ds * rs + dz * rc; }
     }
-    // ---- arms
-    this.weaponRot0 = o.weaponRot; this.leanNow = o.lean;
-    this.arm(J.shR, J.elR, J.wrR, J.handR, o.rightTarget, o.rightRest, 1);
-    if (o.twoHand && o.rightTarget) {
-      const gx = J.handR.x - Math.cos(o.weaponRot) * o.twoHand.gap, gy = J.handR.y - Math.sin(o.weaponRot) * o.twoHand.gap;
-      this._t2.x = gx; this._t2.y = gy;
-      this.arm(J.shL, J.elL, J.wrL, J.handL, this._t2, null, -1);
-    } else this.arm(J.shL, J.elL, J.wrL, J.handL, o.leftTarget, o.leftRest, -1);
-    // ---- whole-figure tilt (around the feet) and roll spin (around the pelvis)
-    if (o.tilt || o.spin) {
-      const all = this._all;
-      if (o.spin) { const c = Math.cos(o.spin), s = Math.sin(o.spin), cx = J.pelvis.x, cy = J.pelvis.y + 6;
-        for (const q of all) { const dx = q.x - cx, dy = q.y - cy; q.x = cx + dx * c - dy * s; q.y = cy + dx * s + dy * c; } }
-      if (o.tilt) { const c = Math.cos(o.tilt), s = Math.sin(o.tilt);
-        for (const q of all) { const dx = q.x, dy = q.y; q.x = dx * c - dy * s; q.y = dx * s + dy * c; } }
+    // ---- arms (3D IK, elbows fold down / out / back)
+    const G = o.grip, B = o.blade, HG = RIG.HAND * 0.5;
+    this._w.s = G.s - B.s * HG; this._w.f = G.f - B.f * HG; this._w.z = G.z - B.z * HG;
+    this.arm3(J.shR, J.elR, J.wrR, J.handR, this._w, 1, B);
+    // the weapon sits where the right hand actually got to
+    this.grip.s = J.wrR.s + B.s * HG; this.grip.f = J.wrR.f + B.f * HG; this.grip.z = J.wrR.z + B.z * HG;
+    this.blade.s = B.s; this.blade.f = B.f; this.blade.z = B.z;
+    if (o.twoHand) {
+      const gap = o.twoHand.gap;
+      this._w.s = this.grip.s - B.s * (gap + HG); this._w.f = this.grip.f - B.f * (gap + HG); this._w.z = this.grip.z - B.z * (gap + HG);
+      this.arm3(J.shL, J.elL, J.wrL, J.handL, this._w, -1, B);
+    } else this.arm3(J.shL, J.elL, J.wrL, J.handL, o.leftTarget || o.leftRest, -1, null);
+    // ---- death: fall backward around the feet
+    if (o.tilt) {
+      const c = Math.cos(o.tilt), sn = Math.sin(o.tilt);
+      for (const q of this._all) { const f = q.f, z = q.z; q.f = f * c - z * sn; q.z = f * sn + z * c; }
+      for (const q of [this.grip, this.blade]) { const f = q.f, z = q.z; q.f = f * c - z * sn; q.z = f * sn + z * c; }
     }
-    this.weaponRot = o.weaponRot + (o.spin || 0) + (o.tilt || 0);
-    this.weaponX = J.handR.x; this.weaponY = J.handR.y;
-    this.bodyRot = o.lean + (o.spin || 0) + (o.tilt || 0);
+    // ---- screen projection (2D fallback renderer, visor glow, props)
+    for (const q of this._all) this.project(q);
+    const gq = this._tmp; gq.s = this.grip.s; gq.f = this.grip.f; gq.z = this.grip.z; this.project(gq);
+    const tx = gq.x, ty = gq.y, td = gq.d;
+    gq.s += this.blade.s * 20; gq.f += this.blade.f * 20; gq.z += this.blade.z * 20; this.project(gq);
+    this.weaponX = tx; this.weaponY = ty; this.weaponRot = Math.atan2(gq.y - ty, gq.x - tx);
+    this.weaponRot0 = this.weaponRot; this.leanNow = 0;
+    this.bodyRot = 0;
+    o.weaponDepth = td;
     this.place(o);
   }
 
-  /** One arm. target (screen) -> IK; otherwise rest (char frame) -> project -> IK. */
-  arm(sh, el, wr, hand, target, rest, side) {
-    let tx, ty;
-    if (target) { tx = target.x; ty = target.y; }
-    else { const q = this._tmp; q.s = rest.s; q.f = rest.f; q.z = rest.z; this.project(q); tx = q.x; ty = q.y; }
-    // elbow folds outward (away from the body centre on screen) and down: try both folds, keep the better one
-    const ox = sh.x - this.j.waist.x;
-    const out = Math.abs(ox) > 3 ? Math.sign(ox) : -(Math.sign(this._c) || 1);   // side views: elbow folds back
-    ik2(sh.x, sh.y, tx, ty, RIG.UPPER, RIG.FORE, 1, this._m1, this._e1);
-    ik2(sh.x, sh.y, tx, ty, RIG.UPPER, RIG.FORE, -1, this._m2, this._e2);
-    const score = (m) => (m.x - sh.x) * out - (m.y - sh.y) * 0.6;
-    const m = score(this._m1) >= score(this._m2) ? this._m1 : this._m2, e = this._e1;
-    el.x = m.x; el.y = m.y; wr.x = e.x; wr.y = e.y;
-    // depth: blend shoulder depth toward the target's depth
-    el.d = sh.d + (this._tdepth(target, rest, sh) - sh.d) * 0.5; wr.d = this._tdepth(target, rest, sh);
-    const ang = target ? this.weaponRot0 : Math.atan2(wr.y - el.y, wr.x - el.x);
-    hand.x = wr.x + Math.cos(ang) * RIG.HAND; hand.y = wr.y + Math.sin(ang) * RIG.HAND; hand.d = wr.d;
-  }
-  _tdepth(target, rest, sh) {
-    if (target) return target.d === undefined ? sh.d : target.d;
-    return -rest.s * this._c + rest.f * this._s;
+  /** Two-bone arm IK in the char frame. side +1 right / -1 left; handDir: where the hand points (or along the forearm). */
+  arm3(sh, el, wr, hand, t, side, handDir) {
+    const L1 = RIG.UPPER, L2 = RIG.FORE;
+    const ds = t.s - sh.s, df = t.f - sh.f, dz = t.z - sh.z, d = Math.hypot(ds, df, dz) || 1e-4;
+    const dd = clamp(d, Math.abs(L1 - L2) + 0.5, L1 + L2 - 0.05);
+    const us = ds / d, uf = df / d, uz = dz / d;
+    // pole: out to his side, a little back, and down
+    let ps = side * 0.6, pf = -0.35, pz = -1;
+    const k = ps * us + pf * uf + pz * uz; ps -= k * us; pf -= k * uf; pz -= k * uz;
+    let pl = Math.hypot(ps, pf, pz);
+    if (pl < 1e-3) { ps = side; pf = 0; pz = 0; pl = 1; }
+    ps /= pl; pf /= pl; pz /= pl;
+    const a = (L1 * L1 - L2 * L2 + dd * dd) / (2 * dd), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+    el.s = sh.s + us * a + ps * h; el.f = sh.f + uf * a + pf * h; el.z = sh.z + uz * a + pz * h;
+    wr.s = sh.s + us * dd; wr.f = sh.f + uf * dd; wr.z = sh.z + uz * dd;
+    let hs, hf, hz;
+    if (handDir) { hs = handDir.s; hf = handDir.f; hz = handDir.z; }
+    else { hs = wr.s - el.s; hf = wr.f - el.f; hz = wr.z - el.z; const hl = Math.hypot(hs, hf, hz) || 1; hs /= hl; hf /= hl; hz /= hl; }
+    hand.s = wr.s + hs * RIG.HAND; hand.f = wr.f + hf * RIG.HAND; hand.z = wr.z + hz * RIG.HAND;
   }
 
   /** Fill each part's screen placement + sort key (bigger key = drawn first = further back). */
@@ -186,13 +192,13 @@ class Rig {
     P.pelvis.rot = this.bodyRot - this.leanNow;
     P.weapon.key = o.weaponDepth;
     P.handR.key = Math.min(P.handR.key, o.weaponDepth - 0.05);
-    if (o.twoHand && o.rightTarget) P.handL.key = Math.min(P.handL.key, o.weaponDepth - 0.05);
+    if (o.twoHand) P.handL.key = Math.min(P.handL.key, o.weaponDepth - 0.05);
     P.offhand.key = P.handL.key + 0.05;
     this.order.sort((a, b) => b.key - a.key);
   }
 }
 // scratch objects (allocated once)
-Rig.prototype._tmp = V3(); Rig.prototype._t2 = { x: 0, y: 0, d: undefined };
+Rig.prototype._tmp = V3(); Rig.prototype._w = V3();
 Rig.prototype._m1 = { x: 0, y: 0 }; Rig.prototype._m2 = { x: 0, y: 0 }; Rig.prototype._e1 = { x: 0, y: 0 }; Rig.prototype._e2 = { x: 0, y: 0 };
 Object.defineProperty(Rig.prototype, '_all', { get() { if (!this.__all) this.__all = Object.values(this.j); return this.__all; } });
 Rig.prototype.weaponRot0 = 0;
@@ -204,6 +210,7 @@ function pickDir16(facing, cur) {
   return Math.abs(wrap(facing - cur * step)) <= step / 2 + 6 * RAD ? cur : n;     // hysteresis
 }
 const _rt = { x: 0, y: 0, d: 0 }, _lt = { x: 0, y: 0, d: 0 }, _lr = { s: 0, f: 0, z: 0 }, _rr = { s: 0, f: 0, z: 0 };
+const _grip = { s: 0, f: 0, z: 0 }, _blade = { s: 1, f: 0, z: 0 };
 const _feet = { spread: 0, f: 0, fwd: 0, z: 0 }, _walk = { ms: 0, mf: 1, amp: 0, phase: 0 }, _two = { gap: 8 };
 const _pose = { yaw: 0, view: 'S', flip: 1, walk: _walk, feet: _feet, crouch: 0, lean: 0, hunch: 0, tilt: 0, spin: 0,
   rightTarget: _rt, leftTarget: null, leftRest: _lr, rightRest: _rr, weaponRot: 0, weaponDepth: 0, twoHand: null };
@@ -211,7 +218,7 @@ const _pose = { yaw: 0, view: 'S', flip: 1, walk: _walk, feet: _feet, crouch: 0,
 function poseRig(p, dt, t) {
   const R = p.rig, st = p.state, mv = p.move, o = _pose, W = p.weapon;
   p.rigDir = pickDir16(p.facing, p.rigDir);
-  const yaw = p.rigDir * TAU / RIG_DIRS, cy = Math.cos(yaw), sy = Math.sin(yaw);
+  const yaw = USE_3D ? p.facing : p.rigDir * TAU / RIG_DIRS, cy = Math.cos(yaw), sy = Math.sin(yaw);
   o.yaw = yaw;
   // ---- walking
   const spd = hypot(p.vx, p.vy), loco = st === S_IDLE || st === S_MOVE;
@@ -271,11 +278,16 @@ function poseRig(p, dt, t) {
     crouch = 6 + 12 * Math.min(1, p.state_t / 0.35); tilt = p.bodyRot; lean = 0;
     void k;
   }
-  o.crouch = crouch; o.hunch = hunch; o.lean = lean * 0.8; o.tilt = tilt; o.spin = spin;
-  // ---- right hand holds the weapon where the weapon animation puts its grip
-  _rt.x = p.swordX; _rt.y = p.swordY; _rt.d = Math.sin(p.sword_angle) * p.sword_r * 0.6;
-  o.weaponRot = p.sword_rot; o.weaponDepth = _rt.d;
-  o.rightTarget = _rt;
+  // lean into the direction of travel (a roll toward the side he is moving to)
+  const roll = loco || st === S_DODGE ? clamp(_walk.ms * Math.min(1.4, spd / PLAYER_SPEED), -1.4, 1.4) * 0.1 : 0;
+  o.crouch = crouch; o.hunch = hunch; o.roll = roll; o.tilt = st === S_DEAD ? Math.abs(tilt) : 0; o.spin = 0; o.lean = 0;
+  void lean; void spin;
+  // ---- the weapon in 3D: grip position and blade direction from the weapon animation, in the char frame
+  const ga = p.sword_angle, gr = p.sword_r, gX = Math.cos(ga) * gr, gY = Math.sin(ga) * gr;
+  _grip.s = gX * sy - gY * cy; _grip.f = gX * cy + gY * sy; _grip.z = p.sword_elev;
+  const bh = p.bladeH, be = p.bladeE, bX = Math.cos(be) * Math.cos(bh), bY = Math.cos(be) * Math.sin(bh);
+  _blade.s = bX * sy - bY * cy; _blade.f = bX * cy + bY * sy; _blade.z = Math.sin(be);
+  o.grip = _grip; o.blade = _blade;
   o.capeLow = p.cloths.cape && p.cloths.cape.live ? p.cloths.cape.lowDepth() : undefined;
   o.tabardDepth = p.cloths.tabard && p.cloths.tabard.live ? p.cloths.tabard.lowDepth() : undefined;
   R.pose(o);
@@ -298,7 +310,7 @@ class Cloth {
     const F = () => new Float64Array(n);
     this.x = F(); this.y = F(); this.z = F(); this.px = F(); this.py = F(); this.pz = F();
     this.rx = F(); this.ry = F(); this.rz = F(); this.lenV = F(); this.lenH = F();
-    this.sx = F(); this.sy = F(); this.sd = F();
+    this.sx = F(); this.sy = F(); this.sd = F(); this._cs = new Float32Array(n * 3);   // char-frame copy for the 3D renderer
     this.live = false; this.cloth = cl; this.t = 0; this.joint = cl.kind === 'front' ? 'pelvis' : 'neck';
     this.quads = []; for (let i = 0; i < (this.cols - 1) * (this.rows - 1); i++) this.quads.push({ i: 0, d: 0, key: 0, outer: true, light: 0, row: 0, quad: true, cloth: this });
     this.shape(cl);
@@ -408,11 +420,12 @@ class Cloth {
   /** Project into the player's layer space (origin at his feet, y up) and prepare the sorted quads. */
   project(p) {
     const n = this.x.length, C = this.cols, front = this.cloth.kind === 'front', R = p.rig;
+    const fx = Math.cos(R.yaw), fy = Math.sin(R.yaw);
     for (let k = 0; k < n; k++) {
       const X = this.x[k] - p.gx, Y = this.y[k] - p.gy;
       this.sx[k] = X; this.sy[k] = Y * K + this.z[k]; this.sd[k] = Y;
+      this._cs[k * 3] = X * fy - Y * fx; this._cs[k * 3 + 1] = X * fx + Y * fy; this._cs[k * 3 + 2] = this.z[k];
     }
-    const fx = Math.cos(R.yaw), fy = Math.sin(R.yaw);
     let qi = 0;
     for (let j = 0; j < this.rows - 1; j++) for (let i = 0; i < C - 1; i++) {
       const k = j * C + i, Q = this.quads[qi++];

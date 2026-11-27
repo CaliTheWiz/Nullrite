@@ -37,7 +37,7 @@ JS = r"""
     r.g = { cam_x: 0, cam_y: 0, ox: 0, oy: 0 };
     r.W = W; r.H = H;
     r.entityFrame = function () { this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); this.ctx.translate(cx, cy); this.ctx.scale(ZOOM, ZOOM); };
-    r.entityFrame(); r.drawRigBody(p);
+    r.entityFrame(); r.drawRigImage(p);
   }
   return cv.toDataURL('image/png');
 }

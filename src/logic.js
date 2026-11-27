@@ -533,6 +533,10 @@ class Player {
     this.swordX = Math.cos(a) * this.sword_r;
     this.swordY = Math.sin(a) * this.sword_r * K + this.sword_elev;
     const radial = groundToScreenAngle(point === null ? a : point);       // stances aim the blade on their own
+    // 3D blade direction for the jointed body: horizontal heading + elevation (up 1 = straight up, -1 = tip down)
+    const bh_t = point === null ? a : point;
+    this.bladeH = (direct || dt === 0 || this.bladeH === undefined) ? bh_t : approachAngle(this.bladeH, bh_t, 18 * dt);
+    this.bladeE = this.sword_up * Math.PI / 2 * 0.95;
     const upright = Math.PI / 2 - 0.3 * (Math.cos(a) > 0 ? 1 : -1) + 0.1 * Math.sin(t * 1.7);
     const rot_t = this.sword_up >= 0 ? radial + wrap(upright - radial) * this.sword_up
       : radial + wrap(-Math.PI / 2 - radial) * -this.sword_up;          // negative tilt: tip toward the floor

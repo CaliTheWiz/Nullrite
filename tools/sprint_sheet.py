@@ -23,7 +23,7 @@ JS = r"""
       const cx = 40 + i * cw + cw / 2, cy = 20 + j * ch + ch - 18;
       r.g = { cam_x: 0, cam_y: 0, ox: 0, oy: 0, t: 0 };
       r.entityFrame = function () { this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); this.ctx.translate(cx, cy); this.ctx.scale(1.5, 1.5); };
-      r.entityFrame(); r.drawRigBody(p);
+      r.entityFrame(); r.drawRigImage(p);
     }
   }
   return cv.toDataURL('image/png');
