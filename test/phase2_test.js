@@ -27,7 +27,7 @@ g.resetRound(); B.phase=2; B.idle_time=999; B.gx=0; B.gy=0; P.gx=0; P.gy=-560; P
 B.chooseAttack(0); B.kind='slam'; B.atk=Object.assign({}, BOSS_ATTACKS.slam, {hop:0}); B.beginAttack(P);
 let maxLive=0, hits=0, hp=P.hp;
 for(let i=0;i<60*5;i++){ step(1); maxLive=Math.max(maxLive, g.waves.filter(w=>w.live).length); if(P.hp<hp){hits++; hp=P.hp;} if(B.state===S_IDLE) B.idle_time=999; P.gx=0; P.gy=-560; }
-ok(maxLive===3, 'three waves: '+maxLive); ok(hits>=1, 'wave hits a standing player');
+ok(maxLive===SLAM_WAVES.count, 'wave count: '+maxLive); ok(hits>=1, 'wave hits a standing player');
 r.waves={maxLive, hits, dmg:PLAYER_MAX_HP-P.hp};
 // 4. phase 1 slam makes no waves
 g.resetRound(); B.idle_time=999; B.gx=0; B.gy=0; P.gx=0; P.gy=-560;
@@ -53,7 +53,7 @@ for(let i=0;i<60*6;i++){
     const d=hypot(P.gx-w.x,P.gy-w.y); if(w.r > d-60 && w.r < d && P.canAct() && k<2){ P.stamina=STAM_MAX; g.press('dodge', Math.atan2(w.y-P.gy, w.x-P.gx)); rolledFor.add(k);} });
   step(1); if(B.state===S_IDLE) B.idle_time=999;
 }
-ok(!g.waves[0].hit && !g.waves[1].hit, 'rolling in through waves 1 and 2 avoids both'); r.rollInward = 'ok';
+ok(!g.waves[0].hit && !g.waves[1].hit, 'rolling in through both waves avoids them'); r.rollInward = 'ok';
 // 6. retry resets to phase 1
 g.resetRound(); ok(B.phase===1 && g.phaseMix===0 && !g.waves.some(w=>w.live), 'retry resets');
 return r;`);
