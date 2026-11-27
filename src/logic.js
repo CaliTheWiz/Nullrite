@@ -58,7 +58,7 @@ class FX {
     this.g = game;
     this.sparks = new Pool(220, { layer: 'top', tex: 'spark', size: [32, 6] });
     this.glows = new Pool(24, { layer: 'top', tex: 'glow', size: [100, 100] });
-    this.smoke = new Pool(48, { layer: 'top', tex: 'glowSoft', size: [40, 40], blend: 'normal' });
+    this.smoke = new Pool(96, { layer: 'top', tex: 'glowSoft', size: [40, 40], blend: 'normal' });
     this.rings = new Pool(12, { layer: 'ground', tex: 'ring', size: [120, 120] });
     this.slashes = new Pool(4, { layer: 'slash', tex: 'slash:170', size: [256, 256] });
     this.ghosts = new Pool(14, { layer: 'world', tex: 'knightSil:S', size: [64, 96], anchor: [0.5, 0.04] });
@@ -817,7 +817,7 @@ class Game {
     this.pickups = PICKUPS.map(p => new Pickup(p[0], p[1], p[2]));
     this.ritualFlash = 0;
     this.waves = [];                     // phase-2 slam shockwaves (fixed pool)
-    for (let i = 0; i < 6; i++) this.waves.push({ live: false, x: 0, y: 0, r: 0, delay: 0, hit: false, alpha: 0, started: false });
+    for (let i = 0; i < 6; i++) this.waves.push({ live: false, x: 0, y: 0, r: 0, delay: 0, hit: false, alpha: 0, started: false, dust_t: 0 });
     this.resetRound();
   }
   resetRound() {
@@ -1008,11 +1008,20 @@ class Game {
       if (w.delay > 0) { w.delay -= dt; continue; }
       if (!w.started) { w.started = true; this.sfx('thud', 0.55); this.addShake(Math.PI / 2, 5); this.haptic('medium', 0.5); }
       w.r += S.speed * dt;
+      w.dust_t -= dt;
+      if (w.dust_t <= 0 && w.alpha > 0.2) {             // dust kicked up along the crest
+        w.dust_t = 0.07;
+        for (let k = 0; k < 2; k++) {
+          const a = uniform(0, TAU), x = w.x + Math.cos(a) * w.r, y = w.y + Math.sin(a) * w.r;
+          this.fx.smoke.spawn({ x, y: y * K + 6, vx: Math.cos(a) * 60, vy: Math.sin(a) * 30 + 40, life: uniform(0.35, 0.6),
+            size: [34, 34], color: choice(['#575161', '#524d5c', '#5c5766']), alpha: 0.2 * w.alpha, drag: 3, s0: 0.4, s1: 1.1 });
+        }
+      }
       w.alpha = Math.min(1, w.alpha + dt * 8) * (w.r > S.max_r - 200 ? Math.max(0, (S.max_r - w.r) / 200) : 1);
       if (w.r >= S.max_r) { w.live = false; continue; }
       if (!w.hit && p.alive && this.outcome === null) {
         const dx = p.gx - w.x, dy = p.gy - w.y, d = hypot(dx, dy);
-        if (Math.abs(d - w.r) <= S.band * 0.5 + PLAYER_RADIUS * 0.6) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock);
+        if (Math.abs(d - w.r) <= S.hit + PLAYER_RADIUS * 0.5) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock);
       }
     }
   }

@@ -44,6 +44,16 @@ for(let i=0;i<60*4;i++){
   if (g.waves.filter(w=>w.live).length && !g.waves[0].live) break;
 }
 r.dodgeFirstWave = g.waves[0].hit ? 'hit' : 'avoided'; r.afterRollHitBy = g.waves.map(w=>w.hit);
+// 5b. rolling into each wave in turn avoids all three
+g.resetRound(); B.phase=2; B.idle_time=999; B.gx=0; B.gy=0; P.gx=0; P.gy=-400;
+B.chooseAttack(0); B.kind='slam'; B.atk=Object.assign({}, BOSS_ATTACKS.slam, {hop:0}); B.beginAttack(P);
+const hp5b=P.hp, rolledFor=new Set();
+for(let i=0;i<60*6;i++){
+  g.waves.forEach((w,k)=>{ if(!w.live||w.delay>0||rolledFor.has(k)) return;
+    const d=hypot(P.gx-w.x,P.gy-w.y); if(w.r > d-60 && w.r < d && P.canAct() && k<2){ P.stamina=STAM_MAX; g.press('dodge', Math.atan2(w.y-P.gy, w.x-P.gx)); rolledFor.add(k);} });
+  step(1); if(B.state===S_IDLE) B.idle_time=999;
+}
+ok(!g.waves[0].hit && !g.waves[1].hit, 'rolling in through waves 1 and 2 avoids both'); r.rollInward = 'ok';
 // 6. retry resets to phase 1
 g.resetRound(); ok(B.phase===1 && g.phaseMix===0 && !g.waves.some(w=>w.live), 'retry resets');
 return r;`);

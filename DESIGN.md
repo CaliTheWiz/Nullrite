@@ -59,7 +59,7 @@
 - Ambient drone (live WebAudio oscillators + looped dark air, built once at first tap): on during the fight,
   fades on death/victory; phase 2 drops pitch 3 semitones, adds a tritone voice, faster filter sweep + slow pulse.
 - Lance chains straight into a quicker sweep (sweep_follow: windup 0.52). Parryable like a normal sweep.
-- Slam sends 3 expanding radial waves (0.42s apart, 400 u/s, 20 dmg each); roll through them (i-frames).
+- Slam sends 3 floor ripples (1.0s apart, 260 u/s, 20 dmg each): a band of the floor heaves up with a trough + dust, no coloured line. Hit zone is the crest centre (±10 + half player radius). Roll in through them toward the boss; rolling outward or sideways just delays the hit.
 - Shorter idle between attacks in phase 2 (0.3–0.7s).
 - Tests: `node test/phase2_test.js`, `python3 test/phase2_shot.py`.
 

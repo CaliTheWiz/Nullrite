@@ -96,17 +96,8 @@ class Renderer {
     const m = g.phaseMix, Z = CAMERA_ZOOM;
     // phase 2: runes shift from dull gold to pulsing crimson
     const goldA = (0.3 + 0.08 * Math.sin(t * 1.3)) * (1 - m), redA = (0.34 + 0.2 * Math.sin(t * 4.2)) * m;
-    const halfW = this.W / 2 / Z + TILE, halfH = this.H / 2 / (Z * K) + TILE;
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-      const x = start + i * TILE, y = start + j * TILE;
-      if (Math.abs(x - g.cam_x) > halfW || Math.abs(y - g.cam_y) > halfH) continue;
-      const v = TILE_VARIANT[i * n + j];
-      this.ground(ART.tiles[v], x, y, TILE + 0.8, TILE + 0.8);
-      if (goldA > 0.01) this.ground(ART.runes[v], x, y, TILE, TILE, { color: RUNE_GOLD, alpha: goldA, blend: 'add' });
-      if (redA > 0.01) this.ground(ART.runes[v], x, y, TILE, TILE, { color: RUNE_CRIMSON, alpha: redA, blend: 'add' });
-    }
-    this.ground(ART.ritual, 0, 0, 380, 380);
-    this.ground(ART.ritual, 0, 0, 380, 380, { alpha: 0.25 + 0.18 * Math.sin(t * 2) + 0.5 * g.ritualFlash, blend: 'add' });
+    this.floorA = [goldA, redA, 0.25 + 0.18 * Math.sin(t * 2) + 0.5 * g.ritualFlash];
+    this.drawTiles(g, null);
     const c = this.ctx, A = ARENA_HALF;
     this.base(); c.globalAlpha = 0.7 + 0.3 * m * (0.5 + 0.5 * Math.sin(t * 4.2)); c.strokeStyle = m > 0.5 ? CRIMSON : '#8A2432'; c.lineWidth = 3 * Z;
     c.beginPath();
@@ -114,17 +105,51 @@ class Renderer {
     c.lineTo(this.sx(A), this.sy(A * K)); c.lineTo(this.sx(-A), this.sy(A * K)); c.closePath(); c.stroke();
     this.drawWaves(g);
   }
+  /** Floor tiles + runes + ritual circle. ring = [cx, cy, rIn, rOut] limits it to tiles touching that annulus. */
+  drawTiles(g, ring) {
+    const n = Math.ceil(2 * ARENA_HALF / TILE), start = -n * TILE / 2 + TILE / 2, Z = CAMERA_ZOOM;
+    const [goldA, redA, ritA] = this.floorA, reach = TILE * 0.71;
+    const halfW = this.W / 2 / Z + TILE, halfH = this.H / 2 / (Z * K) + TILE;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      const x = start + i * TILE, y = start + j * TILE;
+      if (Math.abs(x - g.cam_x) > halfW || Math.abs(y - g.cam_y) > halfH) continue;
+      if (ring) { const d = hypot(x - ring[0], y - ring[1]); if (d < ring[2] - reach || d > ring[3] + reach) continue; }
+      const v = TILE_VARIANT[i * n + j];
+      this.ground(ART.tiles[v], x, y, TILE + 0.8, TILE + 0.8);
+      if (goldA > 0.01) this.ground(ART.runes[v], x, y, TILE, TILE, { color: RUNE_GOLD, alpha: goldA, blend: 'add' });
+      if (redA > 0.01) this.ground(ART.runes[v], x, y, TILE, TILE, { color: RUNE_CRIMSON, alpha: redA, blend: 'add' });
+    }
+    if (!ring || hypot(ring[0], ring[1]) < ring[3] + 190) {
+      this.ground(ART.ritual, 0, 0, 380, 380);
+      this.ground(ART.ritual, 0, 0, 380, 380, { alpha: ritA, blend: 'add' });
+    }
+  }
+  /** Phase-2 slam ripples: a band of the floor itself heaves up and rolls outward (no coloured line). */
   drawWaves(g) {
-    const c = this.ctx, Z = CAMERA_ZOOM;
+    const c = this.ctx, Z = CAMERA_ZOOM, S = SLAM_WAVES;
     for (const w of g.waves) {
       if (!w.live || w.delay > 0 || w.alpha <= 0.01) continue;
-      const x = this.sx(w.x), y = this.sy(w.y * K), rx = w.r * Z, ry = w.r * Z * K;
-      this.base(); c.globalCompositeOperation = 'lighter';
-      c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, TAU);
-      c.globalAlpha = 0.28 * w.alpha; c.strokeStyle = CRIMSON; c.lineWidth = SLAM_WAVES.band * 1.6 * Z; c.stroke();
-      c.globalAlpha = 0.9 * w.alpha; c.strokeStyle = '#ff6a7a'; c.lineWidth = SLAM_WAVES.band * 0.35 * Z; c.stroke();
-      c.globalCompositeOperation = 'source-over';
+      const a = w.alpha, x = this.sx(w.x), y = this.sy(w.y * K), lift = S.lift * Z * a;
+      const rIn = Math.max(1, w.r - S.band / 2), rOut = w.r + S.band / 2;
+      // trough the crest leaves behind it, and the shadow under its leading edge
+      this.base();
+      c.globalAlpha = 0.32 * a; c.strokeStyle = '#000000';
+      c.lineWidth = S.band * 0.7 * Z; c.beginPath(); c.ellipse(x, y, Math.max(1, rIn - S.band * 0.3) * Z, Math.max(1, rIn - S.band * 0.3) * Z * K, 0, 0, TAU); c.stroke();
+      c.globalAlpha = 0.5 * a; c.lineWidth = 5 * Z; c.beginPath(); c.ellipse(x, y, rOut * Z, rOut * Z * K, 0, 0, TAU); c.stroke();
+      // the lifted band: the same floor, redrawn a few pixels higher inside the annulus
+      c.save();
+      c.beginPath();
+      c.ellipse(x, y - lift, rOut * Z, rOut * Z * K, 0, 0, TAU);
+      c.ellipse(x, y - lift, rIn * Z, rIn * Z * K, 0, 0, TAU);
+      c.clip('evenodd');
+      const oy = g.oy; g.oy = oy + lift;
+      this.drawTiles(g, [w.x, w.y, rIn, rOut]);
+      g.oy = oy;
+      this.base(); c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.06 * a; c.fillStyle = '#d8ccb8';
+      c.fillRect(0, 0, this.W, this.H);                      // the crest catches a little light
+      c.restore();
     }
+    this.base();
   }
 
   drawEntities(g, t) {

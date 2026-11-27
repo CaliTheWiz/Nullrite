@@ -20,7 +20,7 @@ async def main():
         await page.evaluate("""() => { const g = window.__nullrite.game, B = g.boss, P = g.player, {BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP} = window.__nullrite.C;
             B.idle_time = 999; B.gx = 0; B.gy = 60; P.gx = 0; P.gy = -420; P.hp = PLAYER_MAX_HP;
             B.chooseAttack(0); B.kind = 'slam'; B.atk = Object.assign({}, BOSS_ATTACKS.slam, {hop: 0}); B.beginAttack(P); }""")
-        await page.wait_for_timeout(1700); await page.screenshot(path='test/09_phase_waves.png')
+        await page.wait_for_timeout(2000); await page.screenshot(path='test/09_phase_waves.png')
         info = await page.evaluate("""() => { const o = window.__nullrite, g = o.game, d = o.sound.drone;
             return {phase: g.boss.phase, mix: +g.phaseMix.toFixed(2), state: g.boss.state, waves: g.waves.filter(w => w.live).length,
                     hp: g.player.hp, drone: d ? {on: d.on, phase: d.phase} : null, fps: o.controls.ui.fps}; }""")

@@ -132,7 +132,8 @@ BOSS_ATTACKS.sweep_follow = Object.assign({}, BOSS_ATTACKS.sweep, { windup: 0.52
 const PHASE2_AT = 0.5;                       // fraction of boss HP
 const PHASE_TIME = 2.0;                      // transition roar (boss can't be hurt)
 const PHASE_PUSH = { radius: 560, knock: 640 };
-const SLAM_WAVES = { count: 3, gap: 0.42, speed: 400, band: 24, start: 60, max_r: 1150, damage: 20, knock: 240 };
+// floor ripples: band = visible crest width, hit = how close to the crest centre you must be to get hit
+const SLAM_WAVES = { count: 3, gap: 1.0, speed: 260, band: 34, hit: 10, lift: 13, start: 60, max_r: 1150, damage: 20, knock: 240 };
 const PHASE2_IDLE = [0.3, 0.7];
 const DRONE_VOLUME = 0.22;
 
