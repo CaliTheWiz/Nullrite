@@ -327,18 +327,27 @@ const WEAPON3D = {
     ellipsoid(mb, [2.2, 0, 0], [2.0, 2.0, 2.9], [bo, bo, 1], () => [MAT.crimson, 0.75, 0.9], 10, 8);
     tube(mb, chainSamples([[2.2, 0, 2.6], [2.2, 0, 4.6]], [bo], 1, () => [0.9, 0.9], MAT.wood, 1), fwdRef, 8, false, true);
   },
-  pistol(mb) {                                       // flintlock: long iron barrel, brass bands, dark wood, crimson inlay
-    const bo = B.offhand, X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
-    tube(mb, chainSamples([[0.5, 0, 1.4], [15, 0, 1.4]], [bo], 3, (u) => [1.15 - 0.15 * u, 1.15 - 0.15 * u], MAT.iron, 1, () => ({ spec: 0.9 })), upRef, 10, false, true);
-    for (const x of [6, 14.2]) tube(mb, chainSamples([[x, 0, 1.4], [x + 0.9, 0, 1.4]], [bo], 1, () => [1.45, 1.45], MAT.gold, 1, () => ({ spec: 0.8 })), upRef, 10, false, false);
-    box(mb, [3.2, 0, 0.6], 3.8, 1.05, 1.0, X, Y, Z, C3('#4a2e1c'), bo, 0, 0.25);                               // stock under the barrel
-    box(mb, [-0.2, 0, -1.6], 1.5, 1.0, 2.8, X, v3.norm([0, 1, 0]), v3.norm([0.25, 0, 1]), C3('#4a2e1c'), bo, 0, 0.25);   // grip
-    box(mb, [-0.6, 0, -4.2], 1.3, 1.15, 0.6, X, Y, Z, MAT.gold, bo, 0, 0.8);                                   // butt cap
-    box(mb, [1.4, 0, 2.6], 1.2, 0.5, 0.9, X, Y, Z, MAT.plateD, bo, 0, 0.7);                                     // hammer
-    box(mb, [2.2, 0, -0.9], 0.9, 0.35, 0.7, X, Y, Z, MAT.gold, bo, 0, 0.7);                                     // trigger guard
-    box(mb, [3.2, 1.08, 0.6], 1.2, 0.05, 0.45, X, Y, Z, MAT.crimson, bo, 1, 0);                                 // inlay (both sides)
-    box(mb, [3.2, -1.08, 0.6], 1.2, 0.05, 0.45, X, Y, Z, MAT.crimson, bo, 1, 0);
+  pistol(mb) {                                       // obsidian flintlock: black steel, crimson fuller + muzzle, dark-gold trim
+    const bo = B.offhand, X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1], k = 1.3;
+    const P = (x, y, z) => [x * k, y * k, z * k];
+    const ob = MAT.steel, obD = MAT.steelD, gripC = C3('#141219'), trim = C3('#8a6a30');
+    // octagonal barrel, slightly flared at the muzzle
+    tube(mb, chainSamples([P(0.5, 0, 1.4), P(13.5, 0, 1.4), P(15, 0, 1.4)], [bo, bo], 4,
+      (u) => { const r = (u > 0.9 ? 1.25 : 1.05) * k; return [r, r]; }, ob, 1, () => ({ spec: 1.0 })), upRef, 8, false, false);
+    tube(mb, chainSamples([P(14.6, 0, 1.4), P(15.05, 0, 1.4)], [bo], 1, () => [1.0 * k, 1.0 * k], MAT.crimson, 1, () => ({ emit: 1 })), upRef, 8, false, true);  // glowing bore
+    box(mb, P(7.5, 0, 2.55), 6.0 * k, 0.16 * k, 0.12 * k, X, Y, Z, MAT.crimson, bo, 1, 0);                              // fuller along the top
+    for (const x of [4.5, 13.2]) box(mb, P(x, 0, 1.4), 0.45 * k, 1.2 * k, 1.2 * k, X, Y, Z, trim, bo, 0, 0.8);          // bands
+    box(mb, P(2.6, 0, 0.5), 3.2 * k, 1.0 * k, 1.05 * k, X, Y, Z, obD, bo, 0, 0.6);                                       // lock body
+    box(mb, P(2.6, 1.02, 0.5), 2.2 * k, 0.05 * k, 0.6 * k, X, Y, Z, MAT.plate, bo, 0, 0.9);                              // lock plates (both sides)
+    box(mb, P(2.6, -1.02, 0.5), 2.2 * k, 0.05 * k, 0.6 * k, X, Y, Z, MAT.plate, bo, 0, 0.9);
+    box(mb, P(-0.3, 0, -1.7), 1.45 * k, 0.95 * k, 2.9 * k, X, Y, v3.norm([0.3, 0, 1]), gripC, bo, 0, 0.2);             // grip
+    for (const zz of [-0.6, -1.8, -3.0]) box(mb, P(-0.3 - 0.3 * (zz + 0.6) * -0.3, 0, zz), 1.5 * k, 1.0 * k, 0.12 * k, X, Y, Z, obD, bo, 0, 0.4);  // wraps
+    box(mb, P(-1.15, 0, -4.4), 1.35 * k, 1.1 * k, 0.65 * k, X, Y, Z, obD, bo, 0, 0.8);                                   // pommel
+    box(mb, P(-1.15, 0, -4.4), 0.5 * k, 1.12 * k, 0.3 * k, X, Y, Z, MAT.crimson, bo, 1, 0);                              // pommel gem
+    box(mb, P(1.0, 0, 2.6), 1.0 * k, 0.45 * k, 1.0 * k, X, Y, v3.norm([-0.4, 0, 1]), MAT.plate, bo, 0, 0.9);           // hammer
+    box(mb, P(2.0, 0, -1.0), 1.0 * k, 0.3 * k, 0.75 * k, X, Y, Z, trim, bo, 0, 0.7);                                     // trigger guard
   },
+
 
 };
 function propsMesh(mb, which) {
@@ -347,7 +356,8 @@ function propsMesh(mb, which) {
     box(mb, c, 1.4, 2.4, 4.0, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.leather, B.pelvis, 0, 0.15);
     box(mb, v3.add(c, [0, 0, 3.6]), 1.5, 2.5, 0.5, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.leatherL, B.pelvis, 0, 0.2);
     if (which === 'holster') {                                                       // pistol grip sticking out
-      box(mb, v3.add(c, [0, -0.6, 6.0]), 0.9, 1.1, 2.4, [1, 0, 0], v3.norm([0, 1, 0.35]), v3.norm([0, -0.35, 1]), MAT.wood, B.pelvis, 0, 0.2);
+      box(mb, v3.add(c, [0, -0.6, 6.0]), 1.15, 1.35, 3.0, [1, 0, 0], v3.norm([0, 1, 0.35]), v3.norm([0, -0.35, 1]), C3('#141219'), B.pelvis, 0, 0.2);
+      box(mb, v3.add(c, [0, -1.6, 8.9]), 1.3, 1.1, 0.6, [1, 0, 0], v3.norm([0, 1, 0.35]), v3.norm([0, -0.35, 1]), MAT.crimson, B.pelvis, 1, 0);
       box(mb, v3.add(c, [0, 0.9, 4.8]), 0.8, 1.2, 0.8, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.steelD, B.pelvis, 0, 0.7);
     }
   } else {

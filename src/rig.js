@@ -396,7 +396,7 @@ function poseRig(p, dt, t) {
   for (const name in p.cloths) p.cloths[name].step(p, dt);
   // pistol muzzle (world) for the flash and the tracer: from the left fist along the forearm, tipped by recoil
   { const J = R.j; let fs = J.wrL.s - J.elL.s, ff = J.wrL.f - J.elL.f, fz = J.wrL.z - J.elL.z; const l = Math.hypot(fs, ff, fz) || 1;
-    fs /= l; ff /= l; fz = fz / l + Math.tan(p.gunPitch); const ms = J.handL.s + fs * 15, mf = J.handL.f + ff * 15, mz = J.handL.z + fz * 15 + 1.4;
+    fs /= l; ff /= l; fz = fz / l + Math.tan(p.gunPitch); const ms = J.handL.s + fs * 19.6, mf = J.handL.f + ff * 19.6, mz = J.handL.z + fz * 19.6 + 1.8;
     p.muzzleX = p.gx + ms * sy + mf * cy; p.muzzleY = p.gy - ms * cy + mf * sy; p.muzzleZ = mz; }
   // visor: front of the head, fades as he turns away
   const H = R.j.head, hy = yaw + (o.headYaw || 0), hc = Math.cos(hy), hs = Math.sin(hy), fwd = -hs;

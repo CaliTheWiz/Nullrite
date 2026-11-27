@@ -586,9 +586,9 @@ class Player {
 
 // ---------------------------------------------------------------- boss
 class Boss {
-  constructor(game) { this.g = game; this.RADIUS = BOSS_RADIUS; this.reset(); }
+  constructor(game) { this.g = game; this.RADIUS = BOSS_RADIUS; this.rig = new BossRig(); this.reset(); }
   reset() {
-    [this.gx, this.gy] = BOSS_START;
+    [this.gx, this.gy] = BOSS_START; this.rig.fresh = true;
     this.vx = this.vy = 0; this.facing = -Math.PI / 2; this.state = S_IDLE; this.state_t = 0; this.idle_time = 1.4;
     this.hp = BOSS_MAX_HP; this.hp_lag = BOSS_MAX_HP; this.hp_lag_hold = 0; this.poise = BOSS_POISE; this.poise_delay = 0;
     this.kind = null; this.atk = null; this.want = 0; this.attack_dir = this.facing; this.hit_done = false;
@@ -779,6 +779,7 @@ class Boss {
       pl.z = (this.view === 'E' && pl.side < 0) ? -1 - pl.k : 4 - pl.k;
     }
     this.animateHalberd(dt, t, d);
+    poseBoss(this, dt, t);
   }
   pickView() {
     const n = pickOctant(this.facing, this.octant);

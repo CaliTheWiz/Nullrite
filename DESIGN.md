@@ -101,7 +101,20 @@ draw and aim (gunReady over 0.2s, walk at 50%, no sprint, left stick steers the 
 ~20 deg (wrist extension). Muzzle point from the rig (p.muzzleX/Y/Z) drives the flash (warm + crimson glow, sparks,
 smoke) and the tracer (hot streak behind the round); misses spark + dust where they stop. Flintlock mesh.
 `python3 tools/gun_sheet.py`. Note: 2h weapons will lock the left hand in the gear phase (pistol unusable then).
-Then: gear system (stats, weight, equip screen, pickups), more distinct boss wind-up poses.
+Pistol restyled (obsidian steel, crimson fuller + glowing muzzle + pommel gem, dark-gold bands), 1.3x size.
+
+Boss in 3D (DONE): src/bossrig.js (skeleton + every state's pose) and src/boss3d.js (meshes + BossGL, its own WebGL
+canvas). Same shader as the player (uDepth uniform: player 420, boss 900). Only the boss's projected bounding box is
+rendered (GL scissor) and copied, so the big layer (BOSS_LAYER 680x600 pt) stays cheap. Slam elevation is applied
+when compositing. Poses (all from the body, no tells): guard = upright halberd in the left hand, right fist down;
+sweep = coils left, fists together in front, swings flat around him (blade reach ~240, matches the hit range);
+slam = halberd raised over his back, leap with knees tucked, chop into the floor; lance = sideways spear stance,
+right fist at the hip (placed in the torso frame), coils lower after the lock, lunge on the charge; stagger = drops
+low leaning on the planted halberd; phase roar = halberd thrust up, arm flung out, plates flare; death = kneels,
+topples forward, halberd and plates fall. Left hand high on the shaft, right hand low; the shaft always runs through
+where the fists actually are. Arms use the same anatomical scored IK as the player, measured in the twisted torso
+frame. 2D sentinel pictures remain as the fallback. `python3 tools/boss_sheet.py` (6 facings x 16 poses).
+Then: gear system (stats, weight, equip screen, pickups).
 Blunderbuss (spread shot) is a future off-hand weapon.
 Weapon/hand rules (agreed):
 - Every weapon has a grip: '1h' (either hand), '2h' (both hands, LEFT HAND LOCKED), 'shield' (left only).

@@ -22,6 +22,10 @@ class Renderer {
       try { this.gl3d = new CharGL(newCanvas(L.w * s, L.h * s)); USE_3D = true; }
       catch (e) { this.gl3d = null; USE_3D = false; console.warn('3D character off:', e.message); }
     }
+    if (this.gl3d && this.boss3d === undefined) {              // the boss in 3D too (2D pictures if it fails)
+      try { this.boss3d = new BossGL(newCanvas(BOSS_LAYER.w * s, BOSS_LAYER.h * s)); }
+      catch (e) { this.boss3d = null; console.warn('3D boss off:', e.message); }
+    }
     this.ghosts = []; for (let i = 0; i < 6; i++) { const q = mk(); q.live = false; q.t0 = 0; q.gx = 0; q.gy = 0; this.ghosts.push(q); }
     this.ghostSeq = 0;
   }
@@ -387,6 +391,7 @@ class Renderer {
     if (p.swordZ >= 0) sword();
   }
   drawBoss(b) {
+    if (this.boss3d) { this.drawBoss3D(b); return; }
     const c = this.ctx;
     this.entityFrame(b.gx, b.gy);
     this.local(ART.shadow, 0, 0, 170 * b.shadowScale, 102 * b.shadowScale);
@@ -406,6 +411,29 @@ class Renderer {
     parts.push([b.halZ, () => this.local(ART.halberd, b.halX, b.halY, 230, 50, { ax: 50 / 230, ay: 0.5, rot: b.hal_rot, alpha: b.halAlpha })]);
     parts.sort((a, z) => a[0] - z[0]);
     for (const pt of parts) pt[1]();
+  }
+
+  /** The 3D sentinel: soft shadows, the GL body (only its bounding box is rendered and copied), glows on top. */
+  drawBoss3D(b) {
+    const c = this.ctx, L = BOSS_LAYER, s = this.plScale, R = b.rig, Z = CAMERA_ZOOM, a = b.bodyAlpha;
+    this.entityFrame(b.gx, b.gy);
+    this.local(ART.shadow, 0, 0, 170 * b.shadowScale, 102 * b.shadowScale, { alpha: 0.85 });
+    const cy = Math.cos(R.yaw), sy = Math.sin(R.yaw), J = R.j;
+    if (b.elev < 2) for (const A of [J.ankleL, J.ankleR]) {
+      const X = A.s * sy + A.f * cy, Y = -A.s * cy + A.f * sy, lift = clamp((A.z - 5) / 16, 0, 1);
+      this.local(ART.shadow, X, Y * K, 40 * (1 - 0.3 * lift), 18 * (1 - 0.3 * lift), { alpha: 0.6 * (1 - lift) });
+    }
+    const r = this.boss3d.render(b, L, s);
+    if (r.w > 0 && r.h > 0) {
+      c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.globalAlpha = a; c.globalCompositeOperation = 'source-over';
+      const dx = this.sx(b.gx) + (r.x / s - L.ox) * Z, dy = this.sy(b.gy * K) - b.elev * Z + (r.y / s - L.oy) * Z;
+      c.drawImage(this.boss3d.g.canvas, r.x, r.y, r.w, r.h, this.snap(dx), this.snap(dy), r.w / this.dpr, r.h / this.dpr);
+      c.globalAlpha = 1;
+    }
+    this.entityFrame(b.gx, b.gy, b.elev);
+    const cf = clamp(R.core.face * 2.5, 0, 1), vf = clamp(R.visor.face * 3, 0, 1);
+    if (cf > 0.01) this.local(ART.glow, R.core.x, R.core.y, 70 * b.coreGlowScale, 70 * b.coreGlowScale, { color: CRIMSON, alpha: b.coreGlow * 0.55 * cf * a, blend: 'add' });
+    if (vf > 0.01 && b.state !== S_DEAD) this.local(ART.glow, R.visor.x, R.visor.y, 40, 40, { color: CRIMSON, alpha: (0.4 + 0.15 * Math.sin(this.g.t * 3.1)) * vf * a, blend: 'add' });
   }
 
   // ------------------------------------------------------------ HUD (y-up layout)

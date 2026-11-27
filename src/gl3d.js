@@ -12,7 +12,7 @@ attribute float aEmit; attribute float aSpec;
 uniform mat4 uBones[${GL_BONES}];
 uniform vec2 uYaw;           // cos, sin of facing
 uniform vec4 uBox;           // layer: origin x, origin y (points from top-left), width, height
-uniform float uK;
+uniform float uK; uniform float uDepth;
 varying vec3 vN; varying vec3 vCol; varying float vEmit; varying float vSpec; varying float vZ;
 void main() {
   mat4 m = uBones[int(aBone.x)] * aW + uBones[int(aBone.y)] * (1.0 - aW);
@@ -23,7 +23,7 @@ void main() {
   vec3 W = vec3(p.x * s + p.y * c, -p.x * c + p.y * s, p.z);
   vN = vec3(n.x * s + n.y * c, -n.x * c + n.y * s, n.z);
   float sx = uBox.x + W.x, sy = uBox.y - (W.y * uK + W.z);
-  gl_Position = vec4(sx / uBox.z * 2.0 - 1.0, 1.0 - sy / uBox.w * 2.0, (W.y - uK * W.z) / 420.0, 1.0);
+  gl_Position = vec4(sx / uBox.z * 2.0 - 1.0, 1.0 - sy / uBox.w * 2.0, (W.y - uK * W.z) / uDepth, 1.0);
   vCol = aCol; vEmit = aEmit; vSpec = aSpec; vZ = W.z;
 }`;
 
@@ -114,9 +114,9 @@ class GLChar {
     const A = (n) => gl.getAttribLocation(pr, n), U = (n) => gl.getUniformLocation(pr, n);
     this.a = { pos: A('aPos'), nrm: A('aNrm'), col: A('aCol'), bone: A('aBone'), w: A('aW'), emit: A('aEmit'), spec: A('aSpec') };
     this.u = { bones: U('uBones'), yaw: U('uYaw'), box: U('uBox'), k: U('uK'), light: U('uLight'), view: U('uView'), rim: U('uRim'),
-      flash: U('uFlash'), back: U('uBack'), backMix: U('uBackMix'), emitGain: U('uEmitGain') };
+      flash: U('uFlash'), depth: U('uDepth'), back: U('uBack'), backMix: U('uBackMix'), emitGain: U('uEmitGain') };
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.disable(gl.CULL_FACE);
-    gl.uniform1f(this.u.k, K);
+    gl.uniform1f(this.u.k, K); gl.uniform1f(this.u.depth, 420);
     const L = v3.norm([-0.5, -0.65, 0.75]), V = v3.norm([0, -1, K]);
     gl.uniform3f(this.u.light, L[0], L[1], L[2]); gl.uniform3f(this.u.view, V[0], V[1], V[2]);
     gl.uniform3f(this.u.rim, 0.30, 0.04, 0.07);
