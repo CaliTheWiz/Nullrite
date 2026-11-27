@@ -1,5 +1,5 @@
 """Inline src/*.js into one self-contained index.html (one <script>, wrapped in a block)."""
-import os
+import os, hashlib
 
 ORDER = ['config', 'mathx', 'logic', 'art', 'audio', 'render', 'input', 'main']
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +39,11 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 __JS__
 }
 </script>
+<script>
+// Always fetch the newest version when online (falls back to the last copy offline).
+if ('serviceWorker' in navigator && location.protocol === 'https:' && window.top === window.self)
+  navigator.serviceWorker.register('sw.js').catch(function () {});
+</script>
 </body>
 </html>
 """
@@ -49,7 +54,9 @@ def build():
     for name in ORDER:
         with open(os.path.join(HERE, 'src', name + '.js')) as f:
             parts.append(f.read())
-    html = TEMPLATE.replace('__JS__', '\n'.join(parts))
+    js = '\n'.join(parts)
+    build_id = hashlib.sha1(js.encode()).hexdigest()[:6]     # changes whenever the game code changes
+    html = TEMPLATE.replace('__JS__', "const BUILD = '%s';\n" % build_id + js)
     out = os.path.join(HERE, 'index.html')
     with open(out, 'w') as f:
         f.write(html)

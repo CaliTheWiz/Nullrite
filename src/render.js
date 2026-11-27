@@ -332,6 +332,7 @@ class Renderer {
     this.img(ART.sentinel.S, W / 2 + 95, H * 0.745, 132 * 0.95 * k, 170 * 0.95 * k, { ay: 0.03 });
     this.serif('NULLRITE', W / 2, H * 0.86, 34, '#e8dcc4');
     this.text('TAP TO BEGIN', W / 2, H * 0.12, 13, '#ff6a78', 'center', 'bold', 0.65 + 0.35 * Math.sin(t * 3));
+    this.text('build ' + BUILD, W - Math.max(16, HUD.SAFE_X - 30), 14, 8, 'rgba(201,180,138,0.45)', 'right');
   }
   drawRotate() {
     const c = this.ctx, W = this.W, H = this.H;

@@ -18,6 +18,7 @@
 - Repo: github.com/CaliTheWiz/Nullrite (public), Pages serves root `index.html` from `main`:
   https://calithewiz.github.io/Nullrite/ . Workflow: edit src → `python3 build.py` → tests → commit + push.
   Icons: `python3 tools/make_icon.py` (rendered from the game's own art). `manifest.webmanifest` for home screen.
+- Updates: `sw.js` is network-first, so the home-screen app fetches the newest build on every launch. Title screen shows `build <hash>` (sha1 of the JS) to confirm which version is running.
 - Older private Claude artifact (frame-limited, optional to update):
 - Artifact slug 27a93ff8-c8d7-4c91-a812-334b1d0b6e7e (title "Obsidian Oath", old name); republish with
   publish_files(slug, base_version=<last>, files=[index.html]) after `python3 build.py`.
