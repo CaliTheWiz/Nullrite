@@ -425,11 +425,11 @@ class Player {
     let glowCol = CRIMSON, glowA = 0, charge = 0;
     if (st === S_WINDUP) {
       const p = clamp(this.state_t / mv.windup, 0, 1);
-      if (flask) { sy *= 1 + 0.03 * p; lean = 0.06 * Math.sin(p * Math.PI); glowA = 0.3 * p; }
+      if (flask) { sy *= 1 + 0.03 * p; lean = 0.06 * Math.sin(p * Math.PI); glowA = 0.12 * p; }
       else if (tool) lean += Math.cos(this.attack_dir) * 0.1 * p;
       else { sy *= 1 - 0.07 * p * heft; sx *= 1 + 0.05 * p * heft; lean += Math.cos(this.attack_dir) * 0.12 * p; }
     } else if (st === S_ACTIVE) {
-      if (flask) glowA = 0.55;
+      if (flask) glowA = 0.22;
       else if (tool) lean += Math.cos(this.attack_dir) * (this.kind === 'shoot' ? 0.14 : -0.16);
       else { sy *= 1 + 0.05 * (0.5 + heft); lean -= Math.cos(this.attack_dir) * (0.14 + 0.08 * heft); }
     } else if (st === S_DODGE) { sy *= 0.86; sx *= 1.08; lean = -Math.cos(this.dodge_dir) * 0.35; }

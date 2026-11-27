@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = 'd66295';
+const BUILD = '4534a6';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -568,6 +568,12 @@ function poseRig(p, dt, t) {
   // ---- the weapon in 3D: grip position and blade direction from the weapon animation, in the char frame
   const ga = p.sword_angle, gr = p.sword_r, gX = Math.cos(ga) * gr, gY = Math.sin(ga) * gr;
   _grip.s = gX * sy - gY * cy; _grip.f = gX * cy + gY * sy; _grip.z = p.sword_elev;
+  // attacks work in front of the chest: the arc is centred ahead of him, wind-ups chamber close to the body
+  if (attacking && !tool) {
+    const ph = st === S_WINDUP ? 1 : st === S_ACTIVE ? 0.7 : 0.85;
+    _grip.f += 8 * ph;
+    if (st === S_WINDUP) { _grip.s *= 0.72; }
+  } else if (p.charging > 0) _grip.f += 6;
   const bh = p.bladeH, be = p.bladeE, bX = Math.cos(be) * Math.cos(bh), bY = Math.cos(be) * Math.sin(bh);
   _blade.s = bX * sy - bY * cy; _blade.f = bX * cy + bY * sy; _blade.z = Math.sin(be);
   o.grip = _grip; o.blade = _blade;
@@ -1169,11 +1175,11 @@ class Player {
     let glowCol = CRIMSON, glowA = 0, charge = 0;
     if (st === S_WINDUP) {
       const p = clamp(this.state_t / mv.windup, 0, 1);
-      if (flask) { sy *= 1 + 0.03 * p; lean = 0.06 * Math.sin(p * Math.PI); glowA = 0.3 * p; }
+      if (flask) { sy *= 1 + 0.03 * p; lean = 0.06 * Math.sin(p * Math.PI); glowA = 0.12 * p; }
       else if (tool) lean += Math.cos(this.attack_dir) * 0.1 * p;
       else { sy *= 1 - 0.07 * p * heft; sx *= 1 + 0.05 * p * heft; lean += Math.cos(this.attack_dir) * 0.12 * p; }
     } else if (st === S_ACTIVE) {
-      if (flask) glowA = 0.55;
+      if (flask) glowA = 0.22;
       else if (tool) lean += Math.cos(this.attack_dir) * (this.kind === 'shoot' ? 0.14 : -0.16);
       else { sy *= 1 + 0.05 * (0.5 + heft); lean -= Math.cos(this.attack_dir) * (0.14 + 0.08 * heft); }
     } else if (st === S_DODGE) { sy *= 0.86; sx *= 1.08; lean = -Math.cos(this.dodge_dir) * 0.35; }
@@ -3326,6 +3332,11 @@ const WEAPON3D = {
     bladeMesh(mb, 110, 150, 4.2, 0.6, 1.1, false, MAT.crimson);
     for (const x of [-20, 30]) tube(mb, chainSamples([[x, 0, 0], [x + 3, 0, 0]], [B.weapon], 1, () => [1.6, 1.6], MAT.gold, 1, () => ({ spec: 0.6 })), upRef, 8, false, false);
   },
+  flaskHand(mb) {                                    // the flask in his left fist while he drinks
+    const bo = B.offhand;
+    ellipsoid(mb, [2.2, 0, 0], [2.0, 2.0, 2.9], [bo, bo, 1], () => [MAT.crimson, 0.75, 0.9], 10, 8);
+    tube(mb, chainSamples([[2.2, 0, 2.6], [2.2, 0, 4.6]], [bo], 1, () => [0.9, 0.9], MAT.wood, 1), fwdRef, 8, false, true);
+  },
   pistol(mb) {
     const bo = B.offhand;
     box(mb, [6, 0, 1.0], 6, 0.9, 0.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.iron, bo, 0, 0.8);                    // barrel
@@ -3425,8 +3436,11 @@ class CharGL {
     g.draw(this.base);
     for (const slot of GEAR_SLOTS) { const id = p.gear[slot]; if (id && this.gear[id]) g.draw(this.gear[id]); }
     const drawn = p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
-    g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']); g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
+    const drinking = p.kind === 'flask' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
+    g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
+    if (!drinking) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
     if (drawn) g.draw(this.weapons.pistol);
+    if (drinking) g.draw(this.weapons.flaskHand);
     gl.uniform1f(g.u.emitGain, 1.1 + 1.6 * (p.swordGlow || 0));
     const wm = this.weapons[p.weapon.tex]; if (wm) g.draw(wm);
     // cloth: back faces show the lining colour
@@ -3931,12 +3945,7 @@ class Renderer {
   drawPlayerGlows(p) {
     const R = p.rig, a = p.bodyAlpha;
     if (p.visorAlpha > 0.01) this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a * 0.8, blend: 'add' });
-    const w = p.weapon, c = this.ctx;
-    c.save(); c.translate(R.weaponX, -R.weaponY); c.rotate(-R.weaponRot);
-    const yc = Math.cos(R.yaw), ys = Math.sin(R.yaw), bd = R.blade;          // on-screen length of the blade direction
-    const bX = bd.s * ys + bd.f * yc, bY = -bd.s * yc + bd.f * ys, bl = Math.hypot(bX, bY * K + bd.z);
-    this.local(ART.spark, w.glow[0] * Math.min(1, bl), 0, w.glow[1] * Math.min(1, bl), w.glow[2], { color: CRIMSON, alpha: p.swordGlow * 0.45, blend: 'add' });
-    c.restore();
+    // (no 2D blade halo: drawn over the finished body it would show through him; the blade glows in 3D)
   }
   /** The jointed player, drawn at the current transform's origin (his feet). */
   drawRigBody(p, layered) {

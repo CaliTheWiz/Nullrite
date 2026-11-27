@@ -246,12 +246,7 @@ class Renderer {
   drawPlayerGlows(p) {
     const R = p.rig, a = p.bodyAlpha;
     if (p.visorAlpha > 0.01) this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a * 0.8, blend: 'add' });
-    const w = p.weapon, c = this.ctx;
-    c.save(); c.translate(R.weaponX, -R.weaponY); c.rotate(-R.weaponRot);
-    const yc = Math.cos(R.yaw), ys = Math.sin(R.yaw), bd = R.blade;          // on-screen length of the blade direction
-    const bX = bd.s * ys + bd.f * yc, bY = -bd.s * yc + bd.f * ys, bl = Math.hypot(bX, bY * K + bd.z);
-    this.local(ART.spark, w.glow[0] * Math.min(1, bl), 0, w.glow[1] * Math.min(1, bl), w.glow[2], { color: CRIMSON, alpha: p.swordGlow * 0.45, blend: 'add' });
-    c.restore();
+    // (no 2D blade halo: drawn over the finished body it would show through him; the blade glows in 3D)
   }
   /** The jointed player, drawn at the current transform's origin (his feet). */
   drawRigBody(p, layered) {

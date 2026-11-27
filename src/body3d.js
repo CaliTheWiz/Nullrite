@@ -321,6 +321,11 @@ const WEAPON3D = {
     bladeMesh(mb, 110, 150, 4.2, 0.6, 1.1, false, MAT.crimson);
     for (const x of [-20, 30]) tube(mb, chainSamples([[x, 0, 0], [x + 3, 0, 0]], [B.weapon], 1, () => [1.6, 1.6], MAT.gold, 1, () => ({ spec: 0.6 })), upRef, 8, false, false);
   },
+  flaskHand(mb) {                                    // the flask in his left fist while he drinks
+    const bo = B.offhand;
+    ellipsoid(mb, [2.2, 0, 0], [2.0, 2.0, 2.9], [bo, bo, 1], () => [MAT.crimson, 0.75, 0.9], 10, 8);
+    tube(mb, chainSamples([[2.2, 0, 2.6], [2.2, 0, 4.6]], [bo], 1, () => [0.9, 0.9], MAT.wood, 1), fwdRef, 8, false, true);
+  },
   pistol(mb) {
     const bo = B.offhand;
     box(mb, [6, 0, 1.0], 6, 0.9, 0.9, [1, 0, 0], [0, 1, 0], [0, 0, 1], MAT.iron, bo, 0, 0.8);                    // barrel
@@ -420,8 +425,11 @@ class CharGL {
     g.draw(this.base);
     for (const slot of GEAR_SLOTS) { const id = p.gear[slot]; if (id && this.gear[id]) g.draw(this.gear[id]); }
     const drawn = p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
-    g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']); g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
+    const drinking = p.kind === 'flask' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
+    g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
+    if (!drinking) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
     if (drawn) g.draw(this.weapons.pistol);
+    if (drinking) g.draw(this.weapons.flaskHand);
     gl.uniform1f(g.u.emitGain, 1.1 + 1.6 * (p.swordGlow || 0));
     const wm = this.weapons[p.weapon.tex]; if (wm) g.draw(wm);
     // cloth: back faces show the lining colour

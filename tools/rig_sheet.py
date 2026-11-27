@@ -10,13 +10,13 @@ JS = r"""
   const TAU0 = Math.PI * 2; const o = window.__nullrite, g = o.game, p = g.player, C = o.C, S = C.S;
   const DIRS = [['S', -90], ['SE', -45], ['E', 0], ['NE', 45], ['N', 90], ['NW', 135], ['W', 180], ['SW', -135]];
   const POSES = ['idle', 'walk A', 'walk B', 'sprint', 'swing wind-up', 'swing', 'heavy wind-up', 'dash', 'pistol', 'flask'];
-  const cw = 120, ch = 150, W = cw * DIRS.length + 60, H = ch * POSES.length + 30, dpr = 2;
+  const cw = 250, ch = 250, W = cw * DIRS.length + 60, H = ch * POSES.length + 30, dpr = 2;
   const cv = document.createElement('canvas'); const r = new C.Renderer(cv); r.resize(W, H, dpr);
   const x = r.ctx; x.setTransform(dpr, 0, 0, dpr, 0, 0); x.fillStyle = '#0D0E12'; x.fillRect(0, 0, W, H);
   x.font = 'bold 10px monospace'; x.fillStyle = '#c9b48a';
   DIRS.forEach((d, i) => x.fillText(d[0], 60 + i * cw + cw / 2 - 6, 16));
   POSES.forEach((n, j) => { x.save(); x.translate(12, 30 + j * ch + ch / 2 + 30); x.rotate(-Math.PI / 2); x.fillText(n, 0, 0); x.restore(); });
-  const ZOOM = 1.6;
+  const ZOOM = 1.2;
   for (let j = 0; j < POSES.length; j++) for (let i = 0; i < DIRS.length; i++) {
     const pose = POSES[j], f = DIRS[i][1] * Math.PI / 180;
     p.reset(); if (p.cape) p.cape.live = false; p.facing = f; p.attack_dir = f; p.rigDir = null; p.state = S.S_IDLE; p.kind = null; p.move = null; p.vx = p.vy = 0;
@@ -33,7 +33,7 @@ JS = r"""
     if (pose === 'walk A' || pose === 'sprint') { p.walkPhase = Math.PI / 2 + Math.round(p.walkPhase / TAU0) * TAU0; } if (pose === 'walk B') { p.walkPhase = 0; }
     setup(); p.animate(0.0001, 2); if (p.cape) p.cape.project(p);
     // place the player in this cell
-    const cx = 60 + i * cw + cw / 2, cy = 30 + j * ch + ch - 18;
+    const cx = 60 + i * cw + cw / 2, cy = 30 + j * ch + ch - 70;
     r.g = { cam_x: 0, cam_y: 0, ox: 0, oy: 0 };
     r.W = W; r.H = H;
     r.entityFrame = function () { this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); this.ctx.translate(cx, cy); this.ctx.scale(ZOOM, ZOOM); };

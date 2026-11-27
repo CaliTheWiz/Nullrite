@@ -295,6 +295,12 @@ function poseRig(p, dt, t) {
   // ---- the weapon in 3D: grip position and blade direction from the weapon animation, in the char frame
   const ga = p.sword_angle, gr = p.sword_r, gX = Math.cos(ga) * gr, gY = Math.sin(ga) * gr;
   _grip.s = gX * sy - gY * cy; _grip.f = gX * cy + gY * sy; _grip.z = p.sword_elev;
+  // attacks work in front of the chest: the arc is centred ahead of him, wind-ups chamber close to the body
+  if (attacking && !tool) {
+    const ph = st === S_WINDUP ? 1 : st === S_ACTIVE ? 0.7 : 0.85;
+    _grip.f += 8 * ph;
+    if (st === S_WINDUP) { _grip.s *= 0.72; }
+  } else if (p.charging > 0) _grip.f += 6;
   const bh = p.bladeH, be = p.bladeE, bX = Math.cos(be) * Math.cos(bh), bY = Math.cos(be) * Math.sin(bh);
   _blade.s = bX * sy - bY * cy; _blade.f = bX * cy + bY * sy; _blade.z = Math.sin(be);
   o.grip = _grip; o.blade = _blade;
