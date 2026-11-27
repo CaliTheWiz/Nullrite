@@ -187,6 +187,50 @@ class Renderer {
     this.local(artByKey(p.tex), 0, 0, 64, 96, { ax: 0.5, ay: 0.04, color: p.color, alpha: p.alpha, blend: 'add', rot: p.rot, sx: p.flip });
   }
   drawPlayer(p) {
+    this.entityFrame(p.gx, p.gy);
+    this.drawRigBody(p);
+  }
+  /** The jointed player, drawn at the current transform's origin (his feet). */
+  drawRigBody(p) {
+    const R = p.rig;
+    this.local(ART.shadow, 0, 0, 50, 30);
+    const a = p.bodyAlpha, glowA = p.glowAlpha, glowC = p.glowColor;
+    for (const part of R.order) {
+      if (part.kind === 'weapon') { this.drawWeapon(p, R); continue; }
+      if (part.kind === 'offhand') continue;
+      const layers = p.rigLayers[part.name];
+      for (let i = 0; i < layers.length; i++) {
+        const v = ART.rig[layers[i][0]][layers[i][1]];
+        if (!v) continue;
+        this.rigPart(v, part, R, a, null);
+        if (glowA > 0.01) this.rigPart(v, part, R, glowA, glowC);
+      }
+      if (part.name === 'head' && p.visorAlpha > 0.01) {
+        this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a, blend: 'add' });
+        this.local(ART.visor, p.visorX, p.visorY, 10, 4.2, { sx: p.visorSX, alpha: p.visorAlpha * a, rot: R.bodyRot });
+      }
+    }
+  }
+  rigPart(v, part, R, alpha, color) {
+    const o = this._ro || (this._ro = {});
+    o.color = color; o.alpha = alpha; o.blend = color ? 'add' : undefined;
+    if (Array.isArray(v)) {
+      const tex = v[R.dir];
+      o.ax = tex.ax; o.ay = tex.ay; o.rot = part.rot; o.sx = undefined; o.sy = undefined;
+      this.local(tex, part.x, part.y, tex.w, tex.h, o);
+    } else {
+      o.ax = v.pad / v.w; o.ay = 0.5; o.rot = part.rot; o.sx = part.len / v.L; o.sy = Math.cos(part.rot) < 0 ? -1 : 1;
+      this.local(v, part.x, part.y, v.w, v.h, o);
+    }
+  }
+  drawWeapon(p, R) {
+    const c = this.ctx, w = p.weapon, tex = ART.weapon[w.tex];
+    c.save(); c.translate(R.weaponX, -R.weaponY); c.rotate(-R.weaponRot); c.scale(p.sword_scale, p.sword_scale);
+    this.local(tex, 0, 0, w.size[0], w.size[1], { ax: w.grip / w.size[0], ay: 0.5 });
+    this.local(ART.spark, w.glow[0], 0, w.glow[1], w.glow[2], { color: CRIMSON, alpha: p.swordGlow, blend: 'add' });
+    c.restore();
+  }
+  drawPlayerOld(p) {
     const c = this.ctx;
     this.entityFrame(p.gx, p.gy);
     this.local(ART.shadow, 0, 0, 56, 33.6);
@@ -320,7 +364,7 @@ class Renderer {
     }
   }
 
-  drawTitle(t) {
+  drawTitle(t, player) {
     const c = this.ctx, W = this.W, H = this.H;
     this.base(); c.fillStyle = '#040406'; c.fillRect(0, 0, W, H);
     const g = c.createRadialGradient(W / 2, H * 0.45, 10, W / 2, H * 0.45, W * 0.6);
@@ -328,7 +372,10 @@ class Renderer {
     const k = Math.min(1, H / 393);
     this.img(ART.shadow, W / 2 - 95, H * 0.74, 80 * k, 30 * k, {});
     this.img(ART.shadow, W / 2 + 95, H * 0.74, 170 * k, 60 * k, {});
-    this.img(ART.knight.S, W / 2 - 95, H * 0.745, 64 * 1.3 * k, 96 * 1.3 * k, { ay: 0.04 });
+    if (player) {
+      c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.translate(W / 2 - 95, H * 0.745); c.scale(1.25 * k, 1.25 * k);
+      this.drawRigBody(player);
+    } else this.img(ART.knight.S, W / 2 - 95, H * 0.745, 64 * 1.3 * k, 96 * 1.3 * k, { ay: 0.04 });
     this.img(ART.sentinel.S, W / 2 + 95, H * 0.745, 132 * 0.95 * k, 170 * 0.95 * k, { ay: 0.03 });
     this.serif('NULLRITE', W / 2, H * 0.86, 34, '#e8dcc4');
     this.text('TAP TO BEGIN', W / 2, H * 0.12, 13, '#ff6a78', 'center', 'bold', 0.65 + 0.35 * Math.sin(t * 3));

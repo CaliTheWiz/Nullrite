@@ -64,5 +64,22 @@
 - Shorter idle between attacks in phase 2 (0.3–0.7s).
 - Tests: `node test/phase2_test.js`, `python3 test/phase2_shot.py`.
 
+## Player look + gear plan (in progress, one step at a time)
+Base player model + wearable gear. Slots: head, chest, legs, hands, feet, back (cape),
+right hand (main weapon), left hand (off-hand: pistol now; blunderbuss/shield/catalyst later),
+necklace + ring (invisible; build modifiers). Armor has defense, poise and weight; equip load
+changes roll speed/distance and stamina regen (Souls-style). Gear is found in the world.
+Steps (1 done):
+1. DONE — `src/rig.js` (skeleton, IK, poseRig), `src/gear.js` (catalog, STARTER_GEAR, PART_ART), `src/gearart.js` (3D-described pictures baked for 16 directions; limbs are tapered segments). Pose sheet: `python3 tools/rig_sheet.py`.
+   Jointed rig: base body (3D char-frame skeleton projected to 2.5D, legs IK, arms IK to the weapon grip),
+   per-part textures in 5 views + mirrors, gear layers per part. Starter set recreates the hooded hunter.
+2. Cloak/cape secondary motion (verlet points drawn as a path each frame).
+3. Fuller silhouette: split cloak, tabard/sash, holstered pistol + flask on the belt.
+4. Shading: crimson rim light, darker undersides, tighter contact shadow.
+5. Life: idle breathing, weight shift, head leads turns, roll landing stagger.
+Then: gear system (stats, weight, equip screen, pickups), pistol aims with the left stick (option 2),
+shot feedback (muzzle flash + streak, option 4), player gun animation, more distinct boss wind-up poses.
+Blunderbuss (spread shot) is a future off-hand weapon.
+
 ## Next (planned)
 - More weapons/items; maybe itch.io release.

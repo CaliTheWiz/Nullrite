@@ -246,6 +246,9 @@ class Player {
     this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = DODGE_ROLL;
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
     this.octant = null; this.view = 'N'; this.flip = 1;
+    if (!this.rig) this.rig = new Rig();
+    this.rigDir = null; this.walkPhase = 0; this.walkAmp = 0;
+    if (!this.gear) this.setGear(STARTER_GEAR);
     this.sword_angle = this.facing + 2.35 + Math.PI; this.sword_rot = Math.PI / 2; this.sword_r = 24;
     this.sword_elev = 36; this.sword_up = 1; this.sword_scale = 0.88; this.swordGlow = 0.25;
     // pose (read by the renderer)
@@ -253,6 +256,16 @@ class Player {
     this.visorX = 0; this.visorY = 68; this.visorSX = 1; this.visorAlpha = 1; this.visorGlow = 0.6;
     this.swordX = 0; this.swordY = 0; this.swordZ = 1;
     this.animate(0, 0);
+  }
+  /** Equip a full loadout (slot -> id). Works out which pictures each rig part draws, back to front. */
+  setGear(loadout) {
+    this.gear = Object.assign({}, loadout);
+    this.rigLayers = {};
+    for (const part in PART_ART) {
+      const fam = PART_ART[part], list = ['base'];
+      for (const slot of GEAR_SLOTS) { const id = this.gear[slot]; if (id && GEAR[id] && GEAR[id].parts.indexOf(part) >= 0) list.push(id); }
+      this.rigLayers[part] = list.map(src => [src, fam]);
+    }
   }
   get invulnerable() {
     if (this.kind === 'visceral' && (this.state === S_WINDUP || this.state === S_ACTIVE || this.state === S_RECOVERY)) return true;
@@ -443,6 +456,7 @@ class Player {
       this.glowAlpha = dt > 0 ? smooth(this.glowAlpha, glowA, 14, dt) : 0;
     }
     this.animateSword(dt, t, charge);
+    poseRig(this, dt, t);
   }
   pickView() {
     const n = pickOctant(this.facing, this.octant);

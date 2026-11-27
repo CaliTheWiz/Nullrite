@@ -62,7 +62,10 @@ function frame(now) {
   fpsFrames++; fpsClock += raw;
   if (fpsClock >= 0.5) { controls.ui.fps = Math.round(fpsFrames / fpsClock); fpsFrames = 0; fpsClock = 0; }
   if (H > W) renderer.drawRotate();
-  else if (screen === 'title') { game.t += raw; renderer.drawTitle(game.t); sound.setDrone(false, 1); }
+  else if (screen === 'title') {
+    game.t += raw; const p = game.player; p.facing = -1.25; p.animate(raw, game.t);
+    renderer.drawTitle(game.t, p); sound.setDrone(false, 1);
+  }
   else {
     const ctl = controls.frame(Math.min(raw, 1 / 30));
     game.update(raw, ctl);
@@ -73,4 +76,4 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP }, start() { screen = 'play'; game.resetRound(); } };
+window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, THROW_MOVE, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD } }, start() { screen = 'play'; game.resetRound(); } };

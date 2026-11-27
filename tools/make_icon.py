@@ -3,7 +3,7 @@ import os, base64
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-js = '\n'.join(open(os.path.join(ROOT, 'src', n + '.js')).read() for n in ['config', 'mathx', 'logic', 'art'])
+js = '\n'.join(open(os.path.join(ROOT, 'src', n + '.js')).read() for n in ['config', 'mathx', 'gear', 'rig', 'logic', 'art', 'gearart'])
 PAGE = """<html><body><script>
 const DPR = 3;
 %s

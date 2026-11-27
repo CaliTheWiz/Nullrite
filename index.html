@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = 'b3629d';
+const BUILD = 'aa1d2a';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -75,7 +75,7 @@ const CHARGE_START = 0.20, CHARGE_FULL = 0.65, CHARGE_WALK = 0.45;
 
 const WEAPONS = {
   greatsword: {
-    name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, glow: [50, 96, 16], speed: 0.95,
+    name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, handGap: 8, glow: [50, 96, 16], speed: 0.95,
     light: [
       move({ windup: 0.11, active: 0.10, recovery: 0.24, damage: 38, poise: 7, lunge: 340,
              hitbox: ['arc', 140, 55], motion: ['swing', 75, -75] }),
@@ -98,7 +98,7 @@ const WEAPONS = {
                   lunge: 220, hitbox: ['ring', 125], motion: ['swing', 170, -170], reach: 50, sparks: 16 }),
   },
   spear: {
-    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, glow: [70, 110, 12], speed: 1.05,
+    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, handGap: 22, glow: [70, 110, 12], speed: 1.05,
     light: [
       move({ windup: 0.09, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 11, damage: 30, poise: 5,
              lunge: 380, hitbox: ['thrust', 190, 34], motion: ['thrust'], reach: 78, slash: ['thrust', 'gold'],
@@ -233,6 +233,301 @@ function mulberry32(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+// ============================================================ GEAR (wearable pieces, data only)
+// Slots: head, chest, legs, hands, feet, back (cape), right (main weapon), left (off-hand),
+// necklace + ring (not drawn; build modifiers). Visible pieces name the rig parts they draw on;
+// their pictures are baked in gearart.js. Stats are used by the gear system (later step).
+const GEAR_SLOTS = ['legs', 'feet', 'chest', 'hands', 'head', 'back'];      // also the draw order on a shared part
+
+const GEAR = {
+  hunter_hood:      { slot: 'head',  name: 'HUNTER HOOD',      defense: 3, poise: 1, weight: 1.5, parts: ['head'], visor: true },
+  hunter_coat:      { slot: 'chest', name: 'HUNTER COAT',      defense: 9, poise: 5, weight: 6.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'] },
+  hunter_cloak:     { slot: 'back',  name: 'TATTERED CLOAK',   defense: 1, poise: 0, weight: 1.0, parts: ['cape'] },
+  hunter_gauntlets: { slot: 'hands', name: 'HUNTER GAUNTLETS', defense: 3, poise: 1, weight: 1.5, parts: ['foreL', 'foreR', 'handL', 'handR'] },
+  hunter_greaves:   { slot: 'legs',  name: 'HUNTER GREAVES',   defense: 5, poise: 3, weight: 3.5, parts: ['thighL', 'thighR', 'shinL', 'shinR'] },
+  hunter_boots:     { slot: 'feet',  name: 'HUNTER BOOTS',     defense: 2, poise: 1, weight: 1.5, parts: ['footL', 'footR', 'shinL', 'shinR'] },
+};
+const STARTER_GEAR = { head: 'hunter_hood', chest: 'hunter_coat', back: 'hunter_cloak', hands: 'hunter_gauntlets',
+  legs: 'hunter_greaves', feet: 'hunter_boots', right: 'greatsword', left: 'pistol', necklace: null, ring: null };
+
+// rig part -> which picture family it uses ('L'/'R' parts share one segment picture)
+const PART_ART = { thighL: 'thigh', thighR: 'thigh', shinL: 'shin', shinR: 'shin', footL: 'foot', footR: 'foot',
+  upperL: 'upper', upperR: 'upper', foreL: 'fore', foreR: 'fore', handL: 'hand', handR: 'hand',
+  pelvis: 'pelvis', torso: 'torso', head: 'head', cape: 'cape' };
+const RIG_DIRS = 16;                         // view pictures are baked for 16 facing directions
+
+// ============================================================ RIG (jointed player body)
+// The body is a small 3D skeleton in the character's own frame (s = to his right, f = forward, z = up),
+// turned to the facing direction and projected with the same 2.5D rule as the world:
+//   screen x = ground x, screen y (up) = ground y * K + z, depth = ground y (bigger = further away).
+// Legs are solved in 3D (feet stay planted), arms in screen space so the hands land on the weapon grip.
+// No allocation per frame: every joint and part is created once and reused.
+
+const RIG = {
+  HIP_Z: 40, WAIST_Z: 47, CHEST_Z: 54, SHOULDER_Z: 60, NECK_Z: 64,
+  HIP_W: 5, SHOULDER_W: 10.5, FOOT_W: 4,
+  THIGH: 18.5, SHIN: 18.5, UPPER: 14, FORE: 13.5, FOOT: 7.5, HAND: 4.5,
+};
+
+function V3() { return { s: 0, f: 0, z: 0, x: 0, y: 0, d: 0 }; }   // char frame + projected screen + depth
+
+/** Two-bone IK in screen space. Writes the elbow into `mid` and the reached end into `end`.
+ *  bend: +1 / -1 picks which side the joint folds to. Returns false if the target was out of reach. */
+function ik2(ax, ay, tx, ty, L1, L2, bend, mid, end) {
+  let dx = tx - ax, dy = ty - ay, d = Math.hypot(dx, dy);
+  const reach = L1 + L2 - 0.01, ok = d <= reach;
+  if (d < 1e-4) { dx = 0; dy = -1; d = 1e-4; }
+  const dd = clamp(d, Math.abs(L1 - L2) + 0.01, reach), ux = dx / d, uy = dy / d;
+  const a = (L1 * L1 - L2 * L2 + dd * dd) / (2 * dd), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+  mid.x = ax + ux * a - uy * h * bend; mid.y = ay + uy * a + ux * h * bend;
+  end.x = ax + ux * dd; end.y = ay + uy * dd;
+  return ok;
+}
+
+class Rig {
+  constructor() {
+    const J = this.j = {};
+    for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR',
+      'shL', 'shR', 'elL', 'elR', 'wrL', 'wrR', 'handL', 'handR']) J[n] = V3();
+    // parts: what to draw. kind 'seg' = limb between two joints, 'view' = per-view picture at a joint.
+    const P = (name, kind, a, b, bias) => ({ name, kind, a, b, bias, key: 0, x: 0, y: 0, rot: 0, len: 0, side: 0 });
+    this.parts = [
+      P('thighL', 'seg', 'hipL', 'kneeL', 0), P('shinL', 'seg', 'kneeL', 'ankleL', 0), P('footL', 'seg', 'ankleL', 'toeL', -0.2),
+      P('thighR', 'seg', 'hipR', 'kneeR', 0), P('shinR', 'seg', 'kneeR', 'ankleR', 0), P('footR', 'seg', 'ankleR', 'toeR', -0.2),
+      P('pelvis', 'view', 'pelvis', null, -0.4),
+      P('torso', 'view', 'waist', null, 0.6),
+      P('cape', 'view', 'neck', null, 0),
+      P('head', 'view', 'neck', null, -0.3),
+      P('upperL', 'seg', 'shL', 'elL', -0.1), P('foreL', 'seg', 'elL', 'wrL', -0.15), P('handL', 'seg', 'wrL', 'handL', -0.2),
+      P('upperR', 'seg', 'shR', 'elR', -0.1), P('foreR', 'seg', 'elR', 'wrR', -0.15), P('handR', 'seg', 'wrR', 'handR', -0.2),
+      P('weapon', 'weapon', 'handR', null, 0),
+      P('offhand', 'offhand', 'handL', null, 0),
+    ];
+    this.byName = {}; for (const p of this.parts) this.byName[p.name] = p;
+    this.order = this.parts.slice();
+    this.yaw = 0; this.view = 'S'; this.flip = 1; this.dir = 12;
+    this.lean = 0; this.tilt = 0; this.spin = 0; this.crouch = 0;
+    this.phase = 0; this.weaponRot = 0; this.weaponX = 0; this.weaponY = 0; this.weaponKey = 0;
+  }
+
+  /** char frame -> world -> screen for one joint. */
+  project(J) {
+    const c = this._c, s = this._s;
+    const X = J.s * s + J.f * c, Y = -J.s * c + J.f * s;        // right = (sin, -cos), forward = (cos, sin)
+    J.x = X; J.y = Y * K + J.z; J.d = Y;
+  }
+
+  /** Leg IK in the char frame: hip -> knee -> ankle, knee folds forward along `kf` (forward-ish unit vector). */
+  leg(hip, knee, ankle, tS, tF, tZ) {
+    const L1 = RIG.THIGH, L2 = RIG.SHIN;
+    let ds = tS - hip.s, df = tF - hip.f, dz = tZ - hip.z, d = Math.hypot(ds, df, dz);
+    const dd = clamp(d, 1, L1 + L2 - 0.05);
+    const us = ds / d, uf = df / d, uz = dz / d;
+    // forward vector made perpendicular to the leg line: that is where the knee goes
+    let ps = -us * uf, pf = 1 - uf * uf, pz = -uz * uf;
+    const pl = Math.hypot(ps, pf, pz) || 1; ps /= pl; pf /= pl; pz /= pl;
+    const a = (L1 * L1 - L2 * L2 + dd * dd) / (2 * dd), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+    knee.s = hip.s + us * a + ps * h; knee.f = hip.f + uf * a + pf * h; knee.z = hip.z + uz * a + pz * h;
+    ankle.s = hip.s + us * dd; ankle.f = hip.f + uf * dd; ankle.z = hip.z + uz * dd;
+  }
+
+  /**
+   * Build this frame's pose.
+   * o: { yaw, view, flip, walk:{ms, mf, amp, phase}, crouch, lean, tilt, spin, rightTarget:{x,y} | null,
+   *      leftTarget:{x,y} | null (screen), leftRest:{s,f,z} (char frame, used when leftTarget is null),
+   *      rightRest:{s,f,z}, weaponRot, twoHand:{gap} | null }
+   */
+  pose(o) {
+    const J = this.j;
+    this.yaw = o.yaw; this.dir = ((Math.round(o.yaw / (TAU / RIG_DIRS)) % RIG_DIRS) + RIG_DIRS) % RIG_DIRS;
+    this._c = Math.cos(o.yaw); this._s = Math.sin(o.yaw);
+    const w = o.walk, cr = o.crouch;
+    // ---- legs + pelvis (3D)
+    const bob = -1.6 * w.amp / 11 * Math.pow(Math.sin(w.phase), 2);
+    J.pelvis.s = 0; J.pelvis.f = 0; J.pelvis.z = RIG.HIP_Z - cr + bob;
+    J.hipL.s = -RIG.HIP_W; J.hipR.s = RIG.HIP_W;
+    for (const h of [J.hipL, J.hipR]) { h.f = 0; h.z = J.pelvis.z; }
+    const feet = o.feet;
+    for (const side of [-1, 1]) {
+      const ph = w.phase + (side < 0 ? 0 : Math.PI), stride = Math.sin(ph) * w.amp;
+      const lift = Math.max(0, Math.cos(ph)) * (2 + w.amp * 0.45);
+      let tS = side * RIG.FOOT_W + w.ms * stride, tF = w.mf * stride, tZ = 3.5 + lift;
+      if (feet) { tS += side * feet.spread; tF += feet.f * side + feet.fwd; tZ += feet.z; }
+      const hip = side < 0 ? J.hipL : J.hipR, knee = side < 0 ? J.kneeL : J.kneeR, ank = side < 0 ? J.ankleL : J.ankleR;
+      this.leg(hip, knee, ank, tS, tF, tZ);
+      const toe = side < 0 ? J.toeL : J.toeR;
+      toe.s = ank.s + side * 1.2; toe.f = ank.f + RIG.FOOT; toe.z = Math.max(0.5, ank.z - 2.5);
+    }
+    // ---- spine (3D), then upper body lean in screen space around the waist
+    J.waist.s = 0; J.waist.f = 0.5; J.waist.z = J.pelvis.z + (RIG.WAIST_Z - RIG.HIP_Z);
+    J.neck.s = 0; J.neck.f = 1.0 + o.hunch; J.neck.z = J.pelvis.z + (RIG.NECK_Z - RIG.HIP_Z);
+    J.head.s = 0; J.head.f = 1.5 + o.hunch; J.head.z = J.neck.z + 9;
+    J.shL.s = -RIG.SHOULDER_W; J.shR.s = RIG.SHOULDER_W;
+    for (const sh of [J.shL, J.shR]) { sh.f = 0.5 + o.hunch * 0.6; sh.z = J.pelvis.z + (RIG.SHOULDER_Z - RIG.HIP_Z); }
+    for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR', 'shL', 'shR']) this.project(J[n]);
+    const lc = Math.cos(o.lean), ls = Math.sin(o.lean), px = J.waist.x, py = J.waist.y;
+    for (const n of ['neck', 'head', 'shL', 'shR']) {
+      const q = J[n], dx = q.x - px, dy = q.y - py;
+      q.x = px + dx * lc - dy * ls; q.y = py + dx * ls + dy * lc;
+    }
+    // ---- arms
+    this.weaponRot0 = o.weaponRot; this.leanNow = o.lean;
+    this.arm(J.shR, J.elR, J.wrR, J.handR, o.rightTarget, o.rightRest, 1);
+    if (o.twoHand && o.rightTarget) {
+      const gx = J.handR.x - Math.cos(o.weaponRot) * o.twoHand.gap, gy = J.handR.y - Math.sin(o.weaponRot) * o.twoHand.gap;
+      this._t2.x = gx; this._t2.y = gy;
+      this.arm(J.shL, J.elL, J.wrL, J.handL, this._t2, null, -1);
+    } else this.arm(J.shL, J.elL, J.wrL, J.handL, o.leftTarget, o.leftRest, -1);
+    // ---- whole-figure tilt (around the feet) and roll spin (around the pelvis)
+    if (o.tilt || o.spin) {
+      const all = this._all;
+      if (o.spin) { const c = Math.cos(o.spin), s = Math.sin(o.spin), cx = J.pelvis.x, cy = J.pelvis.y + 6;
+        for (const q of all) { const dx = q.x - cx, dy = q.y - cy; q.x = cx + dx * c - dy * s; q.y = cy + dx * s + dy * c; } }
+      if (o.tilt) { const c = Math.cos(o.tilt), s = Math.sin(o.tilt);
+        for (const q of all) { const dx = q.x, dy = q.y; q.x = dx * c - dy * s; q.y = dx * s + dy * c; } }
+    }
+    this.weaponRot = o.weaponRot + (o.spin || 0) + (o.tilt || 0);
+    this.weaponX = J.handR.x; this.weaponY = J.handR.y;
+    this.bodyRot = o.lean + (o.spin || 0) + (o.tilt || 0);
+    this.place(o);
+  }
+
+  /** One arm. target (screen) -> IK; otherwise rest (char frame) -> project -> IK. */
+  arm(sh, el, wr, hand, target, rest, side) {
+    let tx, ty;
+    if (target) { tx = target.x; ty = target.y; }
+    else { const q = this._tmp; q.s = rest.s; q.f = rest.f; q.z = rest.z; this.project(q); tx = q.x; ty = q.y; }
+    // elbow folds outward (away from the body centre on screen) and down: try both folds, keep the better one
+    const ox = sh.x - this.j.waist.x;
+    const out = Math.abs(ox) > 3 ? Math.sign(ox) : -(Math.sign(this._c) || 1);   // side views: elbow folds back
+    ik2(sh.x, sh.y, tx, ty, RIG.UPPER, RIG.FORE, 1, this._m1, this._e1);
+    ik2(sh.x, sh.y, tx, ty, RIG.UPPER, RIG.FORE, -1, this._m2, this._e2);
+    const score = (m) => (m.x - sh.x) * out - (m.y - sh.y) * 0.6;
+    const m = score(this._m1) >= score(this._m2) ? this._m1 : this._m2, e = this._e1;
+    el.x = m.x; el.y = m.y; wr.x = e.x; wr.y = e.y;
+    // depth: blend shoulder depth toward the target's depth
+    el.d = sh.d + (this._tdepth(target, rest, sh) - sh.d) * 0.5; wr.d = this._tdepth(target, rest, sh);
+    const ang = target ? this.weaponRot0 : Math.atan2(wr.y - el.y, wr.x - el.x);
+    hand.x = wr.x + Math.cos(ang) * RIG.HAND; hand.y = wr.y + Math.sin(ang) * RIG.HAND; hand.d = wr.d;
+  }
+  _tdepth(target, rest, sh) {
+    if (target) return target.d === undefined ? sh.d : target.d;
+    return -rest.s * this._c + rest.f * this._s;
+  }
+
+  /** Fill each part's screen placement + sort key (bigger key = drawn first = further back). */
+  place(o) {
+    const J = this.j;
+    for (const p of this.parts) {
+      if (p.kind === 'seg') {
+        const A = J[p.a], B = J[p.b];
+        p.x = A.x; p.y = A.y; p.rot = Math.atan2(B.y - A.y, B.x - A.x); p.len = Math.hypot(B.x - A.x, B.y - A.y);
+        p.key = (A.d + B.d) / 2 + p.bias;
+      } else if (p.kind === 'view') {
+        const A = J[p.a]; p.x = A.x; p.y = A.y; p.rot = this.bodyRot; p.key = A.d + p.bias;
+      } else {
+        const A = J[p.a]; p.x = A.x; p.y = A.y; p.key = A.d + p.bias;
+      }
+    }
+    const P = this.byName;
+    // the cape hangs behind the back; the head turns its depth with the body
+    P.cape.key = J.neck.d - 8 * this._s + 0.8;          // a point 8 behind the neck (along -forward)
+    P.pelvis.rot = this.bodyRot - this.leanNow;
+    P.weapon.key = o.weaponDepth;
+    P.handR.key = Math.min(P.handR.key, o.weaponDepth - 0.05);
+    if (o.twoHand && o.rightTarget) P.handL.key = Math.min(P.handL.key, o.weaponDepth - 0.05);
+    P.offhand.key = P.handL.key + 0.05;
+    this.order.sort((a, b) => b.key - a.key);
+  }
+}
+// scratch objects (allocated once)
+Rig.prototype._tmp = V3(); Rig.prototype._t2 = { x: 0, y: 0, d: undefined };
+Rig.prototype._m1 = { x: 0, y: 0 }; Rig.prototype._m2 = { x: 0, y: 0 }; Rig.prototype._e1 = { x: 0, y: 0 }; Rig.prototype._e2 = { x: 0, y: 0 };
+Object.defineProperty(Rig.prototype, '_all', { get() { if (!this.__all) this.__all = Object.values(this.j); return this.__all; } });
+Rig.prototype.weaponRot0 = 0;
+
+// ---------------------------------------------------------------- player pose (state -> rig)
+function pickDir16(facing, cur) {
+  const step = TAU / RIG_DIRS, n = ((Math.round(facing / step) % RIG_DIRS) + RIG_DIRS) % RIG_DIRS;
+  if (cur === null || cur === undefined) return n;
+  return Math.abs(wrap(facing - cur * step)) <= step / 2 + 6 * RAD ? cur : n;     // hysteresis
+}
+const _rt = { x: 0, y: 0, d: 0 }, _lt = { x: 0, y: 0, d: 0 }, _lr = { s: 0, f: 0, z: 0 }, _rr = { s: 0, f: 0, z: 0 };
+const _feet = { spread: 0, f: 0, fwd: 0, z: 0 }, _walk = { ms: 0, mf: 1, amp: 0, phase: 0 }, _two = { gap: 8 };
+const _pose = { yaw: 0, view: 'S', flip: 1, walk: _walk, feet: _feet, crouch: 0, lean: 0, hunch: 0, tilt: 0, spin: 0,
+  rightTarget: _rt, leftTarget: null, leftRest: _lr, rightRest: _rr, weaponRot: 0, weaponDepth: 0, twoHand: null };
+
+function poseRig(p, dt, t) {
+  const R = p.rig, st = p.state, mv = p.move, o = _pose, W = p.weapon;
+  p.rigDir = pickDir16(p.facing, p.rigDir);
+  const yaw = p.rigDir * TAU / RIG_DIRS, cy = Math.cos(yaw), sy = Math.sin(yaw);
+  o.yaw = yaw;
+  // ---- walking
+  const spd = hypot(p.vx, p.vy), loco = st === S_IDLE || st === S_MOVE;
+  const ampT = loco ? clamp(spd / PLAYER_SPEED, 0, 1.6) * 12 : (st === S_DODGE ? 0 : clamp(spd / PLAYER_SPEED, 0, 1) * 7);
+  p.walkAmp = dt > 0 ? smooth(p.walkAmp, ampT, 10, dt) : ampT;
+  if (spd > 12) {
+    _walk.ms = (p.vx * sy - p.vy * cy) / spd; _walk.mf = (p.vx * cy + p.vy * sy) / spd;
+    p.walkPhase += dt * Math.PI * spd / (2 * Math.max(6, p.walkAmp + 6));
+  } else if (dt > 0) {                                     // settle to a planted stance
+    const k = Math.round(p.walkPhase / Math.PI) * Math.PI; p.walkPhase = smooth(p.walkPhase, k, 8, dt);
+  }
+  _walk.amp = p.walkAmp; _walk.phase = p.walkPhase;
+  // ---- defaults: relaxed stance
+  _feet.spread = 0.5; _feet.f = -1.5; _feet.fwd = 0; _feet.z = 0;
+  let crouch = 0.6 + 0.4 * Math.sin(t * 2.2), hunch = 0, lean = p.bodyRot, tilt = 0, spin = 0;
+  const swingL = -Math.sin(p.walkPhase) * p.walkAmp * 0.75;
+  _lr.s = -9; _lr.f = swingL + 1; _lr.z = 34;
+  o.leftTarget = null; o.twoHand = null;
+  const attacking = mv && (st === S_WINDUP || st === S_ACTIVE || st === S_RECOVERY);
+  const tool = p.kind === 'shoot' || p.kind === 'item' || p.kind === 'flask';
+  const heft = attacking ? mv.heft : 0;
+  if (p.sprinting) { hunch = 3; crouch += 1.5; }
+  if (attacking && !tool && p.kind !== 'visceral') {
+    const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
+    crouch += (2 + 5 * heft) * ph; hunch = 1.5 + 2.5 * heft * ph;
+    _feet.f = -(3 + 3 * heft) * ph - 1.5; _feet.spread = 1.5 + 2 * ph;          // left foot forward, wider base
+    o.twoHand = _two; _two.gap = W.handGap || 8;
+  } else if (p.kind === 'visceral' && attacking) {
+    crouch += 4; hunch = 3; o.twoHand = _two; _two.gap = W.handGap || 8;
+  } else if (p.charging > 0 && loco) {
+    const c = clamp((p.charging - CHARGE_START) / (CHARGE_FULL - CHARGE_START), 0, 1);
+    crouch += 2 + 5 * c; hunch = 2 + 2 * c; _feet.f = -3 - 2 * c; _feet.spread = 2 + c; o.twoHand = _two; _two.gap = W.handGap || 8;
+  }
+  if (tool && attacking) {
+    const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
+    const rel = p.attack_dir - yaw, ds = -Math.sin(rel), df = Math.cos(rel);
+    if (p.kind === 'flask') { _lr.s = -2 + 1 * (1 - ph); _lr.f = 4 + 3 * ph; _lr.z = 40 + 26 * ph; hunch = -1 * ph; }
+    else if (p.kind === 'shoot') { _lr.s = -RIG.SHOULDER_W * 0.6 + ds * 24 * ph; _lr.f = 1 + df * 24 * ph; _lr.z = 34 + 22 * ph; _feet.f = -2 * ph; }
+    else { // thrown item: up and back, then forward
+      const back = st === S_WINDUP ? ph : 0, fwd = st === S_WINDUP ? 0 : ph;
+      _lr.s = -6 + ds * 18 * fwd; _lr.f = -6 * back + df * 20 * fwd; _lr.z = 34 + 36 * back + 18 * fwd; hunch = 2 * fwd;
+    }
+  }
+  if (st === S_DODGE) {
+    const q = clamp(p.state_t / p.dodge_prof.time, 0, 1), arc = Math.sin(Math.PI * q);
+    crouch = 16 * arc; hunch = 5 * arc; _feet.z = 7 * arc; _feet.fwd = 3 * arc; _feet.spread = -1;
+    _lr.s = -5; _lr.f = 6; _lr.z = 30;
+    const sx = Math.cos(p.dodge_dir), dir = Math.abs(sx) > 0.25 ? -Math.sign(sx) : (Math.sin(p.dodge_dir) > 0 ? 1 : -1);
+    spin = dir * TAU * (1 - Math.pow(1 - q, 2)); lean = 0;
+  } else if (st === S_HURT) { crouch += 3; hunch = -1.5; }
+  else if (st === S_DEAD) {
+    const k = Math.min(1, p.state_t / 0.8);
+    crouch = 6 + 12 * Math.min(1, p.state_t / 0.35); tilt = p.bodyRot; lean = 0;
+    void k;
+  }
+  o.crouch = crouch; o.hunch = hunch; o.lean = lean * 0.8; o.tilt = tilt; o.spin = spin;
+  // ---- right hand holds the weapon where the weapon animation puts its grip
+  _rt.x = p.swordX; _rt.y = p.swordY; _rt.d = Math.sin(p.sword_angle) * p.sword_r * 0.6;
+  o.weaponRot = p.sword_rot; o.weaponDepth = _rt.d;
+  o.rightTarget = _rt;
+  R.pose(o);
+  // visor: front of the head, fades as he turns away
+  const H = R.j.head, fwd = -sy;
+  p.visorX = H.x + cy * 5.6; p.visorY = H.y + sy * 5.6 * K - 0.5;
+  p.visorSX = Math.max(0.25, Math.abs(fwd)); p.visorAlpha = st === S_DEAD ? 0 : clamp((fwd + 0.25) * 1.8, 0, 1);
 }
 
 // ============================================================ LOGIC
@@ -483,6 +778,9 @@ class Player {
     this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = DODGE_ROLL;
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
     this.octant = null; this.view = 'N'; this.flip = 1;
+    if (!this.rig) this.rig = new Rig();
+    this.rigDir = null; this.walkPhase = 0; this.walkAmp = 0;
+    if (!this.gear) this.setGear(STARTER_GEAR);
     this.sword_angle = this.facing + 2.35 + Math.PI; this.sword_rot = Math.PI / 2; this.sword_r = 24;
     this.sword_elev = 36; this.sword_up = 1; this.sword_scale = 0.88; this.swordGlow = 0.25;
     // pose (read by the renderer)
@@ -490,6 +788,16 @@ class Player {
     this.visorX = 0; this.visorY = 68; this.visorSX = 1; this.visorAlpha = 1; this.visorGlow = 0.6;
     this.swordX = 0; this.swordY = 0; this.swordZ = 1;
     this.animate(0, 0);
+  }
+  /** Equip a full loadout (slot -> id). Works out which pictures each rig part draws, back to front. */
+  setGear(loadout) {
+    this.gear = Object.assign({}, loadout);
+    this.rigLayers = {};
+    for (const part in PART_ART) {
+      const fam = PART_ART[part], list = ['base'];
+      for (const slot of GEAR_SLOTS) { const id = this.gear[slot]; if (id && GEAR[id] && GEAR[id].parts.indexOf(part) >= 0) list.push(id); }
+      this.rigLayers[part] = list.map(src => [src, fam]);
+    }
   }
   get invulnerable() {
     if (this.kind === 'visceral' && (this.state === S_WINDUP || this.state === S_ACTIVE || this.state === S_RECOVERY)) return true;
@@ -680,6 +988,7 @@ class Player {
       this.glowAlpha = dt > 0 ? smooth(this.glowAlpha, glowA, 14, dt) : 0;
     }
     this.animateSword(dt, t, charge);
+    poseRig(this, dt, t);
   }
   pickView() {
     const n = pickOctant(this.facing, this.octant);
@@ -1974,6 +2283,11 @@ function buildArt(scale) {
   for (const col of ['#5c5766', '#524d5c', '#575161', '#4d4545']) tinted(A.glowSoft, col);
   for (const v of VIEWS) { tinted(A.knightSil[v], CRIMSON); tinted(A.sentinelSil[v], CRIMSON); }
   for (const r of A.runes) { tinted(r, RUNE_GOLD); tinted(r, RUNE_CRIMSON); }
+  buildRigArt(A);
+  for (const src in A.rig) for (const part in A.rig[src]) {                // hurt flash / dodge glow tints
+    const v = A.rig[src][part];
+    for (const tex of (Array.isArray(v) ? v : [v])) { tinted(tex, '#ffffff'); tinted(tex, CRIMSON); }
+  }
 }
 /** Particle texture lookup by key ('spark', 'slash:170', 'knightSil:S', ...). */
 function artByKey(key) {
@@ -1981,6 +2295,327 @@ function artByKey(key) {
   if (i < 0) return ART[key];
   const base = key.slice(0, i), sub = key.slice(i + 1);
   return base === 'slash' ? ART.slash[+sub] : ART[base][sub];
+}
+
+// ============================================================ GEAR ART (baked at boot)
+// Body and gear pictures come from small 3D descriptions projected with the world's 2.5D rule,
+// so every one of the 16 facing directions lines up with the rig's joints automatically.
+// Limbs are view-independent tapered segments (a sleeve looks the same from any side).
+
+// ---------------------------------------------------------------- 3D helpers
+function rigProj(yaw, ox, oy) {
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  return (S, F, Z) => { const X = S * s + F * c, Y = -S * c + F * s; return [ox + X, oy - (Y * K + Z), Y]; };
+}
+/** Is a surface with char-frame normal (ns, nf, nz) facing the camera at this yaw? */
+function rigVisible(yaw, ns, nf, nz, slack) {
+  const c = Math.cos(yaw), s = Math.sin(yaw), nY = -ns * c + nf * s;
+  return nY - K * nz < (slack || 0);
+}
+function hull(pts) {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const q of p) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  return lo.slice(0, -1).concat(up.slice(0, -1));
+}
+function mixHex(a, b, t) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const ch = (sh) => Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t);
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
+// light comes from the camera side, upper left: brightens surfaces that face it
+const RIG_LIGHT = [-0.45, -0.35, 0.8];
+function lit(yaw, ns, nf, nz) {
+  const c = Math.cos(yaw), s = Math.sin(yaw), X = ns * s + nf * c, Y = -ns * c + nf * s;
+  const L = RIG_LIGHT, d = (X * L[0] + Y * L[1] + nz * L[2]) / (Math.hypot(X, Y, nz) * Math.hypot(L[0], L[1], L[2]) || 1);
+  return clamp(d, 0, 1);
+}
+
+/** A body section: list of horizontal ellipses { z, a (half width), b (half depth), f (forward offset) }. */
+function sectionPts(P, secs, n) {
+  const out = [];
+  for (const q of secs) for (let i = 0; i < n; i++) { const th = i / n * TAU; out.push(P(q.a * Math.sin(th), (q.f || 0) + q.b * Math.cos(th), q.z)); }
+  return out;
+}
+/** Section value at height z (linear between listed sections). */
+function sectionAt(secs, z) {
+  if (z <= secs[0].z) return secs[0];
+  for (let i = 1; i < secs.length; i++) if (z <= secs[i].z) {
+    const A = secs[i - 1], B = secs[i], u = (z - A.z) / (B.z - A.z);
+    return { z, a: A.a + (B.a - A.a) * u, b: A.b + (B.b - A.b) * u, f: (A.f || 0) + ((B.f || 0) - (A.f || 0)) * u };
+  }
+  return secs[secs.length - 1];
+}
+/** Paint a patch of a sectioned surface (theta 0 = front, +pi/2 = his right) with a colour, culling back faces. */
+function surfPatch(x, yaw, P, secs, th0, th1, z0, z1, col, o) {
+  o = o || {}; const nt = o.nt || 8, nz = o.nz || 4, grow = o.grow || 0;
+  for (let i = 0; i < nt; i++) for (let j = 0; j < nz; j++) {
+    const ta = th0 + (th1 - th0) * i / nt, tb = th0 + (th1 - th0) * (i + 1) / nt, za = z0 + (z1 - z0) * j / nz, zb = z0 + (z1 - z0) * (j + 1) / nz;
+    const tm = (ta + tb) / 2;
+    if (!rigVisible(yaw, Math.sin(tm), Math.cos(tm), 0, 0.05)) continue;
+    const pt = (t, z) => { const q = sectionAt(secs, z); return P((q.a + grow) * Math.sin(t), q.f + (q.b + grow) * Math.cos(t), z); };
+    const c = typeof col === 'function' ? col(tm, (za + zb) / 2) : col;
+    x.fillStyle = c; x.strokeStyle = c; x.lineWidth = 0.35;
+    polyPath(x, [pt(ta, za), pt(tb, za), pt(tb, zb), pt(ta, zb)]); x.fill(); x.stroke();
+  }
+}
+/** Shaded fill of a whole sectioned body: silhouette, then lit vertical bands. */
+function solidBody(x, yaw, P, secs, dark, light) {
+  fillP(x, hull(sectionPts(P, secs, 28)), dark);
+  surfPatch(x, yaw, P, secs, -Math.PI, Math.PI, secs[0].z, secs[secs.length - 1].z,
+    (t) => mixHex(dark, light, 0.55 * lit(yaw, Math.sin(t), Math.cos(t), 0.15)), { nt: 20, nz: 3 });
+}
+/** Ellipsoid point at (theta around, psi up). */
+function ellPt(P, E, th, ps) {
+  return P(E.a * Math.cos(ps) * Math.sin(th), (E.f || 0) + E.b * Math.cos(ps) * Math.cos(th), E.z + E.c * Math.sin(ps));
+}
+function ellVisible(yaw, E, th, ps) {
+  return rigVisible(yaw, Math.cos(ps) * Math.sin(th) / E.a, Math.cos(ps) * Math.cos(th) / E.b, Math.sin(ps) / E.c, 0.02);
+}
+function ellPatch(x, yaw, P, E, th0, th1, ps0, ps1, col, n) {
+  n = n || 6;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const ta = th0 + (th1 - th0) * i / n, tb = th0 + (th1 - th0) * (i + 1) / n, pa = ps0 + (ps1 - ps0) * j / n, pb = ps0 + (ps1 - ps0) * (j + 1) / n;
+    const tm = (ta + tb) / 2, pm = (pa + pb) / 2;
+    if (!ellVisible(yaw, E, tm, pm)) continue;
+    const c = typeof col === 'function' ? col(tm, pm) : col;
+    x.fillStyle = c; x.strokeStyle = c; x.lineWidth = 0.35;
+    polyPath(x, [ellPt(P, E, ta, pa), ellPt(P, E, tb, pa), ellPt(P, E, tb, pb), ellPt(P, E, ta, pb)]); x.fill(); x.stroke();
+  }
+}
+function ellSolid(x, yaw, P, E, dark, light, extra) {
+  const pts = [];
+  for (let i = 0; i < 16; i++) for (let j = -3; j <= 3; j++) pts.push(ellPt(P, E, i / 16 * TAU, j / 3 * Math.PI / 2 * 0.98));
+  fillP(x, hull(extra ? pts.concat(extra) : pts), dark);
+  ellPatch(x, yaw, P, E, -Math.PI, Math.PI, -Math.PI / 2, Math.PI / 2,
+    (t, p) => mixHex(dark, light, 0.6 * lit(yaw, Math.cos(p) * Math.sin(t), Math.cos(p) * Math.cos(t), Math.sin(p))), 10);
+}
+
+// ---------------------------------------------------------------- view boxes (canvas size + where the joint sits)
+const RIG_BOX = {
+  torso:  { w: 46, h: 36, ox: 23, oy: 31 },        // origin = waist joint
+  pelvis: { w: 36, h: 40, ox: 18, oy: 18 },        // origin = pelvis joint
+  head:   { w: 34, h: 38, ox: 17, oy: 33 },        // origin = neck joint
+  cape:   { w: 64, h: 76, ox: 32, oy: 14 },        // origin = neck joint
+};
+function viewTexFor(part, yaw, paint) {
+  const B = RIG_BOX[part];
+  const t = makeTex(B.w, B.h, (x) => paint(x, rigProj(yaw, B.ox, B.oy), yaw));
+  t.ax = B.ox / B.w; t.ay = 1 - B.oy / B.h; return t;
+}
+/** Tapered limb picture: joint A at (pad, cy), joint B at (pad + L, cy). */
+function segTex(L, w0, w1, paint) {
+  const pad = Math.max(w0, w1) / 2 + 2.5, H = Math.max(w0, w1) + 6, W = L + 2 * pad;
+  const t = makeTex(W, H, (x) => paint(x, { L, w0, w1, H, pad, cy: H / 2, A: pad, B: pad + L }));
+  t.pad = pad; t.L = L; return t;
+}
+/** Limb outline: flattened end caps and an optional bulge (muscle / plate) peaking at `at` along it. */
+function capsulePath(x, g, r0, r1, a, b, bulge, at) {
+  a = a === undefined ? g.A : a; b = b === undefined ? g.B : b; bulge = bulge || 1; at = at === undefined ? 0.5 : at;
+  const m = a + (b - a) * at, rm = (r0 + (r1 - r0) * at) * bulge, cy = g.cy;
+  x.beginPath();
+  x.ellipse(a, cy, r0 * 0.55, r0, 0, Math.PI / 2, Math.PI * 1.5);
+  x.quadraticCurveTo(m, cy - rm * 2 + (r0 + r1) / 2, b, cy - r1);
+  x.ellipse(b, cy, r1 * 0.55, r1, 0, -Math.PI / 2, Math.PI / 2);
+  x.quadraticCurveTo(m, cy + rm * 2 - (r0 + r1) / 2, a, cy + r0);
+  x.closePath();
+}
+/** Limb with a soft top-light band. */
+function limb(x, g, dark, light, r0, r1, a, b, bulge, at) {
+  r0 = r0 || g.w0 / 2; r1 = r1 || g.w1 / 2;
+  capsulePath(x, g, r0, r1, a, b, bulge, at); x.fillStyle = dark; x.fill();
+  x.save(); capsulePath(x, g, r0, r1, a, b, bulge, at); x.clip();
+  const R = Math.max(r0, r1) * (bulge || 1);
+  const gr = x.createLinearGradient(0, g.cy - R, 0, g.cy + R);
+  gr.addColorStop(0, light); gr.addColorStop(0.42, dark); gr.addColorStop(1, '#060508');
+  x.globalAlpha = 0.85; x.fillStyle = gr; x.fillRect(0, 0, g.L + 2 * g.pad, g.H); x.restore();
+}
+/** A plate: a bulging shape along the limb from u0 to u1, with a lit top edge and a dark seam. */
+function plateOn(x, g, u0, u1, r0, r1, bulge, at) {
+  const a = g.A + g.L * u0, b = g.A + g.L * u1;
+  limb(x, g, RC.plate, RC.plateL, r0, r1, a, b, bulge, at);
+  capsulePath(x, g, r0, r1, a, b, bulge, at); x.strokeStyle = '#07070b'; x.lineWidth = 0.6; x.stroke();
+}
+
+// ---------------------------------------------------------------- palette
+const RC = {
+  suit: '#121118', suitL: '#2a2733', cloth: '#15131b', clothL: '#2f2a3a', cloak: '#0b0a0f', cloakL: '#1d1a24', lining: '#2a0d14',
+  plate: '#23242e', plateL: '#5a5d6e', plateD: '#101016', crimson: '#8A2432', hot: '#ff2a45', gold: 'rgba(150,118,56,0.95)', black: '#030304',
+};
+
+// ---------------------------------------------------------------- the 3D shapes
+const TORSO = [{ z: 0, a: 6.8, b: 4.4, f: 0 }, { z: 7.5, a: 9.2, b: 5.4, f: 0.6 }, { z: 12.5, a: 11.2, b: 5.0, f: 0.2 }, { z: 15.5, a: 7.5, b: 4.2 }, { z: 17.5, a: 3.6, b: 3.2, f: 0.4 }];
+const HIPS = [{ z: -8, a: 6.6, b: 4.6 }, { z: -2, a: 7.6, b: 5.2 }, { z: 6.5, a: 6.9, b: 4.5, f: 0.4 }];
+const SKULL = { z: 9, a: 5.2, b: 5.8, c: 7.0, f: 1.0 };
+const HOOD = { z: 9.5, a: 7.0, b: 7.6, c: 8.6, f: 0.2 };
+
+// ---------------------------------------------------------------- base body (the under-suit)
+const BASE_ART = {
+  torso(x, P, yaw) { solidBody(x, yaw, P, TORSO, RC.suit, RC.suitL); },
+  pelvis(x, P, yaw) { solidBody(x, yaw, P, HIPS, RC.suit, RC.suitL); },
+  head(x, P, yaw) {
+    solidBody(x, yaw, P, [{ z: -1, a: 3, b: 3 }, { z: 3, a: 3.2, b: 3.2, f: 0.6 }], RC.suit, RC.suitL);   // neck
+    ellSolid(x, yaw, P, SKULL, RC.suit, RC.suitL);
+    ellPatch(x, yaw, P, SKULL, -0.75, 0.75, -0.45, 0.35, '#1c1b23', 5);                                   // face plate
+  },
+  cape() {},
+  thigh: [18.5, 10.5, 7.4, (x, g) => limb(x, g, RC.suit, RC.suitL, 0, 0, undefined, undefined, 1.06, 0.3)],
+  shin: [18.5, 7.0, 4.8, (x, g) => limb(x, g, RC.suit, RC.suitL, 0, 0, undefined, undefined, 1.16, 0.3)],
+  foot: [7.5, 5.6, 4.8, (x, g) => limb(x, g, RC.suit, RC.suitL)],
+  upper: [14, 7.0, 5.6, (x, g) => limb(x, g, RC.suit, RC.suitL, 0, 0, undefined, undefined, 1.08, 0.35)],
+  fore: [13.5, 6.0, 4.4, (x, g) => limb(x, g, RC.suit, RC.suitL, 0, 0, undefined, undefined, 1.1, 0.3)],
+  hand: [4.5, 4.8, 4.8, (x, g) => limb(x, g, RC.suit, RC.suitL)],
+};
+
+// ---------------------------------------------------------------- starter set: the hooded hunter
+const GEAR_ART = {
+  hunter_hood: {
+    head(x, P, yaw) {
+      // hood shell: an ellipsoid with a peak and a drape that falls onto the shoulders at the back
+      const extra = [P(0, -3.5, 19.5), P(-6.5, -5.5, 0), P(6.5, -5.5, 0), P(-7.5, -2, 2), P(7.5, -2, 2)];
+      ellSolid(x, yaw, P, HOOD, RC.cloth, RC.clothL, extra);
+      // face opening: deep shadow
+      ellPatch(x, yaw, P, HOOD, -0.72, 0.72, -0.55, 0.42, RC.black, 7);
+      // opening rim + centre seam
+      const rim = [], seam = [];
+      for (let i = 0; i <= 14; i++) { const t = -0.72 + 1.44 * i / 14; if (ellVisible(yaw, HOOD, t, 0.44)) rim.push(ellPt(P, HOOD, t, 0.44)); }
+      if (rim.length > 1) lineP(x, rim, 1.0, '#3a3446');
+      for (let i = 0; i <= 12; i++) { const ps = 0.5 + (Math.PI / 2 - 0.5) * i / 12; if (ellVisible(yaw, HOOD, 0, ps)) seam.push(ellPt(P, HOOD, 0, ps)); }
+      for (let i = 0; i <= 12; i++) { const ps = Math.PI / 2 - Math.PI / 2 * i / 12; if (ellVisible(yaw, HOOD, Math.PI, ps)) seam.push(ellPt(P, HOOD, Math.PI, ps)); }
+      if (seam.length > 1) lineP(x, seam, 0.8, 'rgba(70,62,86,0.9)');
+    },
+  },
+  hunter_coat: {
+    torso(x, P, yaw) {
+      const C = TORSO.map(q => ({ z: q.z, a: q.a + 0.7, b: q.b + 0.6, f: q.f }));
+      solidBody(x, yaw, P, C, RC.cloth, RC.clothL);
+      // chest plate, belt, core, collar, back sigil
+      surfPatch(x, yaw, P, C, -0.95, 0.95, 3.8, 12.2, (t) => mixHex('#1b1c25', '#4a4c5c', 0.6 * lit(yaw, Math.sin(t), Math.cos(t), 0.1)), { nt: 10, nz: 4, grow: 0.5 });
+      surfPatch(x, yaw, P, C, -Math.PI, Math.PI, 0.6, 2.6, RC.gold, { nt: 24, nz: 1, grow: 0.7 });
+      surfPatch(x, yaw, P, C, -0.12, 0.12, 0.4, 2.8, '#d6b46a', { nt: 1, nz: 1, grow: 0.9 });   // buckle
+      surfPatch(x, yaw, P, C, -Math.PI, Math.PI, 15.2, 18.2, '#0d0c12', { nt: 20, nz: 2, grow: 0.8 });
+      if (rigVisible(yaw, 0, 1, 0, -0.05)) {
+        const q = sectionAt(C, 8.5), c0 = P(0, q.f + q.b + 1.0, 8.5), w = 2.6 * Math.max(0.2, -Math.sin(yaw));
+        withGlow(x, GLOW_RED, 4, () => fillP(x, [[c0[0], c0[1] - 4], [c0[0] + w, c0[1]], [c0[0], c0[1] + 4], [c0[0] - w, c0[1]]], RC.hot));
+      }
+      if (rigVisible(yaw, 0, -1, 0, -0.05)) {
+        const q = sectionAt(C, 9), b0 = P(0, q.f - q.b - 0.6, 11.5), b1 = P(0, q.f - q.b - 0.6, 6.5);
+        const w = 4.5 * Math.max(0.2, Math.sin(yaw));
+        withGlow(x, GLOW_RED, 3, () => lineP(x, [[b0[0] - w, b0[1]], [b0[0] + w, b0[1]], [b1[0], b1[1]], [b0[0] - w, b0[1]]], 1.1, RC.crimson));
+      }
+    },
+    pelvis(x, P, yaw) {
+      // coat skirt: split at the front so the legs read, longer at the back
+      const S = (z) => ({ z, a: 8.4 + (6 - z) * 0.11, b: 5.8 + (6 - z) * 0.08, f: 0 });
+      const SK = [S(-16), S(-8), S(0), S(6)];
+      const hem = (t, z) => mixHex(RC.cloth, RC.clothL, 0.5 * lit(yaw, Math.sin(t), Math.cos(t), 0));
+      surfPatch(x, yaw, P, SK, 1.1, TAU - 1.1, -16, 6, hem, { nt: 12, nz: 4 });       // back and sides
+      surfPatch(x, yaw, P, SK, 0.2, 1.15, -12, 6, hem, { nt: 5, nz: 4 });             // front right flap
+      surfPatch(x, yaw, P, SK, -1.15, -0.2, -12, 6, hem, { nt: 5, nz: 4 });           // front left flap
+      // crimson hem trim along the visible bottom edges
+      const edge = (t0, t1, z) => {
+        let run = [];
+        for (let i = 0; i <= 10; i++) {
+          const t = t0 + (t1 - t0) * i / 10, q = sectionAt(SK, z);
+          if (rigVisible(yaw, Math.sin(t), Math.cos(t), 0, 0.05)) run.push(P(q.a * Math.sin(t), q.b * Math.cos(t), z));
+          else { if (run.length > 1) withGlow(x, GLOW_RED, 2.5, () => lineP(x, run, 1.1, RC.crimson)); run = []; }
+        }
+        if (run.length > 1) withGlow(x, GLOW_RED, 2.5, () => lineP(x, run, 1.1, RC.crimson));
+      };
+      edge(1.1, TAU - 1.1, -16); edge(0.2, 1.15, -12); edge(-1.15, -0.2, -12);
+    },
+    upper: [14, 7.8, 6.0, (x, g) => {
+      limb(x, g, RC.cloth, RC.clothL, 3.9, 3.0, undefined, undefined, 1.08, 0.35);
+      // pauldron: three overlapping lames running down from the shoulder
+      for (const [u0, u1, r] of [[0.32, 0.62, 4.6], [0.12, 0.44, 5.4], [-0.16, 0.26, 6.2]]) plateOn(x, g, u0, u1, r * 0.92, r, 1.05, 0.6);
+      fillOval(x, g.A - 1.1, g.cy - 3.9, 2.2, 2.2, RC.crimson);
+    }],
+  },
+  hunter_cloak: {
+    cape(x, P, yaw) {
+      // a sheet from the back half of the shoulders down to the calves; outer face dark, lining crimson-black
+      const top = { z: -4.5, a: 11.8, b: 5.4, f: -0.5 }, bot = { z: -50, a: 15.5, b: 8.5, f: -5.5 };
+      const nt = 16, nz = 10, t0 = Math.PI / 2 + 0.12, t1 = Math.PI * 1.5 - 0.12;
+      const tat = (i) => (i % 3 === 0 ? 3.5 : i % 3 === 1 ? 0 : 1.8);              // tattered hem
+      const pt = (i, j) => {
+        const th = t0 + (t1 - t0) * i / nt, u = j / nz, a = top.a + (bot.a - top.a) * u, b = top.b + (bot.b - top.b) * u;
+        const f = top.f + (bot.f - top.f) * u, z = top.z + (bot.z - top.z) * u + (j === nz ? tat(i) : 0);
+        return P(a * Math.sin(th), f + b * Math.cos(th), z);
+      };
+      const quads = [];
+      for (let i = 0; i < nt; i++) for (let j = 0; j < nz; j++) {
+        const th = t0 + (t1 - t0) * (i + 0.5) / nt, pts = [pt(i, j), pt(i + 1, j), pt(i + 1, j + 1), pt(i, j + 1)];
+        const outer = rigVisible(yaw, Math.sin(th), Math.cos(th), 0.2, 0.02);
+        const L = lit(yaw, Math.sin(th), Math.cos(th), 0.2) * (1 - j / nz * 0.45);
+        const col = outer ? mixHex(RC.cloak, RC.cloakL, 0.7 * L) : mixHex('#14070b', RC.lining, 0.6 * (1 - j / nz));
+        quads.push([(pts[0][2] + pts[2][2]) / 2, pts, col]);
+      }
+      quads.sort((a, b) => b[0] - a[0]);
+      for (const q of quads) { x.fillStyle = q[2]; x.strokeStyle = q[2]; x.lineWidth = 0.35; polyPath(x, q[1]); x.fill(); x.stroke(); }
+      const hemPts = []; for (let i = 0; i <= nt; i++) hemPts.push(pt(i, nz));
+      withGlow(x, GLOW_RED, 3, () => lineP(x, hemPts, 1.2, RC.crimson));
+    },
+  },
+  hunter_gauntlets: {
+    fore: [13.5, 6.8, 5.4, (x, g) => {
+      plateOn(x, g, 0.32, 1.0, 3.6, 2.7, 1.08, 0.25);                       // flared bracer
+      x.fillStyle = RC.crimson; x.fillRect(g.A + g.L * 0.34, g.cy - 3.4, 0.9, 6.8);
+      lineP(x, [[g.A + g.L * 0.5, g.cy - 1.4], [g.B - 1.5, g.cy - 1.1]], 0.6, 'rgba(140,144,166,0.55)');
+    }],
+    hand: [4.5, 5.4, 5.2, (x, g) => {
+      limb(x, g, RC.plate, RC.plateL);
+      lineP(x, [[g.B - 0.2, g.cy - 2.2], [g.B - 0.2, g.cy + 2.2]], 0.7, '#08080c');
+    }],
+  },
+  hunter_greaves: {
+    thigh: [18.5, 11.0, 7.8, (x, g) => {
+      limb(x, g, RC.cloth, RC.clothL, 0, 0, undefined, undefined, 1.06, 0.3);
+      plateOn(x, g, 0.45, 1.0, 3.4, 3.6, 1.05, 0.6);                        // cuisse over the lower thigh
+      lineP(x, [[g.A + 3, g.cy + 2.2], [g.A + g.L * 0.45, g.cy + 2.0]], 0.6, 'rgba(8,8,12,0.8)');
+    }],
+    shin: [18.5, 7.6, 5.2, (x, g) => {
+      plateOn(x, g, 0.08, 0.9, 3.6, 2.6, 1.16, 0.3);                        // greave with a calf swell
+      lineP(x, [[g.A + 3, g.cy - 2.6], [g.B - 4, g.cy - 1.6]], 0.6, 'rgba(140,144,166,0.55)');
+      // knee cop: a low, wide plate over the joint rather than a ball
+      x.save(); x.beginPath(); x.ellipse(g.A + 0.5, g.cy, 3.0, 4.4, 0, 0, TAU); x.fillStyle = RC.plate; x.fill(); x.clip();
+      const gr = x.createLinearGradient(0, g.cy - 4.4, 0, g.cy + 4.4); gr.addColorStop(0, RC.plateL); gr.addColorStop(1, RC.plateD);
+      x.fillStyle = gr; x.fillRect(0, 0, 40, 40); x.restore();
+      x.beginPath(); x.ellipse(g.A + 0.5, g.cy, 3.0, 4.4, 0, 0, TAU); x.strokeStyle = '#08080c'; x.lineWidth = 0.6; x.stroke();
+    }],
+  },
+  hunter_boots: {
+    shin: [18.5, 7.6, 7.0, (x, g) => {                                // boot shaft over the lower shin
+      limb(x, g, '#0e0d12', '#26232d', 3.4, 3.6, g.B - 7.5, g.B + 0.5);
+      lineP(x, [[g.B - 7.1, g.cy - 3.3], [g.B - 7.1, g.cy + 3.3]], 0.8, RC.gold);
+    }],
+    foot: [7.5, 7.0, 5.6, (x, g) => {
+      limb(x, g, '#0e0d12', '#26232d', 0, 0, undefined, undefined, 1.05, 0.4);
+      x.save(); capsulePath(x, g, g.w0 / 2, g.w1 / 2); x.clip();
+      x.fillStyle = RC.plate; x.fillRect(g.B - 2.5, 0, 6, g.H);                      // toe cap
+      x.restore();
+    }],
+  },
+};
+
+/** Bake base + every gear piece: ART.rig[source][part] = texture (segments) or [16 views]. */
+function buildRigArt(A) {
+  A.rig = {};
+  const bake = (src, art) => {
+    const out = {};
+    for (const part in art) {
+      const v = art[part];
+      if (Array.isArray(v)) out[part] = segTex(v[0], v[1], v[2], v[3]);
+      else if (RIG_BOX[part]) {
+        out[part] = [];
+        for (let i = 0; i < RIG_DIRS; i++) out[part].push(viewTexFor(part, i / RIG_DIRS * TAU, v));
+      }
+    }
+    A.rig[src] = out;
+  };
+  bake('base', BASE_ART);
+  for (const id in GEAR_ART) bake(id, GEAR_ART[id]);
 }
 
 // ============================================================ AUDIO (WebAudio, synthesized at boot)
@@ -2416,6 +3051,50 @@ class Renderer {
     this.local(artByKey(p.tex), 0, 0, 64, 96, { ax: 0.5, ay: 0.04, color: p.color, alpha: p.alpha, blend: 'add', rot: p.rot, sx: p.flip });
   }
   drawPlayer(p) {
+    this.entityFrame(p.gx, p.gy);
+    this.drawRigBody(p);
+  }
+  /** The jointed player, drawn at the current transform's origin (his feet). */
+  drawRigBody(p) {
+    const R = p.rig;
+    this.local(ART.shadow, 0, 0, 50, 30);
+    const a = p.bodyAlpha, glowA = p.glowAlpha, glowC = p.glowColor;
+    for (const part of R.order) {
+      if (part.kind === 'weapon') { this.drawWeapon(p, R); continue; }
+      if (part.kind === 'offhand') continue;
+      const layers = p.rigLayers[part.name];
+      for (let i = 0; i < layers.length; i++) {
+        const v = ART.rig[layers[i][0]][layers[i][1]];
+        if (!v) continue;
+        this.rigPart(v, part, R, a, null);
+        if (glowA > 0.01) this.rigPart(v, part, R, glowA, glowC);
+      }
+      if (part.name === 'head' && p.visorAlpha > 0.01) {
+        this.local(ART.glow, p.visorX, p.visorY, 16, 16, { color: CRIMSON, alpha: p.visorGlow * p.visorAlpha * a, blend: 'add' });
+        this.local(ART.visor, p.visorX, p.visorY, 10, 4.2, { sx: p.visorSX, alpha: p.visorAlpha * a, rot: R.bodyRot });
+      }
+    }
+  }
+  rigPart(v, part, R, alpha, color) {
+    const o = this._ro || (this._ro = {});
+    o.color = color; o.alpha = alpha; o.blend = color ? 'add' : undefined;
+    if (Array.isArray(v)) {
+      const tex = v[R.dir];
+      o.ax = tex.ax; o.ay = tex.ay; o.rot = part.rot; o.sx = undefined; o.sy = undefined;
+      this.local(tex, part.x, part.y, tex.w, tex.h, o);
+    } else {
+      o.ax = v.pad / v.w; o.ay = 0.5; o.rot = part.rot; o.sx = part.len / v.L; o.sy = Math.cos(part.rot) < 0 ? -1 : 1;
+      this.local(v, part.x, part.y, v.w, v.h, o);
+    }
+  }
+  drawWeapon(p, R) {
+    const c = this.ctx, w = p.weapon, tex = ART.weapon[w.tex];
+    c.save(); c.translate(R.weaponX, -R.weaponY); c.rotate(-R.weaponRot); c.scale(p.sword_scale, p.sword_scale);
+    this.local(tex, 0, 0, w.size[0], w.size[1], { ax: w.grip / w.size[0], ay: 0.5 });
+    this.local(ART.spark, w.glow[0], 0, w.glow[1], w.glow[2], { color: CRIMSON, alpha: p.swordGlow, blend: 'add' });
+    c.restore();
+  }
+  drawPlayerOld(p) {
     const c = this.ctx;
     this.entityFrame(p.gx, p.gy);
     this.local(ART.shadow, 0, 0, 56, 33.6);
@@ -2549,7 +3228,7 @@ class Renderer {
     }
   }
 
-  drawTitle(t) {
+  drawTitle(t, player) {
     const c = this.ctx, W = this.W, H = this.H;
     this.base(); c.fillStyle = '#040406'; c.fillRect(0, 0, W, H);
     const g = c.createRadialGradient(W / 2, H * 0.45, 10, W / 2, H * 0.45, W * 0.6);
@@ -2557,7 +3236,10 @@ class Renderer {
     const k = Math.min(1, H / 393);
     this.img(ART.shadow, W / 2 - 95, H * 0.74, 80 * k, 30 * k, {});
     this.img(ART.shadow, W / 2 + 95, H * 0.74, 170 * k, 60 * k, {});
-    this.img(ART.knight.S, W / 2 - 95, H * 0.745, 64 * 1.3 * k, 96 * 1.3 * k, { ay: 0.04 });
+    if (player) {
+      c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.translate(W / 2 - 95, H * 0.745); c.scale(1.25 * k, 1.25 * k);
+      this.drawRigBody(player);
+    } else this.img(ART.knight.S, W / 2 - 95, H * 0.745, 64 * 1.3 * k, 96 * 1.3 * k, { ay: 0.04 });
     this.img(ART.sentinel.S, W / 2 + 95, H * 0.745, 132 * 0.95 * k, 170 * 0.95 * k, { ay: 0.03 });
     this.serif('NULLRITE', W / 2, H * 0.86, 34, '#e8dcc4');
     this.text('TAP TO BEGIN', W / 2, H * 0.12, 13, '#ff6a78', 'center', 'bold', 0.65 + 0.35 * Math.sin(t * 3));
@@ -2770,7 +3452,10 @@ function frame(now) {
   fpsFrames++; fpsClock += raw;
   if (fpsClock >= 0.5) { controls.ui.fps = Math.round(fpsFrames / fpsClock); fpsFrames = 0; fpsClock = 0; }
   if (H > W) renderer.drawRotate();
-  else if (screen === 'title') { game.t += raw; renderer.drawTitle(game.t); sound.setDrone(false, 1); }
+  else if (screen === 'title') {
+    game.t += raw; const p = game.player; p.facing = -1.25; p.animate(raw, game.t);
+    renderer.drawTitle(game.t, p); sound.setDrone(false, 1);
+  }
   else {
     const ctl = controls.frame(Math.min(raw, 1 / 30));
     game.update(raw, ctl);
@@ -2781,7 +3466,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP }, start() { screen = 'play'; game.resetRound(); } };
+window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, THROW_MOVE, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD } }, start() { screen = 'play'; game.resetRound(); } };
 
 }
 </script>

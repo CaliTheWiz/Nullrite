@@ -42,7 +42,7 @@ const CHARGE_START = 0.20, CHARGE_FULL = 0.65, CHARGE_WALK = 0.45;
 
 const WEAPONS = {
   greatsword: {
-    name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, glow: [50, 96, 16], speed: 0.95,
+    name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, handGap: 8, glow: [50, 96, 16], speed: 0.95,
     light: [
       move({ windup: 0.11, active: 0.10, recovery: 0.24, damage: 38, poise: 7, lunge: 340,
              hitbox: ['arc', 140, 55], motion: ['swing', 75, -75] }),
@@ -65,7 +65,7 @@ const WEAPONS = {
                   lunge: 220, hitbox: ['ring', 125], motion: ['swing', 170, -170], reach: 50, sparks: 16 }),
   },
   spear: {
-    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, glow: [70, 110, 12], speed: 1.05,
+    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, handGap: 22, glow: [70, 110, 12], speed: 1.05,
     light: [
       move({ windup: 0.09, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 11, damage: 30, poise: 5,
              lunge: 380, hitbox: ['thrust', 190, 34], motion: ['thrust'], reach: 78, slash: ['thrust', 'gold'],

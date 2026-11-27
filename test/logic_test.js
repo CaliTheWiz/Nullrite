@@ -1,5 +1,5 @@
 const fs=require('fs');
-const src=['config','mathx','logic'].map(f=>fs.readFileSync(`src/${f}.js`,'utf8')).join('\n');
+const src=['config','mathx','gear','rig','logic'].map(f=>fs.readFileSync(`src/${f}.js`,'utf8')).join('\n');
 const out={sfx:()=>{}, haptic:()=>{}};
 const run=new Function('out', src+`
 const g=new Game(out); const P=g.player,B=g.boss;
