@@ -68,6 +68,8 @@ class Rig {
     this.lean = 0; this.tilt = 0; this.spin = 0; this.crouch = 0;
     this.phase = 0; this.weaponRot = 0; this.weaponX = 0; this.weaponY = 0; this.weaponKey = 0;
     this.grip = { s: 0, f: 0, z: 0 }; this.blade = { s: 1, f: 0, z: 0 };
+    this._fore = { R: { s: 0, f: 0.3, z: -0.95 }, L: { s: 0, f: 0.3, z: -0.95 } };
+    this._elPrev = { R: { s: 0, f: 0, z: 0, ok: false }, L: { s: 0, f: 0, z: 0, ok: false } };
   }
 
   /** char frame -> world -> screen for one joint. */
@@ -130,18 +132,25 @@ class Rig {
       const rc = Math.cos(o.roll), rs = Math.sin(o.roll), wz = J.waist.z;
       for (const q of [J.neck, J.head, J.shL, J.shR]) { const ds = q.s, dz = q.z - wz; q.s = ds * rc + dz * rs; q.z = wz - ds * rs + dz * rc; }
     }
-    // ---- arms (3D IK, elbows fold down / out / back)
-    const G = o.grip, B = o.blade, HG = RIG.HAND * 0.5;
-    this._w.s = G.s - B.s * HG; this._w.f = G.f - B.f * HG; this._w.z = G.z - B.z * HG;
-    this.arm3(J.shR, J.elR, J.wrR, J.handR, this._w, 1, B);
-    // the weapon sits where the right hand actually got to
-    this.grip.s = J.wrR.s + B.s * HG; this.grip.f = J.wrR.f + B.f * HG; this.grip.z = J.wrR.z + B.z * HG;
-    this.blade.s = B.s; this.blade.f = B.f; this.blade.z = B.z;
+    // ---- arms: anatomical IK (see arm3). The fist sits on the grip with the handle across the palm.
+    const G = o.grip, HG = RIG.HAND * 0.5, Bd = this.blade;
+    { const l = Math.hypot(o.blade.s, o.blade.f, o.blade.z) || 1; Bd.s = o.blade.s / l; Bd.f = o.blade.f / l; Bd.z = o.blade.z / l; }
+    const fR = this._fore.R;
+    this._w.s = G.s - fR.s * HG; this._w.f = G.f - fR.f * HG; this._w.z = G.z - fR.z * HG;
+    this.arm3(J.shR, J.elR, J.wrR, J.handR, this._w, 1, Bd, 'R');
+    // the weapon sits where the right fist actually got to
+    this.grip.s = J.wrR.s + fR.s * HG; this.grip.f = J.wrR.f + fR.f * HG; this.grip.z = J.wrR.z + fR.z * HG;
+    // the wrist only tilts the handle a little off square to the forearm: past that, the blade gives, not the wrist
+    { const c = Bd.s * fR.s + Bd.f * fR.f + Bd.z * fR.z, lim = 0.37;
+      if (Math.abs(c) > lim) {
+        const k = c - Math.sign(c) * lim; Bd.s -= fR.s * k; Bd.f -= fR.f * k; Bd.z -= fR.z * k;
+        const l = Math.hypot(Bd.s, Bd.f, Bd.z) || 1; Bd.s /= l; Bd.f /= l; Bd.z /= l;
+      } }
     if (o.twoHand) {
-      const gap = o.twoHand.gap;
-      this._w.s = this.grip.s - B.s * (gap + HG); this._w.f = this.grip.f - B.f * (gap + HG); this._w.z = this.grip.z - B.z * (gap + HG);
-      this.arm3(J.shL, J.elL, J.wrL, J.handL, this._w, -1, B);
-    } else this.arm3(J.shL, J.elL, J.wrL, J.handL, o.leftTarget || o.leftRest, -1, null);
+      const gap = o.twoHand.gap, fL = this._fore.L;
+      this._w.s = this.grip.s - Bd.s * gap - fL.s * HG; this._w.f = this.grip.f - Bd.f * gap - fL.f * HG; this._w.z = this.grip.z - Bd.z * gap - fL.z * HG;
+      this.arm3(J.shL, J.elL, J.wrL, J.handL, this._w, -1, Bd, 'L');
+    } else this.arm3(J.shL, J.elL, J.wrL, J.handL, o.leftTarget || o.leftRest, -1, null, 'L');
     // ---- death: fall backward around the feet
     if (o.tilt) {
       const c = Math.cos(o.tilt), sn = Math.sin(o.tilt);
@@ -160,45 +169,63 @@ class Rig {
     this.place(o);
   }
 
-  /** Two-bone arm IK in the char frame. side +1 right / -1 left; handDir: where the hand points (or along the forearm). */
-  arm3(sh, el, wr, hand, t0, side, handDir) {
+  /**
+   * Anatomical two-bone arm IK in the char frame.
+   * - elbow is a hinge: straight at full reach, folds one way only, at most ~145 degrees
+   * - the elbow's position around the shoulder-wrist line is chosen by scoring candidates: elbows hang
+   *   down and back (out a little, more when the hands are raised), the shoulder may not swing far behind
+   *   the back or across the chest, the forearm should be square to a gripped handle (no bent wrists),
+   *   the arm stays outside the torso, and the elbow does not jump between frames
+   * - the fist continues along the forearm (wrists don't bend sideways)
+   */
+  arm3(sh, el, wr, hand, t0, side, blade, key) {
     const L1 = RIG.UPPER, L2 = RIG.FORE, J = this.j;
-    // keep the hand out of his torso: a target inside the body is pushed out to the front (or the back)
     const t = this._t3; t.s = t0.s; t.f = t0.f; t.z = t0.z;
-    t.f += torsoPush(J, t.s, t.f, t.z, 3.6);
-    // an arm reaching across his body folds its elbow forward instead of out and back
-    const cross = clamp((-t.s * side) / 8, 0, 1);
-    const ds = t.s - sh.s, df = t.f - sh.f, dz = t.z - sh.z, d = Math.hypot(ds, df, dz) || 1e-4;
-    const dd = clamp(d, Math.abs(L1 - L2) + 0.5, L1 + L2 - 0.05);
+    t.f += torsoPush(J, t.s, t.f, t.z, 3.6);                        // the hand can't be inside him
+    let ds = t.s - sh.s, df = t.f - sh.f, dz = t.z - sh.z, d = Math.hypot(ds, df, dz) || 1e-4;
     const us = ds / d, uf = df / d, uz = dz / d;
-    // pole: out to his side, a little back, and down
-    let ps = side * (0.6 - 0.4 * cross), pf = -0.35 + 1.35 * cross, pz = -1 + 0.4 * cross;
-    const k = ps * us + pf * uf + pz * uz; ps -= k * us; pf -= k * uf; pz -= k * uz;
-    let pl = Math.hypot(ps, pf, pz);
-    if (pl < 1e-3) { ps = side; pf = 0; pz = 0; pl = 1; }
-    ps /= pl; pf /= pl; pz /= pl;
+    const dmin = Math.sqrt(L1 * L1 + L2 * L2 - 2 * L1 * L2 * Math.cos(35 * RAD));   // fullest fold
+    const dd = clamp(d, dmin, L1 + L2 - 0.05);
     const a = (L1 * L1 - L2 * L2 + dd * dd) / (2 * dd), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
-    el.s = sh.s + us * a + ps * h; el.f = sh.f + uf * a + pf * h; el.z = sh.z + uz * a + pz * h;
-    wr.s = sh.s + us * dd; wr.f = sh.f + uf * dd; wr.z = sh.z + uz * dd;
-    // keep the whole arm out of the body: if the upper arm or forearm cuts into the torso, swing the elbow
-    // out of it (the upper arm keeps its length) and re-aim the forearm at the hand target
-    for (let it = 0; it < 4; it++) {
-      let worst = 0;
-      for (const [A, Bq, u0] of [[sh, el, 0.35], [el, wr, 0]]) for (let q = 0; q <= 3; q++) {
-        const u = u0 + (1 - u0) * q / 3, ps_ = A.s + (Bq.s - A.s) * u, pf_ = A.f + (Bq.f - A.f) * u, pz_ = A.z + (Bq.z - A.z) * u;
-        const push = torsoPush(J, ps_, pf_, pz_, 3.0);
-        if (Math.abs(push) > Math.abs(worst)) worst = push;
+    const Cs = sh.s + us * a, Cf = sh.f + uf * a, Cz = sh.z + uz * a;
+    const Ws = sh.s + us * dd, Wf = sh.f + uf * dd, Wz = sh.z + uz * dd;
+    // preferred elbow direction: down and back, a little out; out and forward when the hands go up high
+    const raise = clamp((t.z - sh.z) / 12, 0, 1);
+    let ps = side * (0.22 + 0.35 * raise), pf = -0.4 + 0.65 * raise, pz = -1 + 0.5 * raise;
+    { const l = Math.hypot(ps, pf, pz); ps /= l; pf /= l; pz /= l; }
+    // circle basis around the shoulder-wrist line
+    let e1s = ps, e1f = pf, e1z = pz; { const k = e1s * us + e1f * uf + e1z * uz; e1s -= k * us; e1f -= k * uf; e1z -= k * uz; }
+    let el1 = Math.hypot(e1s, e1f, e1z);
+    if (el1 < 1e-3) { e1s = side; e1f = 0; e1z = 0; const k = e1s * us; e1s -= k * us; e1f -= k * uf; e1z -= k * uz; el1 = Math.hypot(e1s, e1f, e1z) || 1; }
+    e1s /= el1; e1f /= el1; e1z /= el1;
+    const e2s = uf * e1z - uz * e1f, e2f = uz * e1s - us * e1z, e2z = us * e1f - uf * e1s;
+    const prev = this._elPrev[key];
+    let best = 1e9, bs = 0, bf = 0, bz = 0;
+    const N = 36;
+    for (let i = 0; i < N; i++) {
+      const th = i / N * TAU, c = Math.cos(th), sn = Math.sin(th);
+      const ods = e1s * c + e2s * sn, odf = e1f * c + e2f * sn, odz = e1z * c + e2z * sn;   // elbow direction off the line
+      const Es = Cs + h * ods, Ef = Cf + h * odf, Ez = Cz + h * odz;
+      let cost = 1 - (ods * ps + odf * pf + odz * pz);
+      const Us = (Es - sh.s) / L1, Uf = (Ef - sh.f) / L1;
+      cost += 4 * Math.max(0, -0.45 - Uf) + 4 * Math.max(0, -0.35 - Us * side);        // shoulder range
+      if (Ez > sh.z + 2) cost += 0.08 * (Ez - sh.z - 2) * (1 - raise);                    // elbows don't wing up
+      if (blade) {                                                                         // forearm square to the handle
+        const Fs = (Ws - Es) / L2, Ff = (Wf - Ef) / L2, Fz = (Wz - Ez) / L2, k = Fs * blade.s + Ff * blade.f + Fz * blade.z;
+        cost += 2.2 * k * k;
       }
-      if (Math.abs(worst) < 0.15) break;
-      let es = el.s - sh.s, ef = el.f + worst * 1.2 - sh.f, ez = el.z - sh.z; const el_ = Math.hypot(es, ef, ez) || 1;
-      el.s = sh.s + es / el_ * L1; el.f = sh.f + ef / el_ * L1; el.z = sh.z + ez / el_ * L1;
-      let ws = t.s - el.s, wf = t.f - el.f, wz = t.z - el.z; const wl = Math.hypot(ws, wf, wz) || 1, reach2 = Math.min(L2, wl);
-      wr.s = el.s + ws / wl * reach2; wr.f = el.f + wf / wl * reach2; wr.z = el.z + wz / wl * reach2;
+      for (const u of [0.5, 0.85]) cost += 0.25 * Math.abs(torsoPush(J, sh.s + (Es - sh.s) * u, sh.f + (Ef - sh.f) * u, sh.z + (Ez - sh.z) * u, 2.8));
+      for (const u of [0.25, 0.6]) cost += 0.25 * Math.abs(torsoPush(J, Es + (Ws - Es) * u, Ef + (Wf - Ef) * u, Ez + (Wz - Ez) * u, 2.8));
+      if (prev.ok) cost += 0.008 * Math.hypot(Es - prev.s, Ef - prev.f, Ez - prev.z);    // no popping
+      if (cost < best) { best = cost; bs = Es; bf = Ef; bz = Ez; }
     }
-    let hs, hf, hz;
-    if (handDir) { hs = handDir.s; hf = handDir.f; hz = handDir.z; }
-    else { hs = wr.s - el.s; hf = wr.f - el.f; hz = wr.z - el.z; const hl = Math.hypot(hs, hf, hz) || 1; hs /= hl; hf /= hl; hz /= hl; }
-    hand.s = wr.s + hs * RIG.HAND; hand.f = wr.f + hf * RIG.HAND; hand.z = wr.z + hz * RIG.HAND;
+    el.s = bs; el.f = bf; el.z = bz; prev.s = bs; prev.f = bf; prev.z = bz; prev.ok = true;
+    wr.s = Ws; wr.f = Wf; wr.z = Wz;
+    // fist along the forearm
+    const F = this._fore[key];
+    let Fs = wr.s - el.s, Ff = wr.f - el.f, Fz = wr.z - el.z; const fl = Math.hypot(Fs, Ff, Fz) || 1;
+    F.s = Fs / fl; F.f = Ff / fl; F.z = Fz / fl;
+    hand.s = wr.s + F.s * RIG.HAND; hand.f = wr.f + F.f * RIG.HAND; hand.z = wr.z + F.z * RIG.HAND;
   }
 
   /** Fill each part's screen placement + sort key (bigger key = drawn first = further back). */

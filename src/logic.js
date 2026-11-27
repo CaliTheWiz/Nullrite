@@ -244,6 +244,7 @@ class Player {
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
     this.octant = null; this.view = 'N'; this.flip = 1;
     if (!this.rig) this.rig = new Rig();
+    this.rig._elPrev.R.ok = this.rig._elPrev.L.ok = false;
     this.rigDir = null; this.walkPhase = 0; this.walkAmp = 0;
     if (!this.gear) this.setGear(STARTER_GEAR);
     this.sword_angle = this.facing + 2.35 + Math.PI; this.sword_rot = Math.PI / 2; this.sword_r = 24;

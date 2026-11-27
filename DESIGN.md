@@ -114,6 +114,15 @@ Weapon/hand rules (agreed):
 ## Next (planned)
 - More weapons/items; maybe itch.io release.
 
+## Arm anatomy rules (user requirement: keep real joint limits in every pose)
+- Elbow = hinge: straight at full reach, folds one way, max ~145 deg. Wrist: fist continues along the forearm,
+  handle across the palm; the handle may tilt at most ~22 deg off square to the forearm (no sideways wrists) -
+  beyond that the BLADE direction is corrected, never the wrist. Shoulder: no swinging far behind the back or
+  across the chest. Elbows hang down/back (slightly out), out+forward only when hands go above the shoulder.
+- Implemented in Rig.arm3: candidate elbow positions around the shoulder-wrist line are scored (preferred elbow
+  direction, shoulder range, elbows-not-winging, forearm square to the gripped handle, torso collision, continuity)
+  and the best one is used. Hands are also kept out of the torso (torsoPush).
+
 ## Rendering notes (player)
 - Player draws into an offscreen layer (PLAYER_LAYER box) then composites, so fading/flicker treats the body as one
   piece (no seeing limbs through the cloak) and hurt/glow flashes tint the whole silhouette (source-atop).
