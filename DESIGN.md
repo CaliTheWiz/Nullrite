@@ -73,13 +73,23 @@ Steps (1 done):
 1. DONE — `src/rig.js` (skeleton, IK, poseRig), `src/gear.js` (catalog, STARTER_GEAR, PART_ART), `src/gearart.js` (3D-described pictures baked for 16 directions; limbs are tapered segments). Pose sheet: `python3 tools/rig_sheet.py`.
    Jointed rig: base body (3D char-frame skeleton projected to 2.5D, legs IK, arms IK to the weapon grip),
    per-part textures in 5 views + mirrors, gear layers per part. Starter set recreates the hooded hunter.
-2. Cloak/cape secondary motion (verlet points drawn as a path each frame).
+2. DONE — Cloak: `Cape` in rig.js, 9x8 Verlet grid in world space pinned at the shoulders; soft pull to rest shape,
+   stretch-only links, stays behind torso, drapes over legs, floor clamp. Gear `cloth` params (length, widths, colours,
+   tatter). Drawn per frame as depth-sorted quads (outer face lit, crimson-black lining) + hem.
 3. Fuller silhouette: split cloak, tabard/sash, holstered pistol + flask on the belt.
 4. Shading: crimson rim light, darker undersides, tighter contact shadow.
 5. Life: idle breathing, weight shift, head leads turns, dash landing stagger.
 Then: gear system (stats, weight, equip screen, pickups), pistol aims with the left stick (option 2),
 shot feedback (muzzle flash + streak, option 4), player gun animation, more distinct boss wind-up poses.
 Blunderbuss (spread shot) is a future off-hand weapon.
+Weapon/hand rules (agreed):
+- Every weapon has a grip: '1h' (either hand), '2h' (both hands, LEFT HAND LOCKED), 'shield' (left only).
+- Families: melee, shield, gun, bow/crossbow, thrown, catalyst (orb/staff/book).
+- Right hand -> light/heavy buttons. Left button -> the left-hand item: melee = off-hand attack chain (mirrored anims),
+  shield = hold block + timed parry, gun = shoot/parry, catalyst = cast attuned spell.
+- Same melee family in both hands -> dual-wield moveset on light/heavy.
+- Bows are 2h (tap quick shot, hold heavy draw); a hand crossbow can be 1h.
+- Open question for later: with a 2h weapon, left button = weapon guard, or nothing.
 
 ## Next (planned)
 - More weapons/items; maybe itch.io release.

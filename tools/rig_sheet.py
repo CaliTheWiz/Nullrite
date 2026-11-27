@@ -19,7 +19,7 @@ JS = r"""
   const ZOOM = 1.6;
   for (let j = 0; j < POSES.length; j++) for (let i = 0; i < DIRS.length; i++) {
     const pose = POSES[j], f = DIRS[i][1] * Math.PI / 180;
-    p.reset(); p.facing = f; p.attack_dir = f; p.rigDir = null; p.state = S.S_IDLE; p.kind = null; p.move = null; p.vx = p.vy = 0;
+    p.reset(); if (p.cape) p.cape.live = false; p.facing = f; p.attack_dir = f; p.rigDir = null; p.state = S.S_IDLE; p.kind = null; p.move = null; p.vx = p.vy = 0;
     let settle = 40, setup = () => {};
     if (pose.startsWith('walk')) { setup = () => { p.state = S.S_MOVE; p.vx = Math.cos(f) * 255; p.vy = Math.sin(f) * 255; }; }
     if (pose === 'swing wind-up') setup = () => { p.state = S.S_WINDUP; p.kind = 'light'; p.move = p.weapon.light[0]; p.state_t = p.move.windup * 0.95; };
@@ -28,9 +28,9 @@ JS = r"""
     if (pose === 'dash') setup = () => { p.state = S.S_DODGE; p.dodge_dir = f; p.state_t = 0.12; p.vx = Math.cos(f) * 600; p.vy = Math.sin(f) * 600; };
     if (pose === 'pistol') setup = () => { p.state = S.S_ACTIVE; p.kind = 'shoot'; p.move = C.GUN_MOVE; p.state_t = 0.02; };
     if (pose === 'flask') setup = () => { p.state = S.S_ACTIVE; p.kind = 'flask'; p.move = C.FLASK_MOVE; p.state_t = 0.1; };
-    for (let k = 0; k < settle; k++) { setup(); p.animate(1 / 60, 1 + k / 60); }
+    for (let k = 0; k < settle; k++) { setup(); p.gx += p.vx / 60; p.gy += p.vy / 60; p.animate(1 / 60, 1 + k / 60); }
     if (pose === 'walk A') { p.walkPhase = Math.PI / 2; } if (pose === 'walk B') { p.walkPhase = 0; }
-    setup(); p.animate(0.0001, 2);
+    setup(); p.animate(0.0001, 2); if (p.cape) p.cape.project(p);
     // place the player in this cell
     const cx = 60 + i * cw + cw / 2, cy = 30 + j * ch + ch - 18;
     r.g = { cam_x: 0, cam_y: 0, ox: 0, oy: 0 };

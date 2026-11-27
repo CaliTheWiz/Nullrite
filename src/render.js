@@ -230,6 +230,7 @@ class Renderer {
     for (const part of R.order) {
       if (part.kind === 'weapon') { this.drawWeapon(p, R); continue; }
       if (part.kind === 'offhand') continue;
+      if (part.name === 'cape') { if (p.cape && p.cape.live) this.drawCape(p.cape); continue; }
       const layers = p.rigLayers[part.name];
       for (let i = 0; i < layers.length; i++) {
         const v = ART.rig[layers[i][0]][layers[i][1]];
@@ -242,6 +243,27 @@ class Renderer {
         this.local(ART.visor, p.visorX, p.visorY, 10, 4.2, { sx: p.visorSX, alpha: p.visorAlpha * a, rot: R.bodyRot });
       }
     }
+  }
+  drawCape(cp) {
+    const c = this.ctx, cl = cp.cloth, X = cp.sx, Y = cp.sy, N = CAPE_COLS;
+    c.save(); c.lineJoin = 'round'; c.lineWidth = 0.45;
+    for (const Q of cp.quads) {
+      const k = Q.i, fade = Q.row / (CAPE_ROWS - 2);
+      const col = Q.outer ? this.mixCol(cl.outer, cl.outerL, 0.75 * Q.light * (1 - 0.4 * fade))
+                          : this.mixCol('#140609', cl.lining, 0.7 * (1 - 0.6 * fade));
+      c.fillStyle = col; c.strokeStyle = col;
+      c.beginPath(); c.moveTo(X[k], -Y[k]); c.lineTo(X[k + 1], -Y[k + 1]); c.lineTo(X[k + N + 1], -Y[k + N + 1]); c.lineTo(X[k + N], -Y[k + N]);
+      c.closePath(); c.fill(); c.stroke();
+    }
+    // crimson hem
+    const b = (CAPE_ROWS - 1) * N;
+    c.beginPath(); c.moveTo(X[b], -Y[b]); for (let i = 1; i < N; i++) c.lineTo(X[b + i], -Y[b + i]);
+    c.strokeStyle = 'rgba(242,31,56,0.22)'; c.lineWidth = 3.6; c.stroke();     // soft glow without shadowBlur (cheap)
+    c.strokeStyle = cl.hem; c.lineWidth = 1.2; c.stroke(); c.restore();
+  }
+  mixCol(a, b, t) {
+    const m = this._mix || (this._mix = {}), key = a + b + Math.round(t * 32);
+    return m[key] || (m[key] = mixHex(a, b, Math.round(t * 32) / 32));
   }
   rigPart(v, part, R, alpha, color) {
     const o = this._ro || (this._ro = {});

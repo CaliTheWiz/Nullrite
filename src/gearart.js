@@ -27,7 +27,6 @@ function mixHex(a, b, t) {
   return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
 }
 // light comes from the camera side, upper left: brightens surfaces that face it
-const RIG_LIGHT = [-0.45, -0.35, 0.8];
 function lit(yaw, ns, nf, nz) {
   const c = Math.cos(yaw), s = Math.sin(yaw), X = ns * s + nf * c, Y = -ns * c + nf * s;
   const L = RIG_LIGHT, d = (X * L[0] + Y * L[1] + nz * L[2]) / (Math.hypot(X, Y, nz) * Math.hypot(L[0], L[1], L[2]) || 1);
@@ -233,31 +232,6 @@ const GEAR_ART = {
       for (const [u0, u1, r] of [[0.32, 0.62, 4.6], [0.12, 0.44, 5.4], [-0.16, 0.26, 6.2]]) plateOn(x, g, u0, u1, r * 0.92, r, 1.05, 0.6);
       fillOval(x, g.A - 1.1, g.cy - 3.9, 2.2, 2.2, RC.crimson);
     }],
-  },
-  hunter_cloak: {
-    cape(x, P, yaw) {
-      // a sheet from the back half of the shoulders down to the calves; outer face dark, lining crimson-black
-      const top = { z: -2.5, a: 12.8, b: 6.2, f: -0.6 }, bot = { z: -50, a: 16, b: 9, f: -5.5 };
-      const nt = 16, nz = 10, t0 = Math.PI / 2 - 0.08, t1 = Math.PI * 1.5 + 0.08;      // wraps over the shoulders
-      const tat = (i) => (i % 3 === 0 ? 3.5 : i % 3 === 1 ? 0 : 1.8);              // tattered hem
-      const pt = (i, j) => {
-        const th = t0 + (t1 - t0) * i / nt, u = j / nz, a = top.a + (bot.a - top.a) * u, b = top.b + (bot.b - top.b) * u;
-        const f = top.f + (bot.f - top.f) * u, z = top.z + (bot.z - top.z) * u + (j === nz ? tat(i) : 0);
-        return P(a * Math.sin(th), f + b * Math.cos(th), z);
-      };
-      const quads = [];
-      for (let i = 0; i < nt; i++) for (let j = 0; j < nz; j++) {
-        const th = t0 + (t1 - t0) * (i + 0.5) / nt, pts = [pt(i, j), pt(i + 1, j), pt(i + 1, j + 1), pt(i, j + 1)];
-        const outer = rigVisible(yaw, Math.sin(th), Math.cos(th), 0.2, 0.02);
-        const L = lit(yaw, Math.sin(th), Math.cos(th), 0.2) * (1 - j / nz * 0.45);
-        const col = outer ? mixHex(RC.cloak, RC.cloakL, 0.7 * L) : mixHex('#14070b', RC.lining, 0.6 * (1 - j / nz));
-        quads.push([(pts[0][2] + pts[2][2]) / 2, pts, col]);
-      }
-      quads.sort((a, b) => b[0] - a[0]);
-      for (const q of quads) { x.fillStyle = q[2]; x.strokeStyle = q[2]; x.lineWidth = 0.35; polyPath(x, q[1]); x.fill(); x.stroke(); }
-      const hemPts = []; for (let i = 0; i <= nt; i++) hemPts.push(pt(i, nz));
-      withGlow(x, GLOW_RED, 3, () => lineP(x, hemPts, 1.2, RC.crimson));
-    },
   },
   hunter_gauntlets: {
     fore: [13.5, 6.8, 5.4, (x, g) => {

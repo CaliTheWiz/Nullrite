@@ -7,7 +7,9 @@ const GEAR_SLOTS = ['legs', 'feet', 'chest', 'hands', 'head', 'back'];      // a
 const GEAR = {
   hunter_hood:      { slot: 'head',  name: 'HUNTER HOOD',      defense: 3, poise: 1, weight: 1.5, parts: ['head'], visor: true },
   hunter_coat:      { slot: 'chest', name: 'HUNTER COAT',      defense: 9, poise: 5, weight: 6.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'] },
-  hunter_cloak:     { slot: 'back',  name: 'TATTERED CLOAK',   defense: 1, poise: 0, weight: 1.0, parts: ['cape'] },
+  hunter_cloak:     { slot: 'back',  name: 'TATTERED CLOAK',   defense: 1, poise: 0, weight: 1.0, parts: ['cape'],
+    cloth: { length: 47, topA: 12.8, topB: 6.2, botA: 16, botB: 9, outer: '#0b0a0f', outerL: '#26222f', lining: '#2a0d14',
+             hem: '#8A2432', tatter: [3.5, 0, 1.8], weight: 1.0 } },
   hunter_gauntlets: { slot: 'hands', name: 'HUNTER GAUNTLETS', defense: 3, poise: 1, weight: 1.5, parts: ['foreL', 'foreR', 'handL', 'handR'] },
   hunter_greaves:   { slot: 'legs',  name: 'HUNTER GREAVES',   defense: 5, poise: 3, weight: 3.5, parts: ['thighL', 'thighR', 'shinL', 'shinR'] },
   hunter_boots:     { slot: 'feet',  name: 'HUNTER BOOTS',     defense: 2, poise: 1, weight: 1.5, parts: ['footL', 'footR', 'shinL', 'shinR'] },
