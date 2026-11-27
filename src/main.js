@@ -1,0 +1,75 @@
+// ============================================================ MAIN (boot, loop, screens)
+const TILE_VARIANT = (() => {
+  const r = mulberry32(42), n = Math.ceil(2 * ARENA_HALF / TILE), out = [];
+  for (let i = 0; i < n * n; i++) out.push(Math.floor(r() * 4));
+  return out;
+})();
+
+const canvas = document.getElementById('game');
+const probe = document.getElementById('safe');
+const DPR = Math.min(window.devicePixelRatio || 1, 3);
+buildArt(Math.min(3, Math.max(2, DPR)));
+
+const sound = new SoundBank();
+const game = new Game({ sfx: (n, v) => sound.play(n, v), haptic: (s, i) => haptic(s, i) });
+const renderer = new Renderer(canvas);
+const controls = new Controls(game);
+let screen = 'title';           // 'title' | 'play'
+let W = 0, H = 0;
+
+function readSafeArea() {
+  const cs = getComputedStyle(probe), px = v => parseFloat(v) || 0;
+  const l = px(cs.paddingLeft), r = px(cs.paddingRight), b = px(cs.paddingBottom), t = px(cs.paddingTop);
+  HUD.SAFE_X = Math.max(60, Math.max(l, r) + 16);
+  HUD.SAFE_BOTTOM = Math.max(34, b + 12);
+  HUD.TOP = t;
+}
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  readSafeArea();
+  renderer.resize(W, H, Math.min(DPR, 2.5));
+  controls.layout(W, H);
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+resize();
+
+// ---- touch (y flipped to the y-up HUD space)
+function onStart(e) {
+  e.preventDefault();
+  sound.init();                                  // iOS: audio may only start from a gesture
+  if (H > W) return;
+  if (screen === 'title') { screen = 'play'; game.resetRound(); controls.releaseAll(); return; }
+  for (const tch of e.changedTouches) controls.touchStart(tch.identifier, tch.clientX, H - tch.clientY);
+}
+function onMove(e) { e.preventDefault(); if (screen !== 'play') return; for (const tch of e.changedTouches) controls.touchMove(tch.identifier, tch.clientX, H - tch.clientY); }
+function onEnd(e) { e.preventDefault(); sound.init(); if (screen !== 'play') return; for (const tch of e.changedTouches) controls.touchEnd(tch.identifier); }
+canvas.addEventListener('touchstart', onStart, { passive: false });
+canvas.addEventListener('touchmove', onMove, { passive: false });
+canvas.addEventListener('touchend', onEnd, { passive: false });
+canvas.addEventListener('touchcancel', onEnd, { passive: false });
+// mouse = one finger (desktop testing)
+let mouseDown = false;
+canvas.addEventListener('mousedown', e => onStart({ preventDefault() {}, changedTouches: [{ identifier: 'm', clientX: e.clientX, clientY: e.clientY }] }) || (mouseDown = true));
+window.addEventListener('mousemove', e => { if (mouseDown) onMove({ preventDefault() {}, changedTouches: [{ identifier: 'm', clientX: e.clientX, clientY: e.clientY }] }); });
+window.addEventListener('mouseup', () => { if (mouseDown) { mouseDown = false; onEnd({ preventDefault() {}, changedTouches: [{ identifier: 'm' }] }); } });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+// ---- loop
+let last = performance.now(), fpsFrames = 0, fpsClock = 0;
+function frame(now) {
+  const raw = Math.min(0.1, (now - last) / 1000); last = now;
+  fpsFrames++; fpsClock += raw;
+  if (fpsClock >= 0.5) { controls.ui.fps = Math.round(fpsFrames / fpsClock); fpsFrames = 0; fpsClock = 0; }
+  if (H > W) renderer.drawRotate();
+  else if (screen === 'title') { game.t += raw; renderer.drawTitle(game.t); }
+  else {
+    const ctl = controls.frame(Math.min(raw, 1 / 30));
+    game.update(raw, ctl);
+    if (game.outcome !== null && controls.owner.size) controls.releaseAll();
+    renderer.draw(game, controls.ui, game.t);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__oath = { game, controls, renderer, sound, start() { screen = 'play'; game.resetRound(); } };
