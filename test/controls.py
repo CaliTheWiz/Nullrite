@@ -10,10 +10,10 @@ async def main():
         cdp = await ctx.new_cdp_session(page); H=393
         async def touch(kind, pts): await cdp.send('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [{'x':x,'y':y,'id':i} for i,(x,y) in pts]})
         await touch('touchStart', [(0,(426,200))]); await touch('touchEnd', [])
-        await page.evaluate("() => { const g=window.__oath.game; g.boss.idle_time=999; g.player.gy=g.boss.gy-110; }")
-        btn = await page.evaluate("() => { const c=window.__oath.controls, o={}; for (const b of c.buttons) o[b.kind]=[b.cx, H=0||b.cy]; o.stick=c.stick.home; return o; }")
+        await page.evaluate("() => { const g=window.__nullrite.game; g.boss.idle_time=999; g.player.gy=g.boss.gy-110; }")
+        btn = await page.evaluate("() => { const c=window.__nullrite.controls, o={}; for (const b of c.buttons) o[b.kind]=[b.cx, H=0||b.cy]; o.stick=c.stick.home; return o; }")
         sp = lambda xy: (xy[0], H-xy[1])
-        async def state(): return await page.evaluate("() => { const g=window.__oath.game, p=g.player; return {state:p.state, kind:p.kind, combo:p.combo, bossHp:Math.round(g.boss.hp), facing:Math.round(p.facing*57.3), gy:Math.round(p.gy), sprint:p.sprinting, stam:Math.round(p.stamina), bullets:p.bullets, flasks:p.flasks}; }")
+        async def state(): return await page.evaluate("() => { const g=window.__nullrite.game, p=g.player; return {state:p.state, kind:p.kind, combo:p.combo, bossHp:Math.round(g.boss.hp), facing:Math.round(p.facing*57.3), gy:Math.round(p.gy), sprint:p.sprinting, stam:Math.round(p.stamina), bullets:p.bullets, flasks:p.flasks}; }")
         lx,ly=sp(btn['light'])
         out=[]
         for i in range(3):

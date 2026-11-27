@@ -14,7 +14,7 @@ async def main():
         await page.touchscreen.tap(426, 200)
         await page.wait_for_timeout(2500)
         await page.screenshot(path='test/02_play.png')
-        info = await page.evaluate("""() => { const g=window.__oath.game; return {state:g.player.state, bossState:g.boss.state, p:[g.player.gx,g.player.gy], b:[g.boss.gx,g.boss.gy], fps: window.__oath.controls.ui.fps}; }""")
+        info = await page.evaluate("""() => { const g=window.__nullrite.game; return {state:g.player.state, bossState:g.boss.state, p:[g.player.gx,g.player.gy], b:[g.boss.gx,g.boss.gy], fps: window.__nullrite.controls.ui.fps}; }""")
         print(json.dumps(info))
         print('\n'.join(errs) or 'no console errors')
         await b.close()

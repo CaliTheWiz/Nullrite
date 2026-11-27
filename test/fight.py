@@ -16,7 +16,7 @@ async def main():
             await cdp.send('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [{'x':x,'y':y,'id':i} for i,(x,y) in pts]})
         await touch('touchStart', [(0,(426,200))]); await touch('touchEnd', [])
         await page.wait_for_timeout(300)
-        btn = await page.evaluate("""() => { const c=window.__oath.controls; const o={}; for (const b of c.buttons) o[b.kind]=[b.cx, b.cy]; o.stick=c.stick.home; return o; }""")
+        btn = await page.evaluate("""() => { const c=window.__nullrite.controls; const o={}; for (const b of c.buttons) o[b.kind]=[b.cx, b.cy]; o.stick=c.stick.home; return o; }""")
         def sp(xy): return (xy[0], H-xy[1])
         # hold stick up (walk toward boss) while tapping LIGHT with a second finger -> multitouch
         sx,sy = sp(btn['stick'])
@@ -28,7 +28,7 @@ async def main():
             await touch('touchStart', [(1,(sx,sy-50)),(2,(lx,ly))]); await page.wait_for_timeout(60)
             await touch('touchEnd', [(1,(sx,sy-50))]); await page.wait_for_timeout(260)
         await page.screenshot(path='test/03_attack.png')
-        st = await page.evaluate("() => { const g=window.__oath.game; return {p:g.player.state, kind:g.player.kind, combo:g.player.combo, bossHp:g.boss.hp, hp:g.player.hp}; }")
+        st = await page.evaluate("() => { const g=window.__nullrite.game; return {p:g.player.state, kind:g.player.kind, combo:g.player.combo, bossHp:g.boss.hp, hp:g.player.hp}; }")
         print('after walking + 3 lights:', json.dumps(st))
         await touch('touchEnd', [])
         # random soak for ~25s of real time with multi-finger input
@@ -45,12 +45,12 @@ async def main():
             await page.wait_for_timeout(random.choice((30,60,120)))
             await touch('touchEnd', [])
             if i==120: await page.screenshot(path='test/04_mid.png')
-            o = await page.evaluate("() => window.__oath.game.outcome")
+            o = await page.evaluate("() => window.__nullrite.game.outcome")
             if o:
                 await page.wait_for_timeout(2600); await page.screenshot(path='test/05_outcome.png')
-                r = await page.evaluate("() => window.__oath.controls.ui.retry")
+                r = await page.evaluate("() => window.__nullrite.controls.ui.retry")
                 if r: await touch('touchStart', [(7,(r['x'], H-r['y']))]); await touch('touchEnd', [])
-        st = await page.evaluate("""() => { const g=window.__oath.game; const v=[g.player.gx,g.player.gy,g.boss.gx,g.boss.gy,g.player.hp,g.boss.hp]; return {finite:v.every(Number.isFinite), fps: window.__oath.controls.ui.fps, outcome:g.outcome}; }""")
+        st = await page.evaluate("""() => { const g=window.__nullrite.game; const v=[g.player.gx,g.player.gy,g.boss.gx,g.boss.gy,g.player.hp,g.boss.hp]; return {finite:v.every(Number.isFinite), fps: window.__nullrite.controls.ui.fps, outcome:g.outcome}; }""")
         print('soak:', json.dumps(st))
         # portrait -> rotate screen
         await page.set_viewport_size({'width':393,'height':852}); await page.wait_for_timeout(400)

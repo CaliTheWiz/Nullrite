@@ -13,11 +13,11 @@ TEMPLATE = """<!DOCTYPE html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#040406">
-<meta name="apple-mobile-web-app-title" content="Obsidian Oath">
+<meta name="apple-mobile-web-app-title" content="Nullrite">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
-<title>Obsidian Oath</title>
+<title>Nullrite</title>
 <style>
 /* VOICE: grim, quiet, heavy. IDEA: a cathedral-machine arena seen from above.
    PICTURE: the canvas is the whole page. COLOUR and TYPE: obsidian black, crimson, dull gold; Georgia + Menlo.

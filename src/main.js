@@ -73,4 +73,4 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__oath = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP }, start() { screen = 'play'; game.resetRound(); } };
+window.__nullrite = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP }, start() { screen = 'play'; game.resetRound(); } };

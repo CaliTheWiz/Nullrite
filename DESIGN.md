@@ -1,4 +1,4 @@
-# Obsidian Oath — design notes (source of truth if chat context is summarized)
+# Nullrite — design notes (source of truth if chat context is summarized)
 
 ## Platform
 - HTML5 single page (canvas 2D + WebAudio), built from `src/*.js` into `index.html` by `build.py`.
@@ -15,11 +15,11 @@
 - Python/Pythonista version (`/home/claude/m2/main.py`, not in repo) is the reference for behaviour/tuning.
 
 ## Published
-- Repo: github.com/CaliTheWiz/ObsidianOath (public), Pages serves root `index.html` from `main`:
-  https://calithewiz.github.io/ObsidianOath/ . Workflow: edit src → `python3 build.py` → tests → commit + push.
+- Repo: github.com/CaliTheWiz/Nullrite (public), Pages serves root `index.html` from `main`:
+  https://calithewiz.github.io/Nullrite/ . Workflow: edit src → `python3 build.py` → tests → commit + push.
   Icons: `python3 tools/make_icon.py` (rendered from the game's own art). `manifest.webmanifest` for home screen.
 - Older private Claude artifact (frame-limited, optional to update):
-- Artifact slug 27a93ff8-c8d7-4c91-a812-334b1d0b6e7e (title "Obsidian Oath"); republish with
+- Artifact slug 27a93ff8-c8d7-4c91-a812-334b1d0b6e7e (title "Obsidian Oath", old name); republish with
   publish_files(slug, base_version=<last>, files=[index.html]) after `python3 build.py`.
 - Tests: `node test/logic_test.js` + `node test/phase2_test.js` (pure logic), `python3 test/controls.py` / `test/fight.py` (headless Chrome).
 

@@ -8,10 +8,10 @@ async def main():
         cdp = await ctx.new_cdp_session(page); H=393
         async def touch(kind, pts): await cdp.send('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [{'x':x,'y':y,'id':i} for i,(x,y) in pts]})
         await touch('touchStart', [(0,(426,200))]); await touch('touchEnd', [])
-        await page.evaluate("() => { window.__oath.game.boss.idle_time=999; }")
+        await page.evaluate("() => { window.__nullrite.game.boss.idle_time=999; }")
         await touch('touchStart', [(1,(150,280))])
         for dx in (30,60,95,110):
             await touch('touchMove', [(1,(150+dx,280))]); await page.wait_for_timeout(250)
-            print(dx, await page.evaluate("() => { const c=window.__oath.controls, p=window.__oath.game.player; return {raw:c.stick.raw.toFixed(2), id:c.stick.id, req:p.sprint_req, sprint:p.sprinting, state:p.state}; }"))
+            print(dx, await page.evaluate("() => { const c=window.__nullrite.controls, p=window.__nullrite.game.player; return {raw:c.stick.raw.toFixed(2), id:c.stick.id, req:p.sprint_req, sprint:p.sprinting, state:p.state}; }"))
         await b.close()
 asyncio.run(main())

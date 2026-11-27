@@ -1,5 +1,5 @@
 // ============================================================ CONFIG (pure data)
-// Obsidian Oath - all tuning lives here. Behaviour mirrors the Pythonista build.
+// Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
 const CAMERA_ZOOM = 0.8;        // < 1 zooms out; HUD unaffected
 const ARENA_HALF = 768;

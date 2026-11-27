@@ -305,13 +305,13 @@ class Renderer {
     this.img(ART.shadow, W / 2 + 95, H * 0.74, 170 * k, 60 * k, {});
     this.img(ART.knight.S, W / 2 - 95, H * 0.745, 64 * 1.3 * k, 96 * 1.3 * k, { ay: 0.04 });
     this.img(ART.sentinel.S, W / 2 + 95, H * 0.745, 132 * 0.95 * k, 170 * 0.95 * k, { ay: 0.03 });
-    this.serif('OBSIDIAN OATH', W / 2, H * 0.86, 34, '#e8dcc4');
+    this.serif('NULLRITE', W / 2, H * 0.86, 34, '#e8dcc4');
     this.text('TAP TO BEGIN', W / 2, H * 0.12, 13, '#ff6a78', 'center', 'bold', 0.65 + 0.35 * Math.sin(t * 3));
   }
   drawRotate() {
     const c = this.ctx, W = this.W, H = this.H;
     this.base(); c.fillStyle = '#040406'; c.fillRect(0, 0, W, H);
     this.serif('Rotate your phone', W / 2, H * 0.55, 22, '#e8dcc4');
-    this.text('OBSIDIAN OATH plays in landscape', W / 2, H * 0.45, 11, '#c9b48a');
+    this.text('NULLRITE plays in landscape', W / 2, H * 0.45, 11, '#c9b48a');
   }
 }
