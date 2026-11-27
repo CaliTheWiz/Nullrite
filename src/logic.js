@@ -352,7 +352,7 @@ class Player {
         this.dust_t -= dt;
         if (this.dust_t <= 0) { this.dust_t = 0.11; this.g.fx.sprintDust(this); }
       } else if (this.stam_delay > 0) this.stam_delay -= dt;
-      else this.stamina = Math.min(STAM_MAX, this.stamina + STAM_REGEN * (this.state === S_MOVE ? 0.8 : 1) * dt);
+      else this.stamina = Math.min(STAM_MAX, this.stamina + STAM_REGEN * (this.state === S_MOVE ? 0.9 : 1) * dt);
     } else if (st === S_WINDUP) {
       this.sprinting = false;
       if (this.kind === 'visceral') {

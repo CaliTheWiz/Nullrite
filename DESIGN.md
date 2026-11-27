@@ -43,7 +43,7 @@
 ## Combat systems
 - Weapons are data: light chain (3), heavy, charged, dodge/running attack; hitbox arc/thrust/ring;
   motion swing/thrust/overhead. 120ms input buffer. Recovery cancel windows.
-- Stamina: costs x0.75 (STAMINA_COST_MULT), regen 60/s after 0.4s, sprint 15/s.
+- Stamina: costs x0.6 (STAMINA_COST_MULT), regen 75/s (90% while walking) after 0.3s, sprint 10/s.
 - Rally: lost HP -> orange; hits regain 35% of damage dealt; 1s grace then drains 14/s.
 - Visceral: boss staggered + player within 125 in front (75 deg) + LIGHT = 240 dmg, invulnerable.
 - Pistol: 10 rounds, 18 dmg; shot landing in last 0.35s of sweep/lance wind-up = parry (stagger).

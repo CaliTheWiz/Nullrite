@@ -41,9 +41,9 @@ const HUD = { SAFE_X: 60, SAFE_BOTTOM: 34, TOP: 0 };   // updated from CSS safe-
 const PLAYER_SPEED = 255.0;
 const PLAYER_RADIUS = 20.0;
 const STAM_MAX = 100.0;
-const STAM_REGEN = 60.0;
-const STAM_DELAY = 0.4;
-const STAMINA_COST_MULT = 0.75;
+const STAM_REGEN = 75.0;
+const STAM_DELAY = 0.3;
+const STAMINA_COST_MULT = 0.6;
 
 const INPUT_BUFFER = 0.12;
 const HITSTOP = 0.05;
@@ -169,7 +169,7 @@ const PHASE2_IDLE = [0.3, 0.7];
 const DRONE_VOLUME = 0.22;
 
 const DODGE_ROLL = { time: 0.32, speed: 1350, iframes: [0.03, 0.27], stamina: 22, ghost: 0.028 };
-const SPRINT_EDGE = 1.2, SPRINT_MULT = 1.55, SPRINT_DRAIN = 15, SPRINT_MIN = 20;
+const SPRINT_EDGE = 1.2, SPRINT_MULT = 1.55, SPRINT_DRAIN = 10, SPRINT_MIN = 20;
 const RALLY_GRACE = 1.0, RALLY_DECAY = 14, RALLY_RATIO = 0.35;
 const VISCERAL_RANGE = 125, VISCERAL_ARC = 75 * RAD, VISCERAL_DAMAGE = 240;
 const VISCERAL_MOVE = move({ windup: 0.22, active: 0.10, recovery: 0.55, cancel: 0.40, stamina: 0,
@@ -587,7 +587,7 @@ class Player {
         this.dust_t -= dt;
         if (this.dust_t <= 0) { this.dust_t = 0.11; this.g.fx.sprintDust(this); }
       } else if (this.stam_delay > 0) this.stam_delay -= dt;
-      else this.stamina = Math.min(STAM_MAX, this.stamina + STAM_REGEN * (this.state === S_MOVE ? 0.8 : 1) * dt);
+      else this.stamina = Math.min(STAM_MAX, this.stamina + STAM_REGEN * (this.state === S_MOVE ? 0.9 : 1) * dt);
     } else if (st === S_WINDUP) {
       this.sprinting = false;
       if (this.kind === 'visceral') {
