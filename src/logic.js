@@ -263,6 +263,12 @@ class Player {
       for (const slot of GEAR_SLOTS) { const id = this.gear[slot]; if (id && GEAR[id] && GEAR[id].parts.indexOf(part) >= 0) list.push(id); }
       this.rigLayers[part] = list.map(src => [src, fam]);
     }
+    // simulated cloth that the worn pieces bring (cape from the back slot, tabard from the chest, ...)
+    this.cloths = {};
+    for (const slot of GEAR_SLOTS) {
+      const id = this.gear[slot], cl = id && GEAR[id] && GEAR[id].cloths;
+      if (cl) for (const name in cl) this.cloths[name] = new Cloth(cl[name]);
+    }
   }
   get invulnerable() {
     if (this.kind === 'visceral' && (this.state === S_WINDUP || this.state === S_ACTIVE || this.state === S_RECOVERY)) return true;
@@ -464,20 +470,27 @@ class Player {
     const side = -0.9 - Math.PI;                      // rest on his right-front side (right hand)
     const resting = st === S_IDLE || st === S_MOVE || st === S_HURT ||
       (mv && mv.motion[0] === 'rest' && (st === S_WINDUP || st === S_ACTIVE || st === S_RECOVERY));
-    let direct = false, r_t, e_t, up_t, sc_t, glow_t;
+    let direct = false, r_t, e_t, up_t, sc_t, glow_t, point = null;
     if (st === S_DEAD) {
       this.sword_angle = approachAngle(this.sword_angle, this.facing + side + Math.PI, 4 * dt);
       r_t = 34; e_t = 3; up_t = 0; sc_t = 0.9; glow_t = 0;
     } else if (resting) {
       let tgt, rate;
       if (this.aim_dir !== null && (st === S_IDLE || st === S_MOVE)) { tgt = this.aim_dir; r_t = 40; e_t = 30; up_t = 0; sc_t = 1; rate = 16; }
-      else { tgt = this.facing + side + Math.PI; r_t = 24; e_t = 36 + Math.sin(t * 2.4) * 3; up_t = 1; sc_t = 0.88; rate = 7; }
+      else {
+        // each weapon has its own carry: a standing guard, blending to a moving carry with speed
+        const S = this.weapon.stance, A = S.rest, B = S.move, m = clamp(hypot(this.vx, this.vy) / PLAYER_SPEED, 0, 1);
+        const mix = (u, v) => u + (v - u) * m;
+        tgt = this.facing + mix(A.off, B.off); r_t = mix(A.r, B.r); e_t = mix(A.elev, B.elev) + Math.sin(t * 2.2) * A.sway * (1 - m);
+        up_t = mix(A.up, B.up); sc_t = 0.9; rate = 8; point = this.facing + mix(A.point, B.point);
+      }
       this.sword_angle = approachAngle(this.sword_angle, tgt, rate * dt);
       glow_t = 0.22 + 0.06 * Math.sin(t * 3);
       if (this.charging > 0) sc_t = 1 + 0.1 * charge;
     } else if (st === S_DODGE) {
-      this.sword_angle = approachAngle(this.sword_angle, this.dodge_dir + Math.PI, 18 * dt);
-      r_t = 22; e_t = 34; up_t = 0; sc_t = 0.9; glow_t = 0.5;
+      const D = this.weapon.stance.dash;
+      this.sword_angle = approachAngle(this.sword_angle, this.dodge_dir + D.off, 18 * dt);
+      r_t = D.r; e_t = D.elev; up_t = D.up; sc_t = 0.9; glow_t = 0.5; point = this.dodge_dir + D.point;
     } else {
       const kind = mv.motion[0], heft = mv.heft, reach = mv.reach, a = this.attack_dir;
       sc_t = 1 + 0.15 * heft;
@@ -519,9 +532,10 @@ class Player {
     const a = this.sword_angle;
     this.swordX = Math.cos(a) * this.sword_r;
     this.swordY = Math.sin(a) * this.sword_r * K + this.sword_elev;
-    const radial = groundToScreenAngle(a);
+    const radial = groundToScreenAngle(point === null ? a : point);       // stances aim the blade on their own
     const upright = Math.PI / 2 - 0.3 * (Math.cos(a) > 0 ? 1 : -1) + 0.1 * Math.sin(t * 1.7);
-    const rot_t = radial + wrap(upright - radial) * this.sword_up;
+    const rot_t = this.sword_up >= 0 ? radial + wrap(upright - radial) * this.sword_up
+      : radial + wrap(-Math.PI / 2 - radial) * -this.sword_up;          // negative tilt: tip toward the floor
     if (direct || dt === 0) this.sword_rot = rot_t;
     else this.sword_rot = approachAngle(this.sword_rot, rot_t, (st === S_WINDUP ? 30 : 14) * dt);
     this.swordZ = Math.sin(a) > 0.1 ? -1 : 1;

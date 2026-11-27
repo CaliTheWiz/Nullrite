@@ -227,10 +227,25 @@ class Renderer {
     const R = p.rig;
     if (!layered) this.local(ART.shadow, 0, 0, 50, 30);
     const a = layered ? 1 : p.bodyAlpha, glowA = layered ? 0 : p.glowAlpha, glowC = p.glowColor;
-    for (const part of R.order) {
+    // body parts and every cloth panel, sorted back to front together (so a leg can be inside the cloak)
+    const list = this._dl || (this._dl = []);
+    list.length = 0;
+    for (const part of R.parts) {
+      if (part.kind === 'cloth') { const cp = p.cloths[part.name]; if (cp && cp.live) for (const Q of cp.quads) list.push(Q); }
+      else list.push(part);
+    }
+    list.sort((u, v) => v.key - u.key);
+    for (const part of list) {
+      if (part.quad) { this.drawClothQuad(part); continue; }
       if (part.kind === 'weapon') { this.drawWeapon(p, R); continue; }
-      if (part.kind === 'offhand') continue;
-      if (part.name === 'cape') { if (p.cape && p.cape.live) this.drawCape(p.cape); continue; }
+      if (part.kind === 'offhand') {
+        if (p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY)) {
+          const J = R.j, a = Math.atan2(J.wrL.y - J.elL.y, J.wrL.x - J.elL.x);
+          this.local(ART.rig.props.pistol, J.handL.x, J.handL.y, 15, 7, { ax: 0.2, ay: 0.35, rot: a, sy: Math.cos(a) < 0 ? -1 : 1 });
+        }
+        continue;
+      }
+      if (part.kind === 'prop') { this.drawProp(p, part); continue; }
       const layers = p.rigLayers[part.name];
       for (let i = 0; i < layers.length; i++) {
         const v = ART.rig[layers[i][0]][layers[i][1]];
@@ -244,11 +259,25 @@ class Renderer {
       }
     }
   }
+  drawClothQuad(Q) {
+    const c = this.ctx, cp = Q.cloth, cl = cp.cloth, X = cp.sx, Y = cp.sy, N = cp.cols, k = Q.i;
+    const fade = Q.row / Math.max(1, cp.rows - 2);
+    const col = Q.outer ? this.mixCol(cl.outer, cl.outerL, 0.75 * Q.light * (1 - 0.4 * fade))
+                        : this.mixCol('#140609', cl.lining, 0.7 * (1 - 0.6 * fade));
+    c.lineJoin = 'round'; c.lineWidth = 0.45; c.fillStyle = col; c.strokeStyle = col;
+    c.beginPath(); c.moveTo(X[k], -Y[k]); c.lineTo(X[k + 1], -Y[k + 1]); c.lineTo(X[k + N + 1], -Y[k + N + 1]); c.lineTo(X[k + N], -Y[k + N]);
+    c.closePath(); c.fill(); c.stroke();
+    if (Q.row === cp.rows - 2) {                                   // hem along the bottom edge
+      c.beginPath(); c.moveTo(X[k + N], -Y[k + N]); c.lineTo(X[k + N + 1], -Y[k + N + 1]);
+      c.strokeStyle = 'rgba(242,31,56,0.22)'; if (cl.kind === 'front') c.strokeStyle = 'rgba(176,138,62,0.25)';
+      c.lineWidth = 3.4; c.stroke(); c.strokeStyle = cl.hem; c.lineWidth = 1.1; c.stroke();
+    }
+  }
   drawCape(cp) {
-    const c = this.ctx, cl = cp.cloth, X = cp.sx, Y = cp.sy, N = CAPE_COLS;
+    const c = this.ctx, cl = cp.cloth, X = cp.sx, Y = cp.sy, N = cp.cols;
     c.save(); c.lineJoin = 'round'; c.lineWidth = 0.45;
     for (const Q of cp.quads) {
-      const k = Q.i, fade = Q.row / (CAPE_ROWS - 2);
+      const k = Q.i, fade = Q.row / Math.max(1, cp.rows - 2);
       const col = Q.outer ? this.mixCol(cl.outer, cl.outerL, 0.75 * Q.light * (1 - 0.4 * fade))
                           : this.mixCol('#140609', cl.lining, 0.7 * (1 - 0.6 * fade));
       c.fillStyle = col; c.strokeStyle = col;
@@ -256,10 +285,15 @@ class Renderer {
       c.closePath(); c.fill(); c.stroke();
     }
     // crimson hem
-    const b = (CAPE_ROWS - 1) * N;
+    const b = (cp.rows - 1) * N;
     c.beginPath(); c.moveTo(X[b], -Y[b]); for (let i = 1; i < N; i++) c.lineTo(X[b + i], -Y[b + i]);
     c.strokeStyle = 'rgba(242,31,56,0.22)'; c.lineWidth = 3.6; c.stroke();     // soft glow without shadowBlur (cheap)
     c.strokeStyle = cl.hem; c.lineWidth = 1.2; c.stroke(); c.restore();
+  }
+  drawProp(p, part) {
+    const P = ART.rig.props, drawn = p.kind === 'shoot' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
+    if (part.name === 'holster') this.local(drawn ? P.holsterEmpty : P.holster, part.x, part.y, 7, 13, { ax: 0.5, ay: 0.75, rot: part.rot });
+    else this.local(p.flasks > 0 ? P.flask : P.flaskEmpty, part.x, part.y, 5, 9, { ax: 0.5, ay: 0.9, rot: part.rot });
   }
   mixCol(a, b, t) {
     const m = this._mix || (this._mix = {}), key = a + b + Math.round(t * 32);

@@ -31,7 +31,7 @@ class Rig {
   constructor() {
     const J = this.j = {};
     for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR',
-      'shL', 'shR', 'elL', 'elR', 'wrL', 'wrR', 'handL', 'handR']) J[n] = V3();
+      'shL', 'shR', 'elL', 'elR', 'wrL', 'wrR', 'handL', 'handR', 'holster', 'flaskProp']) J[n] = V3();
     // parts: what to draw. kind 'seg' = limb between two joints, 'view' = per-view picture at a joint.
     const P = (name, kind, a, b, bias) => ({ name, kind, a, b, bias, key: 0, x: 0, y: 0, rot: 0, len: 0, side: 0 });
     this.parts = [
@@ -39,7 +39,9 @@ class Rig {
       P('thighR', 'seg', 'hipR', 'kneeR', 0), P('shinR', 'seg', 'kneeR', 'ankleR', 0), P('footR', 'seg', 'ankleR', 'toeR', -0.2),
       P('pelvis', 'view', 'pelvis', null, -0.4),
       P('torso', 'view', 'waist', null, 0.6),
-      P('cape', 'view', 'neck', null, 0),
+      P('cape', 'cloth', 'neck', null, 0),
+      P('tabard', 'cloth', 'pelvis', null, -0.6),
+      P('holster', 'prop', 'holster', null, -0.15), P('flaskProp', 'prop', 'flaskProp', null, -0.15),
       P('head', 'view', 'neck', null, -0.3),
       P('upperL', 'seg', 'shL', 'elL', -0.1), P('foreL', 'seg', 'elL', 'wrL', -0.15), P('handL', 'seg', 'wrL', 'handL', -0.2),
       P('upperR', 'seg', 'shR', 'elR', -0.1), P('foreR', 'seg', 'elR', 'wrR', -0.15), P('handR', 'seg', 'wrR', 'handR', -0.2),
@@ -107,7 +109,9 @@ class Rig {
     J.head.s = 0; J.head.f = 1.5 + o.hunch; J.head.z = J.neck.z + 9;
     J.shL.s = -RIG.SHOULDER_W; J.shR.s = RIG.SHOULDER_W;
     for (const sh of [J.shL, J.shR]) { sh.f = 0.5 + o.hunch * 0.6; sh.z = J.pelvis.z + (RIG.SHOULDER_Z - RIG.HIP_Z); }
-    for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR', 'shL', 'shR']) this.project(J[n]);
+    J.holster.s = -8.4; J.holster.f = -0.8; J.holster.z = J.pelvis.z + 1.5;
+    J.flaskProp.s = 7.9; J.flaskProp.f = 2.2; J.flaskProp.z = J.pelvis.z + 3;
+    for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR', 'shL', 'shR', 'holster', 'flaskProp']) this.project(J[n]);
     const lc = Math.cos(o.lean), ls = Math.sin(o.lean), px = J.waist.x, py = J.waist.y;
     for (const n of ['neck', 'head', 'shL', 'shR']) {
       const q = J[n], dx = q.x - px, dy = q.y - py;
@@ -166,7 +170,7 @@ class Rig {
         const A = J[p.a], B = J[p.b];
         p.x = A.x; p.y = A.y; p.rot = Math.atan2(B.y - A.y, B.x - A.x); p.len = Math.hypot(B.x - A.x, B.y - A.y);
         p.key = (A.d + B.d) / 2 + p.bias;
-      } else if (p.kind === 'view') {
+      } else if (p.kind === 'view' || p.kind === 'prop' || p.kind === 'cloth') {
         const A = J[p.a]; p.x = A.x; p.y = A.y; p.rot = this.bodyRot; p.key = A.d + p.bias;
       } else {
         const A = J[p.a]; p.x = A.x; p.y = A.y; p.key = A.d + p.bias;
@@ -176,6 +180,9 @@ class Rig {
     // the cape hangs behind the back; the head turns its depth with the body
     P.cape.key = J.neck.d - 8 * this._s + 0.8;          // a point 8 behind the neck (along -forward)
     if (o.capeLow !== undefined) P.cape.key = Math.min(P.cape.key, o.capeLow + 1);
+    if (o.tabardDepth !== undefined) P.tabard.key = o.tabardDepth - 0.6;
+    P.pelvis.rot = this.bodyRot - this.leanNow;
+    P.holster.rot = P.flaskProp.rot = P.pelvis.rot;
     P.pelvis.rot = this.bodyRot - this.leanNow;
     P.weapon.key = o.weaponDepth;
     P.handR.key = Math.min(P.handR.key, o.weaponDepth - 0.05);
@@ -227,6 +234,8 @@ function poseRig(p, dt, t) {
   const tool = p.kind === 'shoot' || p.kind === 'item' || p.kind === 'flask';
   const heft = attacking ? mv.heft : 0;
   if (p.sprinting) { hunch = 3; crouch += 1.5; }
+  const bothHands = W.stance && W.stance.hands === 2;
+  if (bothHands && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }      // 2h: both hands, always
   if (attacking && !tool && p.kind !== 'visceral') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
     crouch += (2 + 5 * heft) * ph; hunch = 1.5 + 2.5 * heft * ph;
@@ -267,109 +276,118 @@ function poseRig(p, dt, t) {
   _rt.x = p.swordX; _rt.y = p.swordY; _rt.d = Math.sin(p.sword_angle) * p.sword_r * 0.6;
   o.weaponRot = p.sword_rot; o.weaponDepth = _rt.d;
   o.rightTarget = _rt;
-  o.capeLow = p.cape && p.cape.live ? p.cape.lowDepth() : undefined;
+  o.capeLow = p.cloths.cape && p.cloths.cape.live ? p.cloths.cape.lowDepth() : undefined;
+  o.tabardDepth = p.cloths.tabard && p.cloths.tabard.live ? p.cloths.tabard.lowDepth() : undefined;
   R.pose(o);
-  const back = p.gear && p.gear.back && GEAR[p.gear.back] && GEAR[p.gear.back].cloth;
-  if (back) { if (!p.cape) p.cape = new Cape(); p.cape.step(p, back, dt); }
+  for (const name in p.cloths) p.cloths[name].step(p, dt);
   // visor: front of the head, fades as he turns away
   const H = R.j.head, fwd = -sy;
   p.visorX = H.x + cy * 5.6; p.visorY = H.y + sy * 5.6 * K - 0.5;
   p.visorSX = Math.max(0.25, Math.abs(fwd)); p.visorAlpha = st === S_DEAD ? 0 : clamp((fwd + 0.25) * 1.8, 0, 1);
 }
 
-// ---------------------------------------------------------------- cloth (cloak / cape)
-// A small grid of points hanging from the back of the shoulders, simulated in world space with
-// Verlet integration: it trails behind when he runs or dashes, swings on turns and settles when he stops.
-// Top row is pinned to the body; the rest is kept behind the torso and above the floor.
-const CAPE_COLS = 9, CAPE_ROWS = 8;
-class Cape {
-  constructor() {
-    const n = CAPE_COLS * CAPE_ROWS;
-    this.x = new Float64Array(n); this.y = new Float64Array(n); this.z = new Float64Array(n);
-    this.px = new Float64Array(n); this.py = new Float64Array(n); this.pz = new Float64Array(n);
-    this.rx = new Float64Array(n); this.ry = new Float64Array(n); this.rz = new Float64Array(n);   // rest shape (char frame)
-    this.lenV = new Float64Array(n); this.lenH = new Float64Array(n);                              // constraint rest lengths
-    this.sx = new Float64Array(n); this.sy = new Float64Array(n); this.sd = new Float64Array(n);   // projected (layer space)
-    this.live = false; this.cloth = null; this.t = 0;
-    this.quads = []; for (let i = 0; i < (CAPE_COLS - 1) * (CAPE_ROWS - 1); i++) this.quads.push({ i: 0, d: 0, outer: true, light: 0, row: 0 });
+// ---------------------------------------------------------------- cloth (cloak, tabard, sashes)
+// A small grid of points hanging from the body, simulated in world space with Verlet integration:
+// it trails when he runs or dashes, swings on turns and settles when he stops.
+// The top row is pinned to a joint. kind 'back' hangs from the shoulders behind him; kind 'front'
+// hangs from the belt in front of him. Each keeps to its side of the body and drapes over the legs.
+class Cloth {
+  constructor(cl) {
+    this.cols = cl.cols || 9; this.rows = cl.rows || 8;
+    const n = this.cols * this.rows;
+    const F = () => new Float64Array(n);
+    this.x = F(); this.y = F(); this.z = F(); this.px = F(); this.py = F(); this.pz = F();
+    this.rx = F(); this.ry = F(); this.rz = F(); this.lenV = F(); this.lenH = F();
+    this.sx = F(); this.sy = F(); this.sd = F();
+    this.live = false; this.cloth = cl; this.t = 0; this.joint = cl.kind === 'front' ? 'pelvis' : 'neck';
+    this.quads = []; for (let i = 0; i < (this.cols - 1) * (this.rows - 1); i++) this.quads.push({ i: 0, d: 0, key: 0, outer: true, light: 0, row: 0, quad: true, cloth: this });
+    this.shape(cl);
   }
-  /** Rest shape in the char frame (relative to the neck joint), from the cloth description. */
+  /** Rest shape in the char frame, relative to the anchor joint. */
   shape(cl) {
-    const t0 = Math.PI / 2 - 0.08, t1 = Math.PI * 1.5 + 0.08;
-    for (let j = 0; j < CAPE_ROWS; j++) for (let i = 0; i < CAPE_COLS; i++) {
-      const k = j * CAPE_COLS + i, u = j / (CAPE_ROWS - 1), th = t0 + (t1 - t0) * i / (CAPE_COLS - 1);
-      const a = cl.topA + (cl.botA - cl.topA) * u, b = cl.topB + (cl.botB - cl.topB) * u, f = -0.6 - 4.9 * u;
-      this.rx[k] = a * Math.sin(th); this.ry[k] = f + b * Math.cos(th);
-      this.rz[k] = -2.5 - cl.length * u - (j === CAPE_ROWS - 1 ? cl.tatter[i % cl.tatter.length] : 0);
+    const C = this.cols, Rw = this.rows;
+    for (let j = 0; j < Rw; j++) for (let i = 0; i < C; i++) {
+      const k = j * C + i, u = j / (Rw - 1), v = i / (C - 1);
+      const tat = j === Rw - 1 ? cl.tatter[i % cl.tatter.length] : 0;
+      if (cl.kind === 'front') {
+        // a flat panel across the front of the hips, slightly wider at the bottom
+        const w = cl.topA + (cl.botA - cl.topA) * u;
+        this.rx[k] = (v - 0.5) * 2 * w; this.ry[k] = cl.topB + (cl.botB - cl.topB) * u - Math.abs(v - 0.5) * 2.5;
+        this.rz[k] = cl.top - cl.length * u - tat;
+      } else {
+        const t0 = Math.PI / 2 - 0.08, t1 = Math.PI * 1.5 + 0.08, th = t0 + (t1 - t0) * v;
+        const A = cl.topA + (cl.botA - cl.topA) * u, B = cl.topB + (cl.botB - cl.topB) * u;
+        this.rx[k] = A * Math.sin(th); this.ry[k] = -0.6 - 4.9 * u + B * Math.cos(th);
+        this.rz[k] = -2.5 - cl.length * u - tat;
+      }
     }
-    for (let j = 0; j < CAPE_ROWS; j++) for (let i = 0; i < CAPE_COLS; i++) {
-      const k = j * CAPE_COLS + i;
-      if (j > 0) { const q = k - CAPE_COLS; this.lenV[k] = Math.hypot(this.rx[k] - this.rx[q], this.ry[k] - this.ry[q], this.rz[k] - this.rz[q]); }
-      if (i > 0) { const q = k - 1; this.lenH[k] = Math.hypot(this.rx[k] - this.rx[q], this.ry[k] - this.ry[q], this.rz[k] - this.rz[q]); }
+    for (let k = 0; k < C * Rw; k++) {
+      if (k >= C) { const q = k - C; this.lenV[k] = Math.hypot(this.rx[k] - this.rx[q], this.ry[k] - this.ry[q], this.rz[k] - this.rz[q]); }
+      if (k % C) { const q = k - 1; this.lenH[k] = Math.hypot(this.rx[k] - this.rx[q], this.ry[k] - this.ry[q], this.rz[k] - this.rz[q]); }
     }
   }
-  /** World position of a rest-shape point for the current body (neck at nz, char facing yaw). */
-  anchor(k, gx, gy, nf, nz, c, s, out) {
-    const S = this.rx[k], F = this.ry[k] + nf, Z = this.rz[k] + nz;
+  anchor(k, gx, gy, J, c, s, out) {
+    const S = this.rx[k], F = this.ry[k] + J.f, Z = this.rz[k] + J.z;
     out[0] = gx + S * s + F * c; out[1] = gy - S * c + F * s; out[2] = Z;
   }
-  reset(p, cl) {
-    this.cloth = cl; this.shape(cl);
-    const R = p.rig, c = Math.cos(R.yaw), s = Math.sin(R.yaw), N = R.j.neck, q = this._q;
+  reset(p) {
+    const R = p.rig, c = Math.cos(R.yaw), s = Math.sin(R.yaw), J = R.j[this.joint], q = this._q;
     for (let k = 0; k < this.x.length; k++) {
-      this.anchor(k, p.gx, p.gy, N.f, N.z, c, s, q);
+      this.anchor(k, p.gx, p.gy, J, c, s, q);
       this.x[k] = this.px[k] = q[0]; this.y[k] = this.py[k] = q[1]; this.z[k] = this.pz[k] = q[2];
     }
     this.live = true; this.lgx = p.gx; this.lgy = p.gy;
   }
-  step(p, cl, dt) {
-    if (!this.live || this.cloth !== cl || Math.hypot(p.gx - this.lgx, p.gy - this.lgy) > 120) this.reset(p, cl);
+  step(p, dt) {
+    if (!this.live || Math.hypot(p.gx - this.lgx, p.gy - this.lgy) > 120) this.reset(p);
     this.lgx = p.gx; this.lgy = p.gy;
     if (dt <= 0) { this.project(p); return; }
-    const R = p.rig, c = Math.cos(R.yaw), s = Math.sin(R.yaw), N = R.j.neck, q = this._q, n = this.x.length;
+    const cl = this.cloth, C = this.cols, R = p.rig, c = Math.cos(R.yaw), s = Math.sin(R.yaw), J = R.j[this.joint], q = this._q, n = this.x.length;
+    const front = cl.kind === 'front', side = front ? 1 : -1;
     this.t += dt;
+    const spd = Math.hypot(p.vx, p.vy), loose = 1 - 0.75 * Math.min(1, spd / 400);
     const sub = 2, h = Math.min(dt, 1 / 30) / sub, damp = 0.965, grav = 900 * cl.weight * h * h;
     for (let it = 0; it < sub; it++) {
-      // integrate
-      for (let k = CAPE_COLS; k < n; k++) {
+      for (let k = C; k < n; k++) {
         const vx = (this.x[k] - this.px[k]) * damp, vy = (this.y[k] - this.py[k]) * damp, vz = (this.z[k] - this.pz[k]) * damp;
         this.px[k] = this.x[k]; this.py[k] = this.y[k]; this.pz[k] = this.z[k];
-        const row = Math.floor(k / CAPE_COLS) / (CAPE_ROWS - 1);
+        const row = Math.floor(k / C) / (this.rows - 1);
         const wind = Math.sin(this.t * 1.7 + k * 0.7) * 6 * row * h * h * 60;      // a faint living sway
-        this.x[k] += vx + wind; this.y[k] += vy + wind * 0.5; this.z[k] += vz - grav;
+        const air = (cl.drag || 1) * 0.03 * row * h;                               // air pushes the cloth back as he moves
+        this.x[k] += vx + wind - p.vx * air; this.y[k] += vy + wind * 0.5 - p.vy * air; this.z[k] += vz - grav + air * spd * 0.12;
       }
-      // pin the top row to the shoulders
-      for (let i = 0; i < CAPE_COLS; i++) {
-        this.anchor(i, p.gx, p.gy, N.f, N.z, c, s, q);
+      for (let i = 0; i < C; i++) {                                                // pin the top row
+        this.anchor(i, p.gx, p.gy, J, c, s, q);
         this.x[i] = this.px[i] = q[0]; this.y[i] = this.py[i] = q[1]; this.z[i] = this.pz[i] = q[2];
       }
-      // keep the shape: a soft pull toward the rest pose so it does not crumple, then the length constraints
-      for (let k = CAPE_COLS; k < n; k++) {
-        this.anchor(k, p.gx, p.gy, N.f, N.z, c, s, q);
-        const w = 0.012;
+      for (let k = C; k < n; k++) {                                                // soft pull toward the rest shape
+        this.anchor(k, p.gx, p.gy, J, c, s, q);
+        const w = (cl.stiff || 0.012) * loose;            // looser while moving fast so it can stream out
         this.x[k] += (q[0] - this.x[k]) * w; this.y[k] += (q[1] - this.y[k]) * w; this.z[k] += (q[2] - this.z[k]) * w;
       }
       for (let pass = 0; pass < 3; pass++) {
-        for (let k = CAPE_COLS; k < n; k++) {
-          this.link(k, k - CAPE_COLS, this.lenV[k], Math.floor(k / CAPE_COLS) === 1);
-          if (k % CAPE_COLS) this.link(k, k - 1, this.lenH[k], false);
+        for (let k = C; k < n; k++) {
+          this.link(k, k - C, this.lenV[k], Math.floor(k / C) === 1);
+          if (k % C) this.link(k, k - 1, this.lenH[k], false);
         }
-        // body: stay behind the torso / hips, outside a capsule around the legs, above the floor
-        for (let k = CAPE_COLS; k < n; k++) {
+        for (let k = C; k < n; k++) {
           const dx = this.x[k] - p.gx, dy = this.y[k] - p.gy;
           let S = dx * s - dy * c, F = dx * c + dy * s;
-          const z = this.z[k], back = z > 30 ? -5.5 : -4.5;
-          if (Math.abs(S) < 12 && F > back && z > 8) F = back;
-          const r = Math.hypot(S, F); if (r < 7) { const m = 7 / (r || 1); S *= m; F *= m; }
-          // legs: the cloth drapes over a striding leg instead of passing through it
-          const Z = this.z[k], J = R.j;
-          for (const [A, B] of this._legs(J)) {
+          const z = this.z[k];
+          if (front) { if (Math.abs(S) < 9 && F < 5.5 && z > 18) F = 5.5; }        // stay in front of the hips
+          else {
+            const back = z > 30 ? -5.5 : -4.5;
+            if (Math.abs(S) < 12 && F > back && z > 8) F = back;                   // stay behind the torso
+            const r = Math.hypot(S, F); if (r < 7) { const m = 7 / (r || 1); S *= m; F *= m; }
+          }
+          const Jj = R.j;
+          for (const [A, B] of this._legs(Jj)) {                                   // drape over the legs
             const ex = B.s - A.s, ef = B.f - A.f, ez = B.z - A.z, L2 = ex * ex + ef * ef + ez * ez || 1;
-            const u = clamp(((S - A.s) * ex + (F - A.f) * ef + (Z - A.z) * ez) / L2, 0, 1);
+            const u = clamp(((S - A.s) * ex + (F - A.f) * ef + (z - A.z) * ez) / L2, 0, 1);
             const qs = A.s + ex * u, qf = A.f + ef * u, qz = A.z + ez * u;
-            let ds = S - qs, df = F - qf; const dz = Z - qz, dd = Math.hypot(ds, df, dz), rad = 5.5;
+            let ds = S - qs, df = F - qf; const dz = z - qz, dd = Math.hypot(ds, df, dz), rad = 5.5;
             if (dd < rad && Math.abs(dz) < rad) {
-              if (df > -0.5) { df = -0.5; ds *= 0.5; }               // always settle behind the leg
+              if (df * side < 0.5) { df = 0.5 * side; ds *= 0.5; }               // settle on this cloth's side of the leg
               const hl = Math.hypot(ds, df) || 1; S = qs + ds / hl * rad; F = qf + df / hl * rad;
             }
           }
@@ -382,48 +400,48 @@ class Cape {
   }
   link(a, b, L, pinnedB) {
     const dx = this.x[a] - this.x[b], dy = this.y[a] - this.y[b], dz = this.z[a] - this.z[b], d = Math.hypot(dx, dy, dz) || 1e-6;
+    if (d < L * 0.85 && !pinnedB) return;                       // cloth can bunch freely; only stretching is resisted
     const e = (d - L) / d, wa = pinnedB ? 1 : 0.5, wb = pinnedB ? 0 : 0.5;
-    if (d < L * 0.85 && !pinnedB) return;                       // cloth can bunch freely, only stretching is resisted
     this.x[a] -= dx * e * wa; this.y[a] -= dy * e * wa; this.z[a] -= dz * e * wa;
     this.x[b] += dx * e * wb; this.y[b] += dy * e * wb; this.z[b] += dz * e * wb;
   }
-  /** Project to the player's layer space (origin at his feet, y up) and prepare the draw list. */
+  /** Project into the player's layer space (origin at his feet, y up) and prepare the sorted quads. */
   project(p) {
-    const n = this.x.length;
+    const n = this.x.length, C = this.cols, front = this.cloth.kind === 'front', R = p.rig;
     for (let k = 0; k < n; k++) {
       const X = this.x[k] - p.gx, Y = this.y[k] - p.gy;
       this.sx[k] = X; this.sy[k] = Y * K + this.z[k]; this.sd[k] = Y;
     }
-    const R = p.rig, c = Math.cos(R.yaw), s = Math.sin(R.yaw);
+    const fx = Math.cos(R.yaw), fy = Math.sin(R.yaw);
     let qi = 0;
-    for (let j = 0; j < CAPE_ROWS - 1; j++) for (let i = 0; i < CAPE_COLS - 1; i++) {
-      const k = j * CAPE_COLS + i, Q = this.quads[qi++];
-      Q.i = k; Q.row = j; Q.d = (this.sd[k] + this.sd[k + 1] + this.sd[k + CAPE_COLS] + this.sd[k + CAPE_COLS + 1]) / 4;
-      // surface normal, oriented away from his body axis (outer face)
+    for (let j = 0; j < this.rows - 1; j++) for (let i = 0; i < C - 1; i++) {
+      const k = j * C + i, Q = this.quads[qi++];
+      Q.i = k; Q.row = j; Q.d = (this.sd[k] + this.sd[k + 1] + this.sd[k + C] + this.sd[k + C + 1]) / 4;
+      Q.key = Q.d + (front ? -0.3 : 0.5);              // each panel sorts against the limbs on its own
       const ax = this.x[k + 1] - this.x[k], ay = this.y[k + 1] - this.y[k], az = this.z[k + 1] - this.z[k];
-      const bx = this.x[k + CAPE_COLS] - this.x[k], by = this.y[k + CAPE_COLS] - this.y[k], bz = this.z[k + CAPE_COLS] - this.z[k];
+      const bx = this.x[k + C] - this.x[k], by = this.y[k + C] - this.y[k], bz = this.z[k + C] - this.z[k];
       let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
-      const ox = (this.x[k] + this.x[k + 1]) / 2 - p.gx, oy = (this.y[k] + this.y[k + 1]) / 2 - p.gy;
+      // orient the normal to the outer face: away from the body axis (cape) or forward (tabard)
+      const ox = front ? fx : (this.x[k] + this.x[k + 1]) / 2 - p.gx, oy = front ? fy : (this.y[k] + this.y[k + 1]) / 2 - p.gy;
       if (nx * ox + ny * oy < 0) { nx = -nx; ny = -ny; nz = -nz; }
       const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
-      Q.outer = ny - K * nz < 0;                                 // outer face toward the camera?
+      Q.outer = ny - K * nz < 0;
       const L = RIG_LIGHT, ll = Math.hypot(L[0], L[1], L[2]), sg = Q.outer ? 1 : -1;
       Q.light = clamp(sg * (nx * L[0] + ny * L[1] + nz * L[2]) / ll, 0, 1);
-      void c; void s;
     }
     this.quads.sort((a, b) => b.d - a.d);
   }
+  /** Mean depth of the lower half (for sorting the cloth against the legs). */
+  lowDepth() {
+    let sum = 0, m = 0;
+    for (let k = Math.floor(this.rows / 2) * this.cols; k < this.sd.length; k++) { sum += this.sd[k]; m++; }
+    return sum / m;
+  }
 }
-Cape.prototype._q = [0, 0, 0];
-Cape.prototype._legs = function (J) {
+Cloth.prototype._q = [0, 0, 0];
+Cloth.prototype._legs = function (J) {
   const L = this.__legs || (this.__legs = [[null, null], [null, null], [null, null], [null, null]]);
   L[0][0] = J.hipL; L[0][1] = J.kneeL; L[1][0] = J.kneeL; L[1][1] = J.ankleL;
   L[2][0] = J.hipR; L[2][1] = J.kneeR; L[3][0] = J.kneeR; L[3][1] = J.ankleR;
   return L;
-};
-/** Mean depth of the lower half of the cloth (for sorting it against the legs). */
-Cape.prototype.lowDepth = function () {
-  let sum = 0, n = 0;
-  for (let k = Math.floor(CAPE_ROWS / 2) * CAPE_COLS; k < this.sd.length; k++) { sum += this.sd[k]; n++; }
-  return sum / n;
 };

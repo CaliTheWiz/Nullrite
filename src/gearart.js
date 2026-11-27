@@ -274,6 +274,31 @@ const GEAR_ART = {
   },
 };
 
+// ---------------------------------------------------------------- belt props
+function holsterArt(x, full) {
+  if (full) {                                                         // pistol grip and hammer above the pouch
+    fillP(x, [[2.2, 4.2], [3.0, 0.6], [5.4, 0.9], [5.0, 4.4]], '#3a2a1c');
+    lineP(x, [[2.6, 2.4], [5.0, 2.6]], 0.5, '#d6b46a');
+    fillP(x, [[4.6, 4.4], [6.6, 3.6], [6.4, 4.8]], '#4a4c5c');
+  }
+  fillP(x, [[1.0, 4.0], [6.0, 4.0], [5.4, 12.4], [1.6, 12.4]], '#1a120d');   // leather pouch
+  lineP(x, [[1.3, 4.6], [5.7, 4.6]], 0.6, '#5a4028');
+  lineP(x, [[3.5, 4.0], [3.5, 12.0]], 0.4, 'rgba(0,0,0,0.6)');
+}
+function flaskArt(x, full) {
+  fillP(x, [[1.8, 0.4], [3.2, 0.4], [3.2, 1.8], [1.8, 1.8]], '#6b4a2c');      // cork
+  fillOval(x, 0.5, 2.0, 4.0, 6.6, full ? '#3a0b12' : '#15131b');
+  if (full) withGlow(x, GLOW_RED, 3, () => fillOval(x, 1.0, 4.0, 3.0, 4.2, '#d81e3a'));
+  lineP(x, [[1.4, 3.0], [1.6, 6.4]], 0.5, 'rgba(255,255,255,0.35)');          // glass glint
+}
+function pistolArt(x) {
+  fillP(x, [[0.5, 3.4], [3.6, 2.2], [5.2, 6.4], [3.0, 6.8]], '#3a2a1c');      // grip
+  fillP(x, [[3.0, 1.6], [14.6, 1.6], [14.6, 3.4], [3.6, 3.6]], '#4a4c5c');    // barrel
+  lineP(x, [[3.6, 1.7], [14.4, 1.7]], 0.5, '#8a8ea2');
+  fillP(x, [[2.6, 0.6], [4.0, 0.4], [4.4, 1.8], [3.0, 1.8]], '#2a2a34');      // hammer
+  lineP(x, [[4.6, 3.6], [5.6, 5.0]], 0.5, '#d6b46a');                         // trigger guard
+}
+
 /** Bake base + every gear piece: ART.rig[source][part] = texture (segments) or [16 views]. */
 function buildRigArt(A) {
   A.rig = {};
@@ -290,5 +315,10 @@ function buildRigArt(A) {
     A.rig[src] = out;
   };
   bake('base', BASE_ART);
+  A.rig.props = {
+    holster: makeTex(7, 13, (x) => holsterArt(x, true)), holsterEmpty: makeTex(7, 13, (x) => holsterArt(x, false)),
+    flask: makeTex(5, 9, (x) => flaskArt(x, true)), flaskEmpty: makeTex(5, 9, (x) => flaskArt(x, false)),
+    pistol: makeTex(15, 7, pistolArt),
+  };
   for (const id in GEAR_ART) bake(id, GEAR_ART[id]);
 }

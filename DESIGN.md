@@ -76,7 +76,11 @@ Steps (1 done):
 2. DONE — Cloak: `Cape` in rig.js, 9x8 Verlet grid in world space pinned at the shoulders; soft pull to rest shape,
    stretch-only links, stays behind torso, drapes over legs, floor clamp. Gear `cloth` params (length, widths, colours,
    tatter). Drawn per frame as depth-sorted quads (outer face lit, crimson-black lining) + hem.
-3. Fuller silhouette: split cloak, tabard/sash, holstered pistol + flask on the belt.
+3. DONE — Fuller silhouette: crimson tabard (front Cloth from the coat), holstered pistol on the left hip (empties when
+   drawn; pistol appears in the left hand while shooting), healing flask on the right hip (dims when out of charges).
+   Per-weapon stances (WEAPONS[w].stance: rest / move / dash with off, r, elev, point, up); 2h weapons held in both hands.
+   Cloth is general (`Cloth`, kinds back/front); every cloth panel is depth-sorted with the limbs individually, and air
+   drag streams it out when running. `python3 tools/sprint_sheet.py` renders sprint frames.
 4. Shading: crimson rim light, darker undersides, tighter contact shadow.
 5. Life: idle breathing, weight shift, head leads turns, dash landing stagger.
 Then: gear system (stats, weight, equip screen, pickups), pistol aims with the left stick (option 2),
@@ -90,6 +94,13 @@ Weapon/hand rules (agreed):
 - Same melee family in both hands -> dual-wield moveset on light/heavy.
 - Bows are 2h (tap quick shot, hold heavy draw); a hand crossbow can be 1h.
 - Open question for later: with a 2h weapon, left button = weapon guard, or nothing.
+- 2h weapons are held with BOTH hands at all times (idle, walk, dash, attacks).
+- Every weapon gets its OWN animation set: idle stance, walk/run carry, dash carry, every attack in its chains,
+  heavy/charged, running/dash attacks, visceral, stagger/hurt recoil, death drop. No sharing or cycling the same
+  motion between weapons (and avoid repeating the same motion inside one weapon's chain). Data lives per weapon
+  (WEAPONS[w].stance + per-move poses), not as shared motion types.
+- Consequence to decide in the gear phase: the starter greatsword is 2h, so with the left hand locked the pistol
+  can't be used with it. Options: start with a 1h weapon + pistol, or let the player pick a starting kit.
 
 ## Next (planned)
 - More weapons/items; maybe itch.io release.

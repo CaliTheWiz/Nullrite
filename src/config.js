@@ -43,6 +43,11 @@ const CHARGE_START = 0.20, CHARGE_FULL = 0.65, CHARGE_WALK = 0.45;
 const WEAPONS = {
   greatsword: {
     name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, handGap: 8, glow: [50, 96, 16], speed: 0.95,
+    // stance: how this weapon is carried (angle offset from facing, distance, height, blade tilt: 1 upright, <0 tip down)
+    // off = where the hands are (angle from facing), point = where the blade points (angle from facing)
+    stance: { hands: 2, rest: { off: -0.55, r: 15, elev: 32, point: -0.35, up: -0.35, sway: 2.5 },  // low guard, tip forward-down
+              move: { off: -0.9, r: 13, elev: 36, point: -1.2, up: 0.55 },                            // carried angled up across the body
+              dash: { off: -(Math.PI - 0.6), r: 18, elev: 26, point: -(Math.PI - 0.25), up: -0.35 } },   // dragged low behind, right side
     light: [
       move({ windup: 0.11, active: 0.10, recovery: 0.24, damage: 38, poise: 7, lunge: 340,
              hitbox: ['arc', 140, 55], motion: ['swing', 75, -75] }),
@@ -66,6 +71,9 @@ const WEAPONS = {
   },
   spear: {
     name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, handGap: 22, glow: [70, 110, 12], speed: 1.05,
+    stance: { hands: 2, rest: { off: -0.35, r: 14, elev: 42, point: -0.05, up: -0.05, sway: 1.5 },   // couched at the chest, point forward
+              move: { off: -0.8, r: 12, elev: 46, point: -0.6, up: 0.7 },                              // shaft high and diagonal
+              dash: { off: -0.2, r: 16, elev: 38, point: 0, up: -0.12 } },                             // point leads the dash
     light: [
       move({ windup: 0.09, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 11, damage: 30, poise: 5,
              lunge: 380, hitbox: ['thrust', 190, 34], motion: ['thrust'], reach: 78, slash: ['thrust', 'gold'],
