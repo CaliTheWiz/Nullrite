@@ -112,6 +112,26 @@ const SYNTHS = {
     const x = dspMap(t.length, i => Math.tanh((body[i] * Math.exp(-t[i] * 16) * 0.8 + th[i] * Math.exp(-t[i] * 11)) * 1.5));
     return dspFade(dspNorm(dspSoften(x, 3000), 0.8));
   },
+  roar() {                                   // phase-2 transition: grinding mechanical growl
+    const d = 1.7, t = dspTime(d), n = t.length, grit = dspBand(dspNoise(n, 77), 180, 1400), low = dspBand(dspNoise(n, 78), 40, 260);
+    let ph = 0;
+    const x = dspMap(n, i => {
+      const tt = t[i], u = tt / d;
+      const f = 58 + 40 * Math.sin(Math.PI * Math.min(1, u * 1.6)) - 18 * Math.max(0, u - 0.6);
+      ph += TAU * f / SR;
+      let saw = 0; for (let k = 1; k <= 7; k++) saw += Math.sin(ph * k) / k;
+      const growl = 0.6 + 0.4 * Math.sin(TAU * 27 * tt);
+      const env = Math.min(1, tt * 9) * Math.pow(1 - u, 0.8);
+      return Math.tanh((saw * growl * 0.9 + grit[i] * 0.55 * growl + low[i] * 0.6) * env * 1.8);
+    });
+    return dspFade(dspNorm(dspSoften(x, 2600), 0.9), 4, 80);
+  },
+  drone_air() {                              // loopable dark air under the drone
+    const d = 4, n = Math.floor(SR * d), x = dspBand(dspNoise(n, 91), 90, 520);
+    const fade = Math.floor(SR * 0.5);
+    for (let i = 0; i < fade; i++) { const k = i / fade; x[i] = x[i] * k + x[n - fade + i] * (1 - k); }   // crossfade loop seam
+    return dspNorm(dspSoften(x.subarray(0, n - fade).slice(), 900), 0.5);
+  },
   boss_die() {
     const d = 2.0, t = dspTime(d), low = dspBand(dspNoise(t.length, 55), 30, 320), [s] = dspSweep(85, 24, d, 1.6);
     const x = dspMap(t.length, i => {
@@ -164,11 +184,50 @@ class SoundBank {
     this.ctx = new AC();
     this.master = this.ctx.createGain(); this.master.gain.value = MASTER_VOLUME; this.master.connect(this.ctx.destination);
     for (const name in SYNTHS) {
+      if (name === 'drone_air') continue;
       const data = SYNTHS[name](), buf = this.ctx.createBuffer(1, data.length, SR);
       buf.getChannelData(0).set(data); this.buffers[name] = buf;
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
+    this.buildDrone();
     this.ready = true;
+  }
+  /** Low ambient synth drone, built once from live oscillators; setDrone() only moves its parameters. */
+  buildDrone() {
+    const c = this.ctx, now = c.currentTime;
+    this.drone = { on: false, phase: 1 };
+    const out = c.createGain(); out.gain.value = 0; out.connect(this.master);
+    const trem = c.createGain(); trem.gain.value = 1; trem.connect(out);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = 3; lp.connect(trem);
+    const lfo = c.createOscillator(), lfoAmt = c.createGain(); lfo.frequency.value = 0.07; lfoAmt.gain.value = 160;
+    lfo.connect(lfoAmt); lfoAmt.connect(lp.frequency); lfo.start(now);
+    const pulse = c.createOscillator(), pulseAmt = c.createGain(); pulse.frequency.value = 1.6; pulseAmt.gain.value = 0;
+    pulse.connect(pulseAmt); pulseAmt.connect(trem.gain); pulse.start(now);
+    const voices = [['sawtooth', 55, 0.5], ['sawtooth', 55.35, 0.5], ['triangle', 82.4, 0.35], ['sawtooth', 77.8, 0]];   // last = tritone, phase 2
+    this.drone.osc = voices.map(([type, f, v]) => {
+      const o = c.createOscillator(), g = c.createGain(); o.type = type; o.frequency.value = f; g.gain.value = v;
+      o.connect(g); g.connect(lp); o.start(now); return { o, g, f };
+    });
+    const air = c.createBufferSource(), airG = c.createGain();
+    air.buffer = (() => { const d = SYNTHS.drone_air(), b = c.createBuffer(1, d.length, SR); b.getChannelData(0).set(d); return b; })();
+    air.loop = true; airG.gain.value = 0.45; air.connect(airG); airG.connect(out); air.start(now);
+    Object.assign(this.drone, { out, lp, lfo, pulseAmt });
+  }
+  /** on: fight running. phase: 1 or 2 (2 drops the pitch, adds a tritone and a slow pulse). */
+  setDrone(on, phase) {
+    const D = this.drone;
+    if (!this.ready || !D || (D.on === on && D.phase === phase)) return;
+    const now = this.ctx.currentTime;
+    if (D.on !== on) D.out.gain.setTargetAtTime(on ? DRONE_VOLUME : 0, now, on ? 1.2 : 0.6);
+    if (D.phase !== phase) {
+      const shift = phase === 2 ? Math.pow(2, -3 / 12) : 1, tau = phase === 2 ? 0.5 : 0.05;
+      D.osc.forEach((v, i) => v.o.frequency.setTargetAtTime(v.f * shift, now, tau));
+      D.osc[3].g.gain.setTargetAtTime(phase === 2 ? 0.32 : 0, now, tau);
+      D.lp.frequency.setTargetAtTime(phase === 2 ? 520 : 380, now, tau);
+      D.lfo.frequency.setTargetAtTime(phase === 2 ? 0.22 : 0.07, now, tau);
+      D.pulseAmt.gain.setTargetAtTime(phase === 2 ? 0.35 : 0, now, tau);
+    }
+    D.on = on; D.phase = phase;
   }
   play(name, vol) {
     if (!this.ready || !this.buffers[name]) return;

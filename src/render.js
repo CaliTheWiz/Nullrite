@@ -93,22 +93,38 @@ class Renderer {
 
   drawFloor(g, t) {
     const n = Math.ceil(2 * ARENA_HALF / TILE), start = -n * TILE / 2 + TILE / 2;
-    const runeA = 0.3 + 0.08 * Math.sin(t * 1.3), Z = CAMERA_ZOOM;
+    const m = g.phaseMix, Z = CAMERA_ZOOM;
+    // phase 2: runes shift from dull gold to pulsing crimson
+    const goldA = (0.3 + 0.08 * Math.sin(t * 1.3)) * (1 - m), redA = (0.34 + 0.2 * Math.sin(t * 4.2)) * m;
     const halfW = this.W / 2 / Z + TILE, halfH = this.H / 2 / (Z * K) + TILE;
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
       const x = start + i * TILE, y = start + j * TILE;
       if (Math.abs(x - g.cam_x) > halfW || Math.abs(y - g.cam_y) > halfH) continue;
       const v = TILE_VARIANT[i * n + j];
       this.ground(ART.tiles[v], x, y, TILE + 0.8, TILE + 0.8);
-      this.ground(ART.runes[v], x, y, TILE, TILE, { color: RUNE_GOLD, alpha: runeA, blend: 'add' });
+      if (goldA > 0.01) this.ground(ART.runes[v], x, y, TILE, TILE, { color: RUNE_GOLD, alpha: goldA, blend: 'add' });
+      if (redA > 0.01) this.ground(ART.runes[v], x, y, TILE, TILE, { color: RUNE_CRIMSON, alpha: redA, blend: 'add' });
     }
     this.ground(ART.ritual, 0, 0, 380, 380);
     this.ground(ART.ritual, 0, 0, 380, 380, { alpha: 0.25 + 0.18 * Math.sin(t * 2) + 0.5 * g.ritualFlash, blend: 'add' });
     const c = this.ctx, A = ARENA_HALF;
-    this.base(); c.globalAlpha = 0.7; c.strokeStyle = '#8A2432'; c.lineWidth = 3 * Z;
+    this.base(); c.globalAlpha = 0.7 + 0.3 * m * (0.5 + 0.5 * Math.sin(t * 4.2)); c.strokeStyle = m > 0.5 ? CRIMSON : '#8A2432'; c.lineWidth = 3 * Z;
     c.beginPath();
     c.moveTo(this.sx(-A), this.sy(-A * K)); c.lineTo(this.sx(A), this.sy(-A * K));
     c.lineTo(this.sx(A), this.sy(A * K)); c.lineTo(this.sx(-A), this.sy(A * K)); c.closePath(); c.stroke();
+    this.drawWaves(g);
+  }
+  drawWaves(g) {
+    const c = this.ctx, Z = CAMERA_ZOOM;
+    for (const w of g.waves) {
+      if (!w.live || w.delay > 0 || w.alpha <= 0.01) continue;
+      const x = this.sx(w.x), y = this.sy(w.y * K), rx = w.r * Z, ry = w.r * Z * K;
+      this.base(); c.globalCompositeOperation = 'lighter';
+      c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, TAU);
+      c.globalAlpha = 0.28 * w.alpha; c.strokeStyle = CRIMSON; c.lineWidth = SLAM_WAVES.band * 1.6 * Z; c.stroke();
+      c.globalAlpha = 0.9 * w.alpha; c.strokeStyle = '#ff6a7a'; c.lineWidth = SLAM_WAVES.band * 0.35 * Z; c.stroke();
+      c.globalCompositeOperation = 'source-over';
+    }
   }
 
   drawEntities(g, t) {

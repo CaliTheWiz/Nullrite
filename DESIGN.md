@@ -21,7 +21,7 @@
 - Older private Claude artifact (frame-limited, optional to update):
 - Artifact slug 27a93ff8-c8d7-4c91-a812-334b1d0b6e7e (title "Obsidian Oath"); republish with
   publish_files(slug, base_version=<last>, files=[index.html]) after `python3 build.py`.
-- Tests: `node test/logic_test.js` (pure logic), `python3 test/controls.py` / `test/fight.py` (headless Chrome).
+- Tests: `node test/logic_test.js` + `node test/phase2_test.js` (pure logic), `python3 test/controls.py` / `test/fight.py` (headless Chrome).
 
 ## Hard design rules (user decisions)
 - NO tells or previews of any kind: no floor telegraphs (player or boss), no wind-up sounds,
@@ -36,7 +36,7 @@
 - Right crescent around LIGHT (corner, r42): slots at 186/152/118/84 deg, ARC_R 118, r30:
   DODGE (instant), HEAVY (tap/drag; hold >=0.65s release = charged, hyper armour),
   PISTOL (tap/drag-aim, fires on release, parry), empty socket (future skill/magic).
-- Small pair (r22) side by side above crescent: HEAL (flask) inner-left, ITEM outer-right, counts above each. Kept low so the app top bar never covers them. Thrown items = hold/drag aim.
+- Small pair (r22) side by side above crescent: ITEM inner-left, HEAL (flask) outer-right, counts above each. Kept low so the app top bar never covers them. Thrown items = hold/drag aim.
 - Top-left: HP (orange = Rally), stamina, weapon chip (tap to swap greatsword/spear), FPS.
 - Bottom-centre: boss name, HP, poise bar.
 
@@ -52,6 +52,16 @@
   Attacks sweep / slam / lance, distance-aware choice; 8-direction views.
 - Camera zoom 0.8, leans 0.38 toward boss (cap 200).
 
+## Phase 2 (boss below 50% HP) — done
+- Transition (PHASE state, 2.0s, boss immune, poise refilled): hitstop 0.2, big shake, 'roar' SFX,
+  shockwave ring that shoves the player away (no damage) within 560 units.
+- Floor runes cross-fade dull gold -> pulsing crimson (g.phaseMix), arena border pulses; boss core glow larger.
+- Ambient drone (live WebAudio oscillators + looped dark air, built once at first tap): on during the fight,
+  fades on death/victory; phase 2 drops pitch 3 semitones, adds a tritone voice, faster filter sweep + slow pulse.
+- Lance chains straight into a quicker sweep (sweep_follow: windup 0.52). Parryable like a normal sweep.
+- Slam sends 3 expanding radial waves (0.42s apart, 400 u/s, 20 dmg each); roll through them (i-frames).
+- Shorter idle between attacks in phase 2 (0.3–0.7s).
+- Tests: `node test/phase2_test.js`, `python3 test/phase2_shot.py`.
+
 ## Next (planned)
-- Phase 2 boss escalation at 50% HP (from original Milestone 3).
 - More weapons/items; maybe itch.io release.

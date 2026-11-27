@@ -78,8 +78,8 @@ class Controls {
     const sx = W - HUD.SAFE_X - SMALL_R - 2;
     // side by side, low enough to stay clear of the app's top bar
     const ry = ly + ARC_R + 58;
-    this.item.layout(sx, ry);
-    this.flask.layout(sx - 50, ry);
+    this.flask.layout(sx, ry);
+    this.item.layout(sx - 50, ry);
     this.ui.emptySlots = [];
     this.slotButtons.forEach((b, i) => {
       const a = SLOT_ANGLES[i] * RAD, x = lx + Math.cos(a) * ARC_R, y = ly + Math.sin(a) * ARC_R;

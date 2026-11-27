@@ -590,6 +590,7 @@ function buildArt(scale) {
   for (const s of spans) for (const col of [CRIMSON, '#ffe2b0', '#fff4f0']) tinted(A.slash[s], col);
   for (const col of ['#5c5766', '#524d5c', '#575161', '#4d4545']) tinted(A.glowSoft, col);
   for (const v of VIEWS) { tinted(A.knightSil[v], CRIMSON); tinted(A.sentinelSil[v], CRIMSON); }
+  for (const r of A.runes) { tinted(r, RUNE_GOLD); tinted(r, RUNE_CRIMSON); }
 }
 /** Particle texture lookup by key ('spark', 'slash:170', 'knightSil:S', ...). */
 function artByKey(key) {

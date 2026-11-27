@@ -314,6 +314,15 @@ class Player {
     this.enter(this.hp <= 0 ? S_DEAD : S_HURT);
   }
 
+  /** Pushed by a shockwave: no damage, but it interrupts whatever you were doing. */
+  shove(angle, knock) {
+    if (!this.alive) return;
+    this.charging = 0; this.sprinting = false; this.invuln = false;
+    this.knock_dir = angle; this.vx = Math.cos(angle) * knock; this.vy = Math.sin(angle) * knock;
+    this.facing = angle + Math.PI;
+    this.enter(S_HURT);
+  }
+
   update(dt, t) {
     this.state_t += dt;
     if (this.hurt_iframes > 0) this.hurt_iframes -= dt;
@@ -516,6 +525,7 @@ class Boss {
     this.vx = this.vy = 0; this.facing = -Math.PI / 2; this.state = S_IDLE; this.state_t = 0; this.idle_time = 1.4;
     this.hp = BOSS_MAX_HP; this.hp_lag = BOSS_MAX_HP; this.hp_lag_hold = 0; this.poise = BOSS_POISE; this.poise_delay = 0;
     this.kind = null; this.atk = null; this.want = 0; this.attack_dir = this.facing; this.hit_done = false;
+    this.phase = 1; this.followed = false;
     this.slam_from = [this.gx, this.gy]; this.slam_to = [this.gx, this.gy]; this.elev = 0; this.dash_dist = 0; this.dash_time = 0;
     this.history = []; this.flash_t = 0; this.squash = 0; this.wob = 0; this.wob_v = 0; this.dead_t = 0;
     this.octant = null; this.view = 'S'; this.flip = 1;
@@ -547,7 +557,7 @@ class Boss {
     h.push(pick); if (h.length > 4) h.shift();
   }
   beginAttack(player) {
-    this.enter(S_WINDUP); this.hit_done = false; this.vx = this.vy = 0;
+    this.enter(S_WINDUP); this.hit_done = false; this.vx = this.vy = 0; this.followed = false;
     const dx = player.gx - this.gx, dy = player.gy - this.gy, to_p = Math.atan2(dy, dx);
     if (this.kind === 'sweep') this.attack_dir = this.facing;
     else if (this.kind === 'slam') {
@@ -567,7 +577,7 @@ class Boss {
   update(dt, t, player) {
     this.state_t += dt;
     const dx = player.gx - this.gx, dy = player.gy - this.gy, dist = hypot(dx, dy), to_p = Math.atan2(dy, dx);
-    if (this.state !== S_STAGGERED && this.state !== S_DEAD) {
+    if (this.state !== S_STAGGERED && this.state !== S_DEAD && this.state !== S_PHASE) {
       if (this.poise_delay > 0) this.poise_delay -= dt; else this.poise = Math.min(BOSS_POISE, this.poise + POISE_REGEN * dt);
     }
     const st = this.state, T = this.state_t, atk = this.atk, g = this.g;
@@ -608,14 +618,24 @@ class Boss {
         this.vx = Math.cos(this.attack_dir) * atk.speed; this.vy = Math.sin(this.attack_dir) * atk.speed;
         g.fx.lanceTrail(this);
         if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock);
-        if (T >= this.dash_time) { this.vx *= 0.3; this.vy *= 0.3; this.enter(S_RECOVERY); }
+        if (T >= this.dash_time) {
+          this.vx *= 0.3; this.vy *= 0.3;
+          if (this.phase === 2 && !this.followed) {          // phase 2: straight into a sweep, no pause
+            this.followed = true; this.kind = 'sweep'; this.atk = BOSS_ATTACKS.sweep_follow;
+            this.attack_dir = to_p; this.facing = to_p; this.hit_done = false; this.enter(S_WINDUP);
+          } else this.enter(S_RECOVERY);
+        }
       }
     } else if (st === S_RECOVERY) {
       this.vx = smooth(this.vx, 0, 5, dt); this.vy = smooth(this.vy, 0, 5, dt);
-      if (T >= atk.recovery) { this.enter(S_IDLE); this.idle_time = uniform(0.45, 0.95); }
+      if (T >= atk.recovery) { this.enter(S_IDLE); this.idle_time = this.phase === 2 ? uniform(PHASE2_IDLE[0], PHASE2_IDLE[1]) : uniform(0.45, 0.95); }
     } else if (st === S_STAGGERED) {
       this.vx = smooth(this.vx, 0, 6, dt); this.vy = smooth(this.vy, 0, 6, dt);
       if (T >= STAGGER_TIME) { this.poise = BOSS_POISE; this.enter(S_IDLE); this.idle_time = 0.35; }
+    } else if (st === S_PHASE) {
+      this.vx = smooth(this.vx, 0, 6, dt); this.vy = smooth(this.vy, 0, 6, dt);
+      this.facing = approachAngle(this.facing, to_p, 1.5 * dt);
+      if (T >= PHASE_TIME) { this.enter(S_IDLE); this.idle_time = 0.35; }
     } else if (st === S_DEAD) {
       this.vx = smooth(this.vx, 0, 6, dt); this.vy = smooth(this.vy, 0, 6, dt);
       this.elev = smooth(this.elev, 0, 10, dt); this.dead_t += dt;
@@ -624,12 +644,16 @@ class Boss {
     [this.hp_lag, this.hp_lag_hold] = lagBar(this.hp_lag, this.hp_lag_hold, this.hp, 260, dt);
   }
   takeHit(dmg, poiseDmg, angle, heavy, crit) {
+    if (this.state === S_PHASE) return 'immune';
     const staggered = this.state === S_STAGGERED;
     const mult = crit ? 1 : (staggered ? STAGGER_DMG_MULT : 1);
     this.hp = Math.max(0, this.hp - dmg * mult); this.hp_lag_hold = 0.6;
     this.flash_t = 0.22; this.squash = heavy ? 0.07 : 0.035; this.wob_v += -Math.cos(angle) * (heavy ? 0.9 : 0.45);
     if (!staggered) { this.poise -= poiseDmg; this.poise_delay = POISE_DELAY; }
     if (this.hp <= 0) { this.enter(S_DEAD); this.dead_t = 0; return 'dead'; }
+    if (this.phase === 1 && this.hp <= BOSS_MAX_HP * PHASE2_AT) {
+      this.phase = 2; this.poise = BOSS_POISE; this.elev = 0; this.vx = this.vy = 0; this.enter(S_PHASE); return 'phase';
+    }
     if (!staggered && this.poise <= 0) { this.poise = 0; this.elev = 0; this.enter(S_STAGGERED); return 'stagger'; }
     return 'hit';
   }
@@ -651,6 +675,10 @@ class Boss {
     } else if (st === S_STAGGERED) {
       const k = T / STAGGER_TIME; sy *= 0.86; sx *= 1.05; rot = Math.sin(T * 9) * 0.05 * (1 - k) + 0.1;
       coreA = 0.25 + 0.35 * (((t * 14) | 0) % 2);
+    } else if (st === S_PHASE) {
+      const k = T / PHASE_TIME, rise = Math.sin(Math.PI * Math.min(1, k * 1.25));
+      sy *= 1 + 0.1 * rise; sx *= 1 - 0.03 * rise; rot = Math.sin(T * 30) * 0.025 * (1 - k);
+      coreA = 0.8 + 0.2 * Math.sin(t * 20);
     } else if (st === S_DEAD) {
       d = Math.min(1, this.dead_t / 1.6); sy *= 1 - 0.38 * d; rot = 0.3 * d; coreA = Math.max(0, 1 - d * 1.5);
     }
@@ -668,7 +696,7 @@ class Boss {
     } else this.flashAlpha = 0;
     const core = SENTINEL_CORE[this.view];
     this.coreX = core[0]; this.coreY = core[1]; this.coreSX = core[2];
-    this.coreGlow = coreA * (core[3] ? 1 : 0.65); this.coreGlowScale = 1; this.coreAlpha = core[3] ? 1 - d : 0;
+    this.coreGlow = coreA * (core[3] ? 1 : 0.65); this.coreGlowScale = this.phase === 2 ? 1.35 : 1; this.coreAlpha = core[3] ? 1 - d : 0;
     const vis = SENTINEL_VISOR[this.view];
     if (!vis) this.visorGlowA = 0; else { this.visorPos = vis; this.visorGlowA = (0.45 + 0.2 * Math.sin(t * 3.1)) * (1 - d); }
     const [spread, shift] = SENTINEL_PLATES[this.view];
@@ -677,6 +705,7 @@ class Boss {
       let bob = Math.sin(t * 2 + pl.k * 1.3 + pl.side) * 4, flare = 0;
       if (st === S_WINDUP && this.kind === 'sweep') flare = 10 * q;
       if (st === S_STAGGERED) { by -= 30; bob *= 0.3; }
+      if (st === S_PHASE) { flare = 26 * Math.sin(Math.PI * Math.min(1, T / PHASE_TIME * 1.25)); by += 10; bob *= 2; }
       if (st === S_DEAD) { by = Math.max(8, by - 120 * d); pl.alpha = 1 - 0.6 * d; } else pl.alpha = 1;
       pl.x = this.flip * (pl.side * (bx + flare) * spread + shift); pl.y = by + bob;
       pl.sx = -pl.side * this.flip; pl.rot = pl.side * -0.15 + Math.sin(t * 1.5 + pl.k) * 0.05;
@@ -705,6 +734,7 @@ class Boss {
       else { tgt = this.attack_dir; r_t = 40; e_t = 60; up_t = 0; }
     } else if (st === S_RECOVERY) { tgt = rest; r_t = 52; e_t = 60; up_t = 0.5; rate = 3; }
     else if (st === S_STAGGERED) { tgt = this.facing + 0.9; r_t = 56; e_t = 18; up_t = 0; }
+    else if (st === S_PHASE) { tgt = this.facing + 1.35; r_t = 40; e_t = 150; up_t = 1; rate = 6; }
     else { tgt = this.facing + 1.0; r_t = 60; e_t = 4; up_t = 0; rate = 3; }
     if (direct || dt === 0) this.hal_angle = tgt; else this.hal_angle = approachAngle(this.hal_angle, tgt, rate * dt);
     if (dt > 0) {
@@ -786,6 +816,8 @@ class Game {
     this.proj = new Projectiles(this);
     this.pickups = PICKUPS.map(p => new Pickup(p[0], p[1], p[2]));
     this.ritualFlash = 0;
+    this.waves = [];                     // phase-2 slam shockwaves (fixed pool)
+    for (let i = 0; i < 6; i++) this.waves.push({ live: false, x: 0, y: 0, r: 0, delay: 0, hit: false, alpha: 0, started: false });
     this.resetRound();
   }
   resetRound() {
@@ -794,6 +826,7 @@ class Game {
     this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0;
     this.ox = 0; this.oy = 0; this.stamDeny = 0; this.toast_t = 0; this.toast_key = null;
     this.outcome = null; this.outcome_t = 0; this.hapticQueue = []; this.visceralReady = false;
+    this.phaseMix = 0; for (const w of this.waves) w.live = false;
     [this.cam_x, this.cam_y] = this.cameraTarget();
   }
   sfx(n, v) { this.out.sfx(n, v); }
@@ -888,6 +921,7 @@ class Game {
     const got = this.player.regain((hp0 - b.hp) * RALLY_RATIO);
     if (got >= 1) { this.fx.rally(this.player, got); this.haptic('soft', 0.5); }
     if (result === 'stagger') this.onBossStagger(b); else if (result === 'dead') this.onBossDeath(b);
+    else if (result === 'phase') this.onBossPhase(b);
     return result;
   }
   onPlayerHitBoss(p) {
@@ -959,6 +993,45 @@ class Game {
     this.addShake(Math.PI / 2, 16); this.haptic('heavy', 0.7); this.ritualFlash = 1;
     const p = this.player, dx = p.gx - b.gx, dy = p.gy - b.gy;
     if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock);
+    if (b.phase === 2) {
+      let n = 0;
+      for (const w of this.waves) {
+        if (w.live || n >= SLAM_WAVES.count) continue;
+        w.live = true; w.x = b.gx; w.y = b.gy; w.r = SLAM_WAVES.start; w.delay = n * SLAM_WAVES.gap; w.hit = false; w.alpha = 0; w.started = false; n++;
+      }
+    }
+  }
+  updateWaves(dt) {
+    const p = this.player, S = SLAM_WAVES;
+    for (const w of this.waves) {
+      if (!w.live) continue;
+      if (w.delay > 0) { w.delay -= dt; continue; }
+      if (!w.started) { w.started = true; this.sfx('thud', 0.55); this.addShake(Math.PI / 2, 5); this.haptic('medium', 0.5); }
+      w.r += S.speed * dt;
+      w.alpha = Math.min(1, w.alpha + dt * 8) * (w.r > S.max_r - 200 ? Math.max(0, (S.max_r - w.r) / 200) : 1);
+      if (w.r >= S.max_r) { w.live = false; continue; }
+      if (!w.hit && p.alive && this.outcome === null) {
+        const dx = p.gx - w.x, dy = p.gy - w.y, d = hypot(dx, dy);
+        if (Math.abs(d - w.r) <= S.band * 0.5 + PLAYER_RADIUS * 0.6) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock);
+      }
+    }
+  }
+  onBossPhase(b) {
+    const p = this.player, f = this.fx, x = b.gx, y = b.gy * K;
+    this.hitstop = 0.2; this.addShake(Math.PI / 2, 24); this.ritualFlash = 1; this.buffer = null;
+    this.sfx('roar', 1.0); this.sfx('thud', 1.0); this.haptic('heavy', 1.0);
+    this.hapticQueue.push([0.2, 'heavy', 1.0]); this.hapticQueue.push([0.5, 'medium', 0.8]);
+    const R = PHASE_PUSH.radius, sz = 2 * R / 0.8;
+    f.rings.spawn({ x: b.gx, y: b.gy, life: 0.55, size: [sz, sz], color: CRIMSON, alpha: 1, s0: 0.08, s1: 1.0, fade: 1.2 });
+    f.rings.spawn({ x: b.gx, y: b.gy, life: 0.8, size: [sz, sz], color: '#ff4058', alpha: 0.6, s0: 0.05, s1: 1.3, fade: 1.1 });
+    f.glows.spawn({ x, y: y + 90, life: 0.5, size: [420, 420], color: CRIMSON, alpha: 0.9, s0: 0.3, s1: 1.4 });
+    for (let i = 0; i < 40; i++) {
+      const a = uniform(0, TAU), sp = uniform(300, 800);
+      f.sparks.spawn({ x: x + Math.cos(a) * 30, y: y + 90 + Math.sin(a) * 30, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: uniform(0.3, 0.7),
+        size: [uniform(16, 30), 4], color: choice([CRIMSON, '#ff4058', '#ffe2b0']), drag: 2.2, s0: 1, s1: 0.3, align: true });
+    }
+    const dx = p.gx - b.gx, dy = p.gy - b.gy, d = hypot(dx, dy);
+    if (d <= R && p.alive) p.shove(Math.atan2(dy, dx), PHASE_PUSH.knock * (1 - 0.5 * d / R));
   }
   onBossLunge(b) { this.sfx('whoosh_heavy', 1.0); this.sfx('dash', 0.8); this.addShake(groundToScreenAngle(b.attack_dir), 5); }
   onBossStagger(b) {
@@ -969,6 +1042,7 @@ class Game {
     this.sfx('boss_die', 1.0); this.haptic('heavy', 1.0);
     this.hapticQueue.push([0.18, 'heavy', 1.0]); this.hapticQueue.push([0.45, 'medium', 0.8]);
     this.fx.deathBurst(b); this.addShake(Math.PI / 2, 20); this.hitstop = 0.12; this.setOutcome('victory');
+    for (const w of this.waves) w.live = false;
   }
   bossSweepHits(b) {
     const p = this.player, dx = p.gx - b.gx, dy = p.gy - b.gy, dist = hypot(dx, dy);
@@ -1042,6 +1116,8 @@ class Game {
     this.updateVisceral();
     this.proj.update(dt);
     this.updatePickups(dt);
+    this.updateWaves(dt);
+    if (b.phase === 2) this.phaseMix = Math.min(1, this.phaseMix + dt / 1.6);
     if (this.buffer) {
       if (p.canAct()) { const [k, d, , c] = this.buffer; this.buffer = null; this.execute(k, d, c); }
       else { this.buffer[2] -= dt; if (this.buffer[2] <= 0) this.buffer = null; }

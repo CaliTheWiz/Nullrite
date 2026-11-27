@@ -62,14 +62,15 @@ function frame(now) {
   fpsFrames++; fpsClock += raw;
   if (fpsClock >= 0.5) { controls.ui.fps = Math.round(fpsFrames / fpsClock); fpsFrames = 0; fpsClock = 0; }
   if (H > W) renderer.drawRotate();
-  else if (screen === 'title') { game.t += raw; renderer.drawTitle(game.t); }
+  else if (screen === 'title') { game.t += raw; renderer.drawTitle(game.t); sound.setDrone(false, 1); }
   else {
     const ctl = controls.frame(Math.min(raw, 1 / 30));
     game.update(raw, ctl);
     if (game.outcome !== null && controls.owner.size) controls.releaseAll();
     renderer.draw(game, controls.ui, game.t);
+    sound.setDrone(game.outcome === null, game.boss.phase);
   }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__oath = { game, controls, renderer, sound, start() { screen = 'play'; game.resetRound(); } };
+window.__oath = { game, controls, renderer, sound, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP }, start() { screen = 'play'; game.resetRound(); } };

@@ -127,6 +127,14 @@ const BOSS_ATTACKS = {
   lance: { windup: 1.12, lock: 0.8, recovery: 1.0, speed: 1500, max_dist: 680,
            damage: 32, knock: 320, want: 9999, parry: true },
 };
+// Phase 2 (below half HP): lance chains straight into a quicker sweep; slam sends out radial waves
+BOSS_ATTACKS.sweep_follow = Object.assign({}, BOSS_ATTACKS.sweep, { windup: 0.52, track: 0.26, recovery: 1.05 });
+const PHASE2_AT = 0.5;                       // fraction of boss HP
+const PHASE_TIME = 2.0;                      // transition roar (boss can't be hurt)
+const PHASE_PUSH = { radius: 560, knock: 640 };
+const SLAM_WAVES = { count: 3, gap: 0.42, speed: 400, band: 24, start: 60, max_r: 1150, damage: 20, knock: 240 };
+const PHASE2_IDLE = [0.3, 0.7];
+const DRONE_VOLUME = 0.22;
 
 const DODGE_ROLL = { time: 0.32, speed: 1350, iframes: [0.03, 0.27], stamina: 22, ghost: 0.028 };
 const SPRINT_EDGE = 1.2, SPRINT_MULT = 1.55, SPRINT_DRAIN = 15, SPRINT_MIN = 20;
@@ -138,11 +146,11 @@ const VISCERAL_MOVE = move({ windup: 0.22, active: 0.10, recovery: 0.55, cancel:
                              sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0], shake: 18, sparks: 50,
                              flash: 260, hitstop: 0.16, thud: true });
 
-const CRIMSON = '#ff3048', RUNE_GOLD = '#b08a3e';
+const CRIMSON = '#ff3048', RUNE_GOLD = '#b08a3e', RUNE_CRIMSON = '#d8243a';
 const SPARK_COLORS = ['#ffffff', '#ffe7c2', '#ffb070', '#ff3048', '#ff5a6a'];
 
 const S_IDLE = 'IDLE', S_MOVE = 'MOVE', S_WINDUP = 'WINDUP', S_ACTIVE = 'ACTIVE', S_RECOVERY = 'RECOVERY',
-      S_DODGE = 'DODGE', S_HURT = 'HURT', S_DEAD = 'DEAD', S_STALK = 'STALK', S_STAGGERED = 'STAGGERED';
+      S_DODGE = 'DODGE', S_HURT = 'HURT', S_DEAD = 'DEAD', S_STALK = 'STALK', S_STAGGERED = 'STAGGERED', S_PHASE = 'PHASE';
 
 // 8-direction sprite views: five drawn, three mirrored
 const VIEWS = ['S', 'SE', 'E', 'NE', 'N'];
