@@ -13,6 +13,12 @@ class Renderer {
     const v = newCanvas(256, 256), x = v.getContext('2d'), g = x.createRadialGradient(128, 128, 60, 128, 128, 182);
     g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.55, 'rgba(0,0,0,0.25)'); g.addColorStop(1, 'rgba(0,0,0,0.85)');
     x.fillStyle = g; x.fillRect(0, 0, 256, 256); this.vignette = v;
+    // the player is drawn into his own layer first, so fading / flashing him treats the body as one piece
+    const s = dpr * CAMERA_ZOOM, L = PLAYER_LAYER;
+    const mk = () => { const c = newCanvas(L.w * s, L.h * s); return { c, x: c.getContext('2d') }; };
+    this.pl = mk(); this.plScale = s;
+    this.ghosts = []; for (let i = 0; i < 6; i++) { const q = mk(); q.live = false; q.t0 = 0; q.gx = 0; q.gy = 0; this.ghosts.push(q); }
+    this.ghostSeq = 0;
   }
   base() { this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); this.ctx.globalAlpha = 1; this.ctx.globalCompositeOperation = 'source-over'; }
   // world (x, y-screen-world) -> canvas css px
@@ -159,7 +165,7 @@ class Renderer {
     list.push([-g.boss.gy, () => this.drawBoss(g.boss)]);
     list.push([-g.player.gy, () => this.drawPlayer(g.player)]);
     for (const bm of g.proj.bombs) if (bm.live) list.push([-bm.gy + 0.5, () => this.drawBomb(bm, t)]);
-    for (const p of g.fx.ghosts.active) list.push([p.z, () => this.drawGhost(p)]);
+    for (const q of this.ghosts) if (q.live) list.push([-q.gy - 0.5, () => this.drawGhost(q, g.t)]);
     list.sort((a, b) => a[0] - b[0]);
     for (const e of list) e[1]();
   }
@@ -182,19 +188,45 @@ class Renderer {
     this.local(ART.bomb, 0, bm.elev, 18, 20, { rot: bm.spin });
     this.local(ART.glow, Math.cos(bm.spin) * 6, bm.elev + 10, 16, 16, { color: '#ffb070', alpha: 0.6 + 0.4 * (((t * 20) | 0) % 2), blend: 'add' });
   }
-  drawGhost(p) {
-    this.entityFrame(p.x, p.y / K);
-    this.local(artByKey(p.tex), 0, 0, 64, 96, { ax: 0.5, ay: 0.04, color: p.color, alpha: p.alpha, blend: 'add', rot: p.rot, sx: p.flip });
+  drawGhost(q, t) {
+    const k = 1 - (t - q.t0) / 0.24;
+    if (k <= 0) { q.live = false; return; }
+    const c = this.ctx, L = PLAYER_LAYER;
+    c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.globalAlpha = 0.42 * k; c.globalCompositeOperation = 'lighter';
+    c.drawImage(q.c, this.sx(q.gx) - L.ox * CAMERA_ZOOM, this.sy(q.gy * K) - L.oy * CAMERA_ZOOM, L.w * CAMERA_ZOOM, L.h * CAMERA_ZOOM);
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
   }
   drawPlayer(p) {
-    this.entityFrame(p.gx, p.gy);
-    this.drawRigBody(p);
+    const L = PLAYER_LAYER, s = this.plScale, o = this.pl, main = this.ctx;
+    o.x.setTransform(1, 0, 0, 1, 0, 0); o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
+    o.x.clearRect(0, 0, o.c.width, o.c.height);
+    o.x.setTransform(s, 0, 0, s, L.ox * s, L.oy * s);
+    this.ctx = o.x; this.drawRigBody(p, true); this.ctx = main;
+    if (p.glowAlpha > 0.01) {                                  // flash tint over the whole body at once
+      o.x.setTransform(1, 0, 0, 1, 0, 0); o.x.globalCompositeOperation = 'source-atop'; o.x.globalAlpha = p.glowAlpha;
+      o.x.fillStyle = p.glowColor; o.x.fillRect(0, 0, o.c.width, o.c.height);
+      o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
+    }
+    if ((p.ghostSeq || 0) !== this.ghostSeq) {                 // dash afterimage: snapshot this frame, tinted crimson
+      this.ghostSeq = p.ghostSeq || 0;
+      const q = this.ghosts.find(z => !z.live) || this.ghosts.reduce((a, z) => (z.t0 < a.t0 ? z : a));
+      q.x.setTransform(1, 0, 0, 1, 0, 0); q.x.globalCompositeOperation = 'source-over'; q.x.globalAlpha = 1;
+      q.x.clearRect(0, 0, q.c.width, q.c.height); q.x.drawImage(o.c, 0, 0);
+      q.x.globalCompositeOperation = 'source-atop'; q.x.fillStyle = CRIMSON; q.x.fillRect(0, 0, q.c.width, q.c.height);
+      q.x.globalCompositeOperation = 'source-over';
+      q.live = true; q.t0 = this.g.t; q.gx = p.gx; q.gy = p.gy;
+    }
+    // shadow stays solid; the body fades as one piece
+    this.entityFrame(p.gx, p.gy); this.local(ART.shadow, 0, 0, 50, 30);
+    main.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); main.globalAlpha = p.bodyAlpha; main.globalCompositeOperation = 'source-over';
+    main.drawImage(o.c, this.sx(p.gx) - L.ox * CAMERA_ZOOM, this.sy(p.gy * K) - L.oy * CAMERA_ZOOM, L.w * CAMERA_ZOOM, L.h * CAMERA_ZOOM);
+    main.globalAlpha = 1;
   }
   /** The jointed player, drawn at the current transform's origin (his feet). */
-  drawRigBody(p) {
+  drawRigBody(p, layered) {
     const R = p.rig;
-    this.local(ART.shadow, 0, 0, 50, 30);
-    const a = p.bodyAlpha, glowA = p.glowAlpha, glowC = p.glowColor;
+    if (!layered) this.local(ART.shadow, 0, 0, 50, 30);
+    const a = layered ? 1 : p.bodyAlpha, glowA = layered ? 0 : p.glowAlpha, glowC = p.glowColor;
     for (const part of R.order) {
       if (part.kind === 'weapon') { this.drawWeapon(p, R); continue; }
       if (part.kind === 'offhand') continue;

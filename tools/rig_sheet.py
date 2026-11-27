@@ -9,7 +9,7 @@ JS = r"""
 () => {
   const o = window.__nullrite, g = o.game, p = g.player, C = o.C, S = C.S;
   const DIRS = [['S', -90], ['SE', -45], ['E', 0], ['NE', 45], ['N', 90], ['NW', 135], ['W', 180], ['SW', -135]];
-  const POSES = ['idle', 'walk A', 'walk B', 'swing wind-up', 'swing', 'heavy wind-up', 'roll', 'pistol', 'flask'];
+  const POSES = ['idle', 'walk A', 'walk B', 'swing wind-up', 'swing', 'heavy wind-up', 'dash', 'pistol', 'flask'];
   const cw = 120, ch = 150, W = cw * DIRS.length + 60, H = ch * POSES.length + 30, dpr = 2;
   const cv = document.createElement('canvas'); const r = new C.Renderer(cv); r.resize(W, H, dpr);
   const x = r.ctx; x.setTransform(dpr, 0, 0, dpr, 0, 0); x.fillStyle = '#0D0E12'; x.fillRect(0, 0, W, H);
@@ -25,7 +25,7 @@ JS = r"""
     if (pose === 'swing wind-up') setup = () => { p.state = S.S_WINDUP; p.kind = 'light'; p.move = p.weapon.light[0]; p.state_t = p.move.windup * 0.95; };
     if (pose === 'swing') setup = () => { p.state = S.S_ACTIVE; p.kind = 'light'; p.move = p.weapon.light[0]; p.state_t = p.move.active * 0.5; };
     if (pose === 'heavy wind-up') setup = () => { p.state = S.S_WINDUP; p.kind = 'heavy'; p.move = p.weapon.heavy; p.state_t = p.move.windup * 0.9; };
-    if (pose === 'roll') setup = () => { p.state = S.S_DODGE; p.dodge_dir = f; p.state_t = 0.12; p.vx = Math.cos(f) * 600; p.vy = Math.sin(f) * 600; };
+    if (pose === 'dash') setup = () => { p.state = S.S_DODGE; p.dodge_dir = f; p.state_t = 0.12; p.vx = Math.cos(f) * 600; p.vy = Math.sin(f) * 600; };
     if (pose === 'pistol') setup = () => { p.state = S.S_ACTIVE; p.kind = 'shoot'; p.move = C.GUN_MOVE; p.state_t = 0.02; };
     if (pose === 'flask') setup = () => { p.state = S.S_ACTIVE; p.kind = 'flask'; p.move = C.FLASK_MOVE; p.state_t = 0.1; };
     for (let k = 0; k < settle; k++) { setup(); p.animate(1 / 60, 1 + k / 60); }
@@ -36,7 +36,7 @@ JS = r"""
     r.g = { cam_x: 0, cam_y: 0, ox: 0, oy: 0 };
     r.W = W; r.H = H;
     r.entityFrame = function () { this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); this.ctx.translate(cx, cy); this.ctx.scale(ZOOM, ZOOM); };
-    r.drawPlayer(p);
+    r.entityFrame(); r.drawRigBody(p);
   }
   return cv.toDataURL('image/png');
 }

@@ -214,7 +214,7 @@ function poseRig(p, dt, t) {
   } else if (dt > 0) {                                     // settle to a planted stance
     const k = Math.round(p.walkPhase / Math.PI) * Math.PI; p.walkPhase = smooth(p.walkPhase, k, 8, dt);
   }
-  _walk.amp = p.walkAmp; _walk.phase = p.walkPhase;
+  _walk.amp = p.walkAmp; _walk.phase = p.walkPhase; _walk.ms = _walk.ms || 0;
   // ---- defaults: relaxed stance
   _feet.spread = 0.5; _feet.f = -1.5; _feet.fwd = 0; _feet.z = 0;
   let crouch = 0.6 + 0.4 * Math.sin(t * 2.2), hunch = 0, lean = p.bodyRot, tilt = 0, spin = 0;
@@ -247,11 +247,13 @@ function poseRig(p, dt, t) {
     }
   }
   if (st === S_DODGE) {
-    const q = clamp(p.state_t / p.dodge_prof.time, 0, 1), arc = Math.sin(Math.PI * q);
-    crouch = 16 * arc; hunch = 5 * arc; _feet.z = 7 * arc; _feet.fwd = 3 * arc; _feet.spread = -1;
-    _lr.s = -5; _lr.f = 6; _lr.z = 30;
-    const sx = Math.cos(p.dodge_dir), dir = Math.abs(sx) > 0.25 ? -Math.sign(sx) : (Math.sin(p.dodge_dir) > 0 ? 1 : -1);
-    spin = dir * TAU * (1 - Math.pow(1 - q, 2)); lean = 0;
+    // dash: low and long, leading foot planted ahead, back foot trailing, free arm swept back
+    const q = clamp(p.state_t / p.dodge_prof.time, 0, 1), arc = Math.sin(Math.PI * Math.min(1, q * 1.4));
+    crouch = 2 + 8 * arc; hunch = 6 * arc;
+    _walk.ms = 0; _walk.mf = 1; _walk.amp = 13 * arc; _walk.phase = Math.PI / 2;
+    _feet.spread = 0.5; _feet.f = 0; _feet.z = 0;
+    _lr.s = -8; _lr.f = -10 * arc; _lr.z = 38;
+    lean = -Math.cos(p.dodge_dir) * 0.28 * arc;
   } else if (st === S_HURT) { crouch += 3; hunch = -1.5; }
   else if (st === S_DEAD) {
     const k = Math.min(1, p.state_t / 0.8);

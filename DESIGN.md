@@ -28,7 +28,7 @@
 - NO tells or previews of any kind: no floor telegraphs (player or boss), no wind-up sounds,
   no glints, no core flare, no visceral prompt, no charge-ready ping. Only animation poses.
 - NO lock-on, NO soft-lock/auto-aim. Fully manual aim (move direction / drag on buttons).
-- Dodge is always a roll (no quickstep).
+- Dodge is a low forward dash (was a roll; user changed it): same timing/i-frames, crimson afterimages snapshot the real body.
 - Zero external assets: all art + audio generated in code.
 - Difficult & realistic; boss "test boss" is fine being easy for now.
 
@@ -60,7 +60,7 @@
 - Ambient drone (live WebAudio oscillators + looped dark air, built once at first tap): on during the fight,
   fades on death/victory; phase 2 drops pitch 3 semitones, adds a tritone voice, faster filter sweep + slow pulse.
 - Lance chains straight into a quicker sweep (sweep_follow: windup 0.52). Parryable like a normal sweep.
-- Slam sends 2 floor ripples (1.0s apart, 260 u/s, 20 dmg each): a band of the floor heaves up with a trough + dust, no coloured line. Hit zone is the crest centre (±10 + half player radius). Roll in through them toward the boss; rolling outward or sideways just delays the hit.
+- Slam sends 2 floor ripples (1.0s apart, 260 u/s, 20 dmg each): a band of the floor heaves up with a trough + dust, no coloured line. Hit zone is the crest centre (±10 + half player radius). Dash in through them toward the boss; dashing outward or sideways just delays the hit.
 - Shorter idle between attacks in phase 2 (0.3–0.7s).
 - Tests: `node test/phase2_test.js`, `python3 test/phase2_shot.py`.
 
@@ -68,7 +68,7 @@
 Base player model + wearable gear. Slots: head, chest, legs, hands, feet, back (cape),
 right hand (main weapon), left hand (off-hand: pistol now; blunderbuss/shield/catalyst later),
 necklace + ring (invisible; build modifiers). Armor has defense, poise and weight; equip load
-changes roll speed/distance and stamina regen (Souls-style). Gear is found in the world.
+changes dash speed/distance and stamina regen (Souls-style). Gear is found in the world.
 Steps (1 done):
 1. DONE — `src/rig.js` (skeleton, IK, poseRig), `src/gear.js` (catalog, STARTER_GEAR, PART_ART), `src/gearart.js` (3D-described pictures baked for 16 directions; limbs are tapered segments). Pose sheet: `python3 tools/rig_sheet.py`.
    Jointed rig: base body (3D char-frame skeleton projected to 2.5D, legs IK, arms IK to the weapon grip),
@@ -76,10 +76,15 @@ Steps (1 done):
 2. Cloak/cape secondary motion (verlet points drawn as a path each frame).
 3. Fuller silhouette: split cloak, tabard/sash, holstered pistol + flask on the belt.
 4. Shading: crimson rim light, darker undersides, tighter contact shadow.
-5. Life: idle breathing, weight shift, head leads turns, roll landing stagger.
+5. Life: idle breathing, weight shift, head leads turns, dash landing stagger.
 Then: gear system (stats, weight, equip screen, pickups), pistol aims with the left stick (option 2),
 shot feedback (muzzle flash + streak, option 4), player gun animation, more distinct boss wind-up poses.
 Blunderbuss (spread shot) is a future off-hand weapon.
 
 ## Next (planned)
 - More weapons/items; maybe itch.io release.
+
+## Rendering notes (player)
+- Player draws into an offscreen layer (PLAYER_LAYER box) then composites, so fading/flicker treats the body as one
+  piece (no seeing limbs through the cloak) and hurt/glow flashes tint the whole silhouette (source-atop).
+- Sword rests on his right side in every facing (he is right-handed; nothing is mirrored any more).

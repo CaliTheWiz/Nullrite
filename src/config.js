@@ -135,6 +135,7 @@ const PHASE_PUSH = { radius: 560, knock: 640 };
 // floor ripples: band = visible crest width, hit = how close to the crest centre you must be to get hit
 const SLAM_WAVES = { count: 2, gap: 1.0, speed: 260, band: 34, hit: 10, lift: 13, start: 60, max_r: 1150, damage: 20, knock: 240 };
 const PHASE2_IDLE = [0.3, 0.7];
+const PLAYER_LAYER = { w: 340, h: 300, ox: 170, oy: 200 };   // offscreen box around the player (points); origin = feet
 const DRONE_VOLUME = 0.22;
 
 const DODGE_ROLL = { time: 0.32, speed: 1350, iframes: [0.03, 0.27], stamina: 22, ghost: 0.028 };

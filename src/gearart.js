@@ -237,8 +237,8 @@ const GEAR_ART = {
   hunter_cloak: {
     cape(x, P, yaw) {
       // a sheet from the back half of the shoulders down to the calves; outer face dark, lining crimson-black
-      const top = { z: -4.5, a: 11.8, b: 5.4, f: -0.5 }, bot = { z: -50, a: 15.5, b: 8.5, f: -5.5 };
-      const nt = 16, nz = 10, t0 = Math.PI / 2 + 0.12, t1 = Math.PI * 1.5 - 0.12;
+      const top = { z: -2.5, a: 12.8, b: 6.2, f: -0.6 }, bot = { z: -50, a: 16, b: 9, f: -5.5 };
+      const nt = 16, nz = 10, t0 = Math.PI / 2 - 0.08, t1 = Math.PI * 1.5 + 0.08;      // wraps over the shoulders
       const tat = (i) => (i % 3 === 0 ? 3.5 : i % 3 === 1 ? 0 : 1.8);              // tattered hem
       const pt = (i, j) => {
         const th = t0 + (t1 - t0) * i / nt, u = j / nz, a = top.a + (bot.a - top.a) * u, b = top.b + (bot.b - top.b) * u;

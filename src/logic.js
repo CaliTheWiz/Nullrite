@@ -89,10 +89,7 @@ class FX {
         size: [uniform(10, 20), 3], color: CRIMSON, drag: 5, s0: 1, s1: 0.2, align: true });
     }
   }
-  ghost(p) {
-    this.ghosts.spawn({ x: p.gx, y: p.gy * K, life: 0.24, size: [64, 96], color: CRIMSON, alpha: 0.42,
-      rot: p.bodyRot, z: -p.gy - 0.5, tex: 'knightSil:' + p.view, flip: p.flip });
-  }
+  ghost(p) { p.ghostSeq = (p.ghostSeq || 0) + 1; }          // the renderer snapshots the body as an afterimage
   slash(p) {
     const m = p.move, sl = m.slash;
     if (!sl) return;
@@ -464,7 +461,7 @@ class Player {
   }
   animateSword(dt, t, charge) {
     const st = this.state, mv = this.move;
-    const side = Math.cos(this.facing) >= 0 ? 2.35 : -2.35;
+    const side = -0.9 - Math.PI;                      // rest on his right-front side (right hand)
     const resting = st === S_IDLE || st === S_MOVE || st === S_HURT ||
       (mv && mv.motion[0] === 'rest' && (st === S_WINDUP || st === S_ACTIVE || st === S_RECOVERY));
     let direct = false, r_t, e_t, up_t, sc_t, glow_t;

@@ -592,10 +592,6 @@ function buildArt(scale) {
   for (const v of VIEWS) { tinted(A.knightSil[v], CRIMSON); tinted(A.sentinelSil[v], CRIMSON); }
   for (const r of A.runes) { tinted(r, RUNE_GOLD); tinted(r, RUNE_CRIMSON); }
   buildRigArt(A);
-  for (const src in A.rig) for (const part in A.rig[src]) {                // hurt flash / dodge glow tints
-    const v = A.rig[src][part];
-    for (const tex of (Array.isArray(v) ? v : [v])) { tinted(tex, '#ffffff'); tinted(tex, CRIMSON); }
-  }
 }
 /** Particle texture lookup by key ('spark', 'slash:170', 'knightSil:S', ...). */
 function artByKey(key) {
