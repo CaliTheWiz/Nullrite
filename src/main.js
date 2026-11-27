@@ -24,11 +24,19 @@ function readSafeArea() {
   HUD.SAFE_BOTTOM = Math.max(34, b + 12);
   HUD.TOP = t;
 }
+// Render at the screen's full pixel density (3x on iPhone Pro). If the phone can't hold the frame rate,
+// step the resolution down a little at a time (never below 2x) rather than dropping frames.
+let renderScale = DPR, slowFor = 0;
 function resize() {
   W = window.innerWidth; H = window.innerHeight;
   readSafeArea();
-  renderer.resize(W, H, Math.min(DPR, 2.5));
+  renderer.resize(W, H, renderScale);
   controls.layout(W, H);
+}
+function adaptResolution(fps, dt) {
+  if (screen !== 'play') return;
+  slowFor = fps < 52 ? slowFor + dt : 0;
+  if (slowFor > 2.5 && renderScale > 2) { renderScale = Math.max(2, renderScale - 0.25); slowFor = 0; resize(); }
 }
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 120));
@@ -60,7 +68,7 @@ let last = performance.now(), fpsFrames = 0, fpsClock = 0;
 function frame(now) {
   const raw = Math.min(0.1, (now - last) / 1000); last = now;
   fpsFrames++; fpsClock += raw;
-  if (fpsClock >= 0.5) { controls.ui.fps = Math.round(fpsFrames / fpsClock); fpsFrames = 0; fpsClock = 0; }
+  if (fpsClock >= 0.5) { controls.ui.fps = Math.round(fpsFrames / fpsClock); adaptResolution(controls.ui.fps, fpsClock); fpsFrames = 0; fpsClock = 0; }
   if (H > W) renderer.drawRotate();
   else if (screen === 'title') {
     game.t += raw; const p = game.player; p.facing = -1.25; p.animate(raw, game.t);

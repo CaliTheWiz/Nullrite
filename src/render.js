@@ -10,6 +10,7 @@ class Renderer {
     this.W = W; this.H = H; this.dpr = dpr;
     this.cv.width = Math.round(W * dpr); this.cv.height = Math.round(H * dpr);
     this.cv.style.width = W + 'px'; this.cv.style.height = H + 'px';
+    this.ctx.imageSmoothingEnabled = true; this.ctx.imageSmoothingQuality = 'high';   // crisp downscaled art
     const v = newCanvas(256, 256), x = v.getContext('2d'), g = x.createRadialGradient(128, 128, 60, 128, 128, 182);
     g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.55, 'rgba(0,0,0,0.25)'); g.addColorStop(1, 'rgba(0,0,0,0.85)');
     x.fillStyle = g; x.fillRect(0, 0, 256, 256); this.vignette = v;
@@ -197,7 +198,7 @@ class Renderer {
     if (k <= 0) { q.live = false; return; }
     const c = this.ctx, L = PLAYER_LAYER;
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.globalAlpha = 0.42 * k; c.globalCompositeOperation = 'lighter';
-    c.drawImage(q.c, this.sx(q.gx) - L.ox * CAMERA_ZOOM, this.sy(q.gy * K) - L.oy * CAMERA_ZOOM, L.w * CAMERA_ZOOM, L.h * CAMERA_ZOOM);
+    c.drawImage(q.c, this.snap(this.sx(q.gx) - L.ox * CAMERA_ZOOM), this.snap(this.sy(q.gy * K) - L.oy * CAMERA_ZOOM), q.c.width / this.dpr, q.c.height / this.dpr);
     c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
   }
   drawPlayer(p) {
@@ -220,10 +221,11 @@ class Renderer {
     // shadow stays solid; the body fades as one piece
     this.entityFrame(p.gx, p.gy); this.local(ART.shadow, 0, 0, 50, 30);
     main.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); main.globalAlpha = p.bodyAlpha; main.globalCompositeOperation = 'source-over';
-    main.drawImage(o.c, this.sx(p.gx) - L.ox * CAMERA_ZOOM, this.sy(p.gy * K) - L.oy * CAMERA_ZOOM, L.w * CAMERA_ZOOM, L.h * CAMERA_ZOOM);
+    main.drawImage(o.c, this.snap(this.sx(p.gx) - L.ox * CAMERA_ZOOM), this.snap(this.sy(p.gy * K) - L.oy * CAMERA_ZOOM), o.c.width / this.dpr, o.c.height / this.dpr);
     main.globalAlpha = 1;
     if (this.gl3d) { this.entityFrame(p.gx, p.gy); this.drawPlayerGlows(p); }
   }
+  snap(v) { return Math.round(v * this.dpr) / this.dpr; }       // to a whole device pixel
   /** Draw the player's body into his layer canvas (3D if available, else the 2D pictures). Returns {c}. */
   renderLayer(p) {
     const L = PLAYER_LAYER, s = this.plScale;

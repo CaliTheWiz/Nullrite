@@ -123,6 +123,11 @@ Weapon/hand rules (agreed):
   direction, shoulder range, elbows-not-winging, forearm square to the gripped handle, torso collision, continuity)
   and the best one is used. Hands are also kept out of the torso (torsoPush).
 
+## Resolution
+- Renders at full device pixel density (3x on iPhone Pro; was capped at 2.5x). If FPS stays under 52 for 2.5s
+  during play, main.js steps the render scale down 0.25 at a time (floor 2x). Player layer and afterimages are
+  drawn 1:1 snapped to whole device pixels; imageSmoothingQuality 'high'.
+
 ## Rendering notes (player)
 - Player draws into an offscreen layer (PLAYER_LAYER box) then composites, so fading/flicker treats the body as one
   piece (no seeing limbs through the cloak) and hurt/glow flashes tint the whole silhouette (source-atop).
