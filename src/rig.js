@@ -300,10 +300,10 @@ function poseRig(p, dt, t) {
   o.yaw = yaw;
   // ---- walking
   const spd = hypot(p.vx, p.vy), loco = st === S_IDLE || st === S_MOVE;
-  // long strides: a walk at low speed (a foot always down), a run with a flight phase at speed. The cadence comes
-  // from the stride, so each step carries him as far as it looks like it should (about 3.3 steps/s at a run).
-  const ratio = spd / PLAYER_SPEED, rk = clamp((spd - 90) / 140, 0, 1), run = rk * rk * (3 - 2 * rk), sprint = clamp((ratio - 1.1) / 0.5, 0, 1);
-  const ampFull = 15 + 1.5 * run + 2.5 * sprint, duty = 0.58 - 0.39 * run - 0.03 * sprint;
+  // long strides: a walk (a foot always down), a run and a sprint with a flight phase. The cadence comes from the
+  // stride, so each step carries him as far as it looks like it should (~2.5 steps/s walking and running, ~3 sprinting).
+  const ratio = spd / PLAYER_SPEED, rk = clamp((spd - 100) / 140, 0, 1), run = rk * rk * (3 - 2 * rk), sprint = clamp((ratio - 1.1) / 0.5, 0, 1);
+  const ampFull = 15.5 + 2 * run + 2.5 * sprint, duty = 0.5 - 0.335 * run - 0.015 * sprint;
   const ampT = loco ? ampFull * clamp(spd / 40, 0, 1) : (st === S_DODGE ? 0 : clamp(ratio, 0, 1) * 7);
   p.walkAmp = dt > 0 ? smooth(p.walkAmp, ampT, 10, dt) : ampT;
   p.walkDuty = dt > 0 ? smooth(p.walkDuty || duty, duty, 6, dt) : duty;

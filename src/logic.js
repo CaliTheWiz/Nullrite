@@ -331,7 +331,7 @@ class Player {
     this.items = {}; for (const k in ITEMS) this.items[k] = 0;
     this.kind = null; this.move = null; this.attack_dir = this.facing; this.combo = -1; this.combo_expire_t = -1;
     this.dodge_end_t = -10; this.hit_done = false; this.dodge_dir = 0; this.ghost_t = 0; this.invuln = false;
-    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0;
+    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0; this.running = false;
     this.charging = 0; this.sprint_req = false; this.sprinting = false; this.sprint_block = false; this.sprint_t = -10;
     this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = this.dodgeBase;
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
@@ -469,9 +469,9 @@ class Player {
       if (this.move_dir !== null) {
         if (aiming) this.sprinting = false;
         const walk = this.stats.tier.walk;
-        let spd = PLAYER_SPEED * this.weapon.speed * walk * this.move_mag * (aiming ? GUN_AIM.walk : 1);
-        if (this.sprinting) spd = PLAYER_SPEED * this.weapon.speed * walk * SPRINT_MULT;
-        else if (this.charging > 0) spd *= CHARGE_WALK;
+        this.running = this.move_mag >= RUN_EDGE[this.running ? 0 : 1];
+        const base = PLAYER_SPEED * this.weapon.speed * walk;   // aiming or charging a heavy holds you to a walk
+        const spd = base * (this.sprinting ? SPRINT_MULT : this.running && !aiming && this.charging <= 0 ? 1 : WALK_MULT);
         this.vx = smooth(this.vx, Math.cos(this.move_dir) * spd, 18, dt);
         this.vy = smooth(this.vy, Math.sin(this.move_dir) * spd, 18, dt);
         if (st !== S_MOVE) this.enter(S_MOVE);

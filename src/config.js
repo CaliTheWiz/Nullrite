@@ -194,6 +194,8 @@ const DRONE_VOLUME = 0.22;
 
 const DODGE_ROLL = { time: 0.32, speed: 1350, iframes: [0.03, 0.27], stamina: 22, ghost: 0.028 };
 const SPRINT_EDGE = 1.2, SPRINT_MULT = 1.55, SPRINT_DRAIN = 10, SPRINT_MIN = 20;
+// only three speeds: a light push on the stick walks, a full push runs, past the ring sprints (hysteresis on the edge)
+const WALK_MULT = 0.28, RUN_EDGE = [0.5, 0.6];
 const RALLY_GRACE = 1.0, RALLY_DECAY = 14, RALLY_RATIO = 0.35;
 const VISCERAL_RANGE = 125, VISCERAL_ARC = 75 * RAD, VISCERAL_DAMAGE = 240;
 const VISCERAL_MOVE = move({ windup: 0.22, active: 0.10, recovery: 0.55, cancel: 0.40, stamina: 0,

@@ -179,8 +179,9 @@ on cloth, grain on leather/skin, brushing, scratches and grime on metal. uDetail
 Later: sculpted forms and a rotating close-up of the character on the equipment screen.
 Gait (DONE): gaitFoot() in rig.js. A foot is planted for `duty` of its cycle and sweeps back at exactly ground speed
 (no sliding), then swings forward with the knee driven up; duty < 0.5 = a run with a flight phase. The cadence
-comes from the stride: step length = stride / duty. Walk (slow): duty 0.58, ~27 per step. Run: duty 0.19, ~90 per step,
-3.0 steps/s at full speed (was ~7.5). Sprint: ~114 per step, 3.7 steps/s, a little lower stance. The body dips at each
+comes from the stride: step length = stride / duty. Only three speeds (no analog in-between): walk = 0.28x (light push on
+the stick; also forced while aiming or charging), run = 1x (full push), sprint = 1.55x (past the ring). Walk: duty 0.5,
+~31 per step, ~2.4 steps/s. Run: duty 0.165, ~106 per step, ~2.5 steps/s. Sprint: duty 0.15, ~133 per step, ~3.2 steps/s. The body dips at each
 foot strike and rises between steps; the arms swing against the actual foot positions.
 Next: per-weapon unique animation sets (incl. left-hand / dual-wield movesets), shields, catalysts, enemy drops.
 Blunderbuss (spread shot) is a future off-hand weapon.

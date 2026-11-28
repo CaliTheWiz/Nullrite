@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = 'b1080d';
+const BUILD = 'de2d17';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -227,6 +227,8 @@ const DRONE_VOLUME = 0.22;
 
 const DODGE_ROLL = { time: 0.32, speed: 1350, iframes: [0.03, 0.27], stamina: 22, ghost: 0.028 };
 const SPRINT_EDGE = 1.2, SPRINT_MULT = 1.55, SPRINT_DRAIN = 10, SPRINT_MIN = 20;
+// only three speeds: a light push on the stick walks, a full push runs, past the ring sprints (hysteresis on the edge)
+const WALK_MULT = 0.28, RUN_EDGE = [0.5, 0.6];
 const RALLY_GRACE = 1.0, RALLY_DECAY = 14, RALLY_RATIO = 0.35;
 const VISCERAL_RANGE = 125, VISCERAL_ARC = 75 * RAD, VISCERAL_DAMAGE = 240;
 const VISCERAL_MOVE = move({ windup: 0.22, active: 0.10, recovery: 0.55, cancel: 0.40, stamina: 0,
@@ -754,10 +756,10 @@ function poseRig(p, dt, t) {
   o.yaw = yaw;
   // ---- walking
   const spd = hypot(p.vx, p.vy), loco = st === S_IDLE || st === S_MOVE;
-  // long strides: a walk at low speed (a foot always down), a run with a flight phase at speed. The cadence comes
-  // from the stride, so each step carries him as far as it looks like it should (about 3.3 steps/s at a run).
-  const ratio = spd / PLAYER_SPEED, rk = clamp((spd - 90) / 140, 0, 1), run = rk * rk * (3 - 2 * rk), sprint = clamp((ratio - 1.1) / 0.5, 0, 1);
-  const ampFull = 15 + 1.5 * run + 2.5 * sprint, duty = 0.58 - 0.39 * run - 0.03 * sprint;
+  // long strides: a walk (a foot always down), a run and a sprint with a flight phase. The cadence comes from the
+  // stride, so each step carries him as far as it looks like it should (~2.5 steps/s walking and running, ~3 sprinting).
+  const ratio = spd / PLAYER_SPEED, rk = clamp((spd - 100) / 140, 0, 1), run = rk * rk * (3 - 2 * rk), sprint = clamp((ratio - 1.1) / 0.5, 0, 1);
+  const ampFull = 15.5 + 2 * run + 2.5 * sprint, duty = 0.5 - 0.335 * run - 0.015 * sprint;
   const ampT = loco ? ampFull * clamp(spd / 40, 0, 1) : (st === S_DODGE ? 0 : clamp(ratio, 0, 1) * 7);
   p.walkAmp = dt > 0 ? smooth(p.walkAmp, ampT, 10, dt) : ampT;
   p.walkDuty = dt > 0 ? smooth(p.walkDuty || duty, duty, 6, dt) : duty;
@@ -1856,7 +1858,7 @@ class Player {
     this.items = {}; for (const k in ITEMS) this.items[k] = 0;
     this.kind = null; this.move = null; this.attack_dir = this.facing; this.combo = -1; this.combo_expire_t = -1;
     this.dodge_end_t = -10; this.hit_done = false; this.dodge_dir = 0; this.ghost_t = 0; this.invuln = false;
-    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0;
+    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0; this.running = false;
     this.charging = 0; this.sprint_req = false; this.sprinting = false; this.sprint_block = false; this.sprint_t = -10;
     this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = this.dodgeBase;
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
@@ -1994,9 +1996,9 @@ class Player {
       if (this.move_dir !== null) {
         if (aiming) this.sprinting = false;
         const walk = this.stats.tier.walk;
-        let spd = PLAYER_SPEED * this.weapon.speed * walk * this.move_mag * (aiming ? GUN_AIM.walk : 1);
-        if (this.sprinting) spd = PLAYER_SPEED * this.weapon.speed * walk * SPRINT_MULT;
-        else if (this.charging > 0) spd *= CHARGE_WALK;
+        this.running = this.move_mag >= RUN_EDGE[this.running ? 0 : 1];
+        const base = PLAYER_SPEED * this.weapon.speed * walk;   // aiming or charging a heavy holds you to a walk
+        const spd = base * (this.sprinting ? SPRINT_MULT : this.running && !aiming && this.charging <= 0 ? 1 : WALK_MULT);
         this.vx = smooth(this.vx, Math.cos(this.move_dir) * spd, 18, dt);
         this.vy = smooth(this.vy, Math.sin(this.move_dir) * spd, 18, dt);
         if (st !== S_MOVE) this.enter(S_MOVE);
