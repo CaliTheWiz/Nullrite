@@ -101,17 +101,18 @@ const WEAPONS = {
                   hitbox: ['arc', 165, 50], motion: ['swing', 20, -20], reach: 50, heft: 0.6, sparks: 16, hitstop: 0.09, shake: 9 }),
   },
   spear: {
-    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, handGap: 22, glow: [70, 110, 12], speed: 1.0,
-    stance: { hands: 2, rest: { off: -0.35, r: 14, elev: 42, point: -0.05, up: -0.05, sway: 1.5 },   // couched at the chest, point forward
-              move: { off: -0.8, r: 12, elev: 46, point: -0.6, up: 0.7 },                              // shaft high and diagonal
-              dash: { off: -0.2, r: 16, elev: 38, point: 0, up: -0.12 } },                             // point leads the dash
+    // right hand on the butt end by the hip, left hand ahead on the shaft (handGap < 0: the left hand is in front)
+    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, handGap: -16, glow: [70, 110, 12], speed: 1.0,
+    stance: { hands: 2, rest: { off: -1.2, r: 9, elev: 44, point: 0.25, up: 0.05, sway: 1.5 },     // couched low, point forward
+              move: { off: -1.3, r: 8, elev: 46, point: 0.55, up: 0.5 },                               // shaft carried high across the body
+              dash: { off: -1.0, r: 10, elev: 40, point: 0.15, up: -0.1 } },                           // point leads the dash
     // reach and the point: fast, narrow, piercing; one sweeping cut with the shaft
     light: [
       move({ anim: 'sp_l1', dtype: 'stab', windup: 0.13, active: 0.08, recovery: 0.32, cancel: 0.20, stamina: 12, damage: 28, poise: 6,
              hitbox: ['thrust', 190, 30], motion: ['thrust'], reach: 78, shake: 5, sparks: 10, flash: 100, hitstop: 0.05 }),
       move({ anim: 'sp_l2', dtype: 'stab', windup: 0.12, active: 0.08, recovery: 0.34, cancel: 0.22, stamina: 12, damage: 30, poise: 6,
              hitbox: ['thrust', 205, 30], motion: ['thrust'], reach: 82, shake: 5, sparks: 10, flash: 100, hitstop: 0.05 }),
-      move({ anim: 'sp_l3', dtype: 'slash', windup: 0.20, active: 0.14, recovery: 0.40, cancel: 0.28, stamina: 15, damage: 34, poise: 10,
+      move({ anim: 'sp_l3', dtype: 'slash', windup: 0.20, active: 0.16, recovery: 0.40, cancel: 0.28, stamina: 15, damage: 34, poise: 10,
              hitbox: ['arc', 180, 62], motion: ['swing', -70, 70], reach: 64, hitstop: 0.06, shake: 6 }),
     ],
     heavy: move({ anim: 'sp_heavy', dtype: 'stab', windup: 0.42, active: 0.14, recovery: 0.56, cancel: 0.38, stamina: 26, damage: 70, poise: 24,

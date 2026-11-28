@@ -194,14 +194,16 @@ as the clip says) and footwork (each foot stays planted in the world until a key
 thud; a foot left too far behind is dragged). Catmull-Rom through the keys with per-key easing ('out' = a strike exploding
 from the wind-up, 'lin' = momentum carried through). The first ~0.14 s blend from wherever the body was, so combos flow
 out of the last follow-through; 0.22 s blend back to the carry at the end. Events: 'ground' = the blade hits the floor
-(dust ring, rubble, boom, shake). The blade can't go through the floor. A thin trail follows the blade's outer half
-through the strike. Tools: tools/attack_sheet.py <weapon> <deg>, tools/clip_check.js (what the IK could not reach),
+(dust ring, rubble, boom, shake). The blade can't go through the floor. A thin trail follows the blade (the spearhead only)
+through the strike. The drawn blade can't turn much faster between frames than the clip turns it (no pops when the
+wrist limit flips), and elbow choices are held steady from frame to frame. Tools: tools/attack_sheet.py <weapon> <deg>, tools/clip_check.js (what the IK could not reach),
 tools/record.py (the real game stepped at 60 fps -> mp4).
 - Short sword (1h, slash + stab): forehand diagonal, backhand rising cut with a passing step, stepping thrust; heavy =
   deep coil into a rising lunge (stab); charged = a wide cleave turning the whole body; dash attack = low sweeping cut.
 - Greatsword (2h, slash): huge wind-ups, follow-through that drags the body past the cut; third light and the heavy are
   overhead chops that land on the floor; charged = a sweeping cleave turning him round. Hit-stop 0.09-0.15 s.
-- Spear (2h, stab): quick jab, stepping high jab, one shaft sweep (slash); heavy = full lunge from a deep coil; charged =
+- Spear (2h, stab): right hand on the butt end by the hip, left hand ahead on the shaft (handGap -16; clips key hg, the
+  gap closing as the rear hand drives the shaft through). Quick jab, stepping high jab, one shaft sweep (slash); heavy = full lunge from a deep coil; charged =
   a raised point driven down into the floor ahead. Longest reach.
 Light recoveries are long and cancels late: every swing is a commitment.
 
@@ -256,3 +258,7 @@ All procedural: each track is rendered once at boot by an OfflineAudioContext (2
 - **shrine** (40 s): a lyre arpeggio (Am–F–C–G) with cello, a hearth crackle and wind. Plays anywhere south of the arena.
 - **boss / boss2** (8 bars at 88 bpm): string ostinato, war drums, brass stabs and choir; phase 2 adds 16th-note high strings and ticks and swaps in on the same beat.
 - The arena is silent before the fight and after a win; music fades on death. Volume: OPTIONS → MUSIC.
+
+Cape collision (DONE): the cape keeps behind the real coat profile (torsoBackF: same body shape as torsoPush plus a
+2.8 margin, turned with the chest above the waist and the hips below it), so it no longer sinks into his back or seat
+when it swings back in after a run.

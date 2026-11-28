@@ -15,7 +15,7 @@ for (const wid of weaps) {
     const dt = 1 / 120; let t = 1;
     for (let k = 0; k < 20; k++) { p.update(dt, t); p.animate(dt, t); t += dt; }
     p.startMove(kind, mv, 0, kind === 'light' ? idx : null);
-    let worstG = [0, 0], worstB = [0, 0], rows = [], x0 = p.gx;
+    let worstG = [0, 0], worstB = [0, 0], worstJ = [0, 0], rows = [], x0 = p.gx, pa = null, pr = null;
     while (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY) {
       p.update(dt, t); p.move_dir = null; p.stamina = 999; p.animate(dt, t); t += dt;
       const x = moveClock(p.state, p.state_t, mv), R = p.rig, o = _pose;
@@ -23,9 +23,14 @@ for (const wid of weaps) {
       const bl = Math.hypot(o.blade.s, o.blade.f, o.blade.z) || 1;
       const be = Math.acos(Math.max(-1, Math.min(1, (o.blade.s * R.blade.s + o.blade.f * R.blade.f + o.blade.z * R.blade.z) / bl))) / RAD;
       if (ge > worstG[0]) worstG = [ge, x]; if (be > worstB[0]) worstB = [be, x];
+      // pops: the drawn blade turning much faster than the clip asked for between two frames
+      const ang = (a, b) => Math.acos(Math.max(-1, Math.min(1, (a[0]*b[0]+a[1]*b[1]+a[2]*b[2]) / (Math.hypot(...a) * Math.hypot(...b) || 1)))) / RAD;
+      const A = [R.blade.s, R.blade.f, R.blade.z], Q = [o.blade.s, o.blade.f, o.blade.z];
+      if (pa) { const j = ang(A, pa) - ang(Q, pr); if (j > worstJ[0]) worstJ = [j, x]; }
+      pa = A; pr = Q;
       if (verbose && rows.length < 400) rows.push(x.toFixed(2) + ' gripErr ' + ge.toFixed(1) + ' bladeErr ' + be.toFixed(0) + ' tipZ ' + (p.tipZ || 0).toFixed(0));
     }
-    console.log((mv.anim || kind).padEnd(11), 'grip err max', worstG[0].toFixed(1).padStart(5), '@', worstG[1].toFixed(2), ' blade err max', worstB[0].toFixed(0).padStart(3), '@', worstB[1].toFixed(2), ' travel', (p.gx - x0).toFixed(0));
+    console.log((mv.anim || kind).padEnd(11), 'grip err max', worstG[0].toFixed(1).padStart(5), '@', worstG[1].toFixed(2), ' blade err max', worstB[0].toFixed(0).padStart(3), '@', worstB[1].toFixed(2), ' pop', worstJ[0].toFixed(0).padStart(3), '@', worstJ[1].toFixed(2), ' travel', (p.gx - x0).toFixed(0));
     if (verbose) console.log(rows.filter((_, i) => i % 6 === 0).join('\\n'));
   }
 }`);

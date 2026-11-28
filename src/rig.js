@@ -30,6 +30,23 @@ function torsoPush(J, s, f, z, margin) {
   if (Math.abs(d) >= edge) return 0;
   return d >= -1.5 ? edge - d : -(edge + d);
 }
+/** Keep a point behind his back: (s, f, z) in the char frame; returns the f it may be at most (or f itself).
+ *  Same coat profile as torsoPush, turned with the chest above the waist and with the hips below it. */
+function torsoBackF(J, s, f, z, margin) {
+  const zr = z - J.pelvis.z;
+  if (zr < -14 || zr > 26) return f;
+  const tw = z >= J.waist.z ? J._cy || 0 : J._py || 0, c = Math.cos(tw), sn = Math.sin(tw);
+  const ds = s - J.waist.s, df = f - J.waist.f, ls = ds * c + df * sn, lf = -ds * sn + df * c;      // into the body's frame
+  const a = zr < -2 ? 9.6 : zr < 9 ? 8.8 : zr < 15 ? 9.8 : 11.4, b = zr < -2 ? 7.0 : zr < 9 ? 6.0 : zr < 15 ? 6.6 : 6.2;
+  const k = clamp((z - J.waist.z) / (J.neck.z - J.waist.z), 0, 1), fc = (J.neck.f - J.waist.f) * k;
+  const A = a + margin, u = ls / A;
+  if (Math.abs(u) >= 1) return f;
+  const back = fc - (b + margin) * Math.sqrt(1 - u * u);
+  if (lf <= back) return f;
+  // pushed straight back in the body's frame, then turned back into the char frame
+  const nf = back, ns = ls;
+  return J.waist.f + ns * sn + nf * c + (s - (J.waist.s + ns * c - nf * sn)) * 0;   // f of the corrected point
+}
 /** Two-bone IK in screen space. Writes the elbow into `mid` and the reached end into `end`.
  *  bend: +1 / -1 picks which side the joint folds to. Returns false if the target was out of reach. */
 function ik2(ax, ay, tx, ty, L1, L2, bend, mid, end) {
@@ -96,6 +113,7 @@ class Rig {
     for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR',
       'shL', 'shR', 'elL', 'elR', 'wrL', 'wrR', 'handL', 'handR', 'holster', 'flaskProp']) J[n] = V3();
     Object.defineProperty(J, '_cy', { value: 0, writable: true, enumerable: false });   // chest twist, for torsoPush
+    Object.defineProperty(J, '_py', { value: 0, writable: true, enumerable: false });   // hip twist
     // parts: what to draw. kind 'seg' = limb between two joints, 'view' = per-view picture at a joint.
     const P = (name, kind, a, b, bias) => ({ name, kind, a, b, bias, key: 0, x: 0, y: 0, rot: 0, len: 0, side: 0 });
     this.parts = [
@@ -120,6 +138,7 @@ class Rig {
     this.grip = { s: 0, f: 0, z: 0 }; this.blade = { s: 1, f: 0, z: 0 };
     this._fore = { R: { s: 0, f: 0.3, z: -0.95 }, L: { s: 0, f: 0.3, z: -0.95 } };
     this._elPrev = { R: { s: 0, f: 0, z: 0, ok: false }, L: { s: 0, f: 0, z: 0, ok: false } };
+    this._bPrev = { s: 1, f: 0, z: 0, ok: false }; this._bReq = { s: 1, f: 0, z: 0, ok: false };   // blade last frame (drawn / asked)
   }
 
   /** char frame -> world -> screen for one joint. */
@@ -206,7 +225,7 @@ class Rig {
       for (const q of [J.neck, J.head, J.shL, J.shR]) { const ds = q.s, dz = q.z - wz; q.s = ds * rc + dz * rs; q.z = wz - ds * rs + dz * rc; }
     }
     // lean and twist the upper body around the waist (the chest frame)
-    J._cy = cyaw; this._cyc = Math.cos(cyaw); this._cys = Math.sin(cyaw); this._pc = Math.cos(pitch); this._ps = Math.sin(pitch);
+    J._cy = cyaw; J._py = py; this._cyc = Math.cos(cyaw); this._cys = Math.sin(cyaw); this._pc = Math.cos(pitch); this._ps = Math.sin(pitch);
     if (pitch || cyaw) for (const q of [J.neck, J.head, J.shL, J.shR]) this.chestToChar(q, q, true);
     if (o.chestGrip) {                         // clip hand targets are given relative to the waist (char frame)
       const Wt = J.waist; o.grip.s += Wt.s; o.grip.f += Wt.f; o.grip.z += Wt.z;
@@ -215,6 +234,8 @@ class Rig {
     // ---- arms: anatomical IK (see arm3). The fist sits on the grip with the handle across the palm.
     const G = o.grip, HG = RIG.HAND * 0.5, Bd = this.blade;
     { const l = Math.hypot(o.blade.s, o.blade.f, o.blade.z) || 1; Bd.s = o.blade.s / l; Bd.f = o.blade.f / l; Bd.z = o.blade.z / l; }
+    const Q = this._bReq; const qAng = Q.ok ? Math.acos(clamp(Q.s * Bd.s + Q.f * Bd.f + Q.z * Bd.z, -1, 1)) : 0;   // how far the clip turned it
+    Q.s = Bd.s; Q.f = Bd.f; Q.z = Bd.z; Q.ok = true;
     const fR = this._fore.R;
     this._w.s = G.s - fR.s * HG; this._w.f = G.f - fR.f * HG; this._w.z = G.z - fR.z * HG;
     this.arm3(J.shR, J.elR, J.wrR, J.handR, this._w, 1, Bd, 'R');
@@ -226,10 +247,22 @@ class Rig {
         const k = c - Math.sign(c) * lim; Bd.s -= fR.s * k; Bd.f -= fR.f * k; Bd.z -= fR.z * k;
         const l = Math.hypot(Bd.s, Bd.f, Bd.z) || 1; Bd.s /= l; Bd.f /= l; Bd.z /= l;
       } }
+    // no pops: the drawn blade may not turn much faster between two frames than the clip turned it (the wrist limit
+    // above can flip when the arm swings through a pose where the handle lines up with the forearm)
+    { const P = this._bPrev;
+      if (P.ok && !o.snap) {
+        const c = clamp(P.s * Bd.s + P.f * Bd.f + P.z * Bd.z, -1, 1), a = Math.acos(c), lim = qAng + 0.14;
+        if (a > lim && a > 1e-4) {
+          const k = lim / a, sa = Math.sin(a), w0 = Math.sin((1 - k) * a) / sa, w1 = Math.sin(k * a) / sa;   // slerp part way
+          Bd.s = P.s * w0 + Bd.s * w1; Bd.f = P.f * w0 + Bd.f * w1; Bd.z = P.z * w0 + Bd.z * w1;
+          const l = Math.hypot(Bd.s, Bd.f, Bd.z) || 1; Bd.s /= l; Bd.f /= l; Bd.z /= l;
+        }
+      } }
     // the blade stops at the floor: a strike that reaches it lands on it instead of going through
     if (o.bladeLen) { const L = o.bladeLen, tz = this.grip.z + Bd.z * L;
       if (tz < 0.8) { const z1 = (0.8 - this.grip.z) / L, h = Math.hypot(Bd.s, Bd.f) || 1, hh = Math.sqrt(Math.max(0, 1 - z1 * z1));
         Bd.s = Bd.s / h * hh; Bd.f = Bd.f / h * hh; Bd.z = z1; } }
+    { const P = this._bPrev; P.s = Bd.s; P.f = Bd.f; P.z = Bd.z; P.ok = true; }
     if (o.twoHand) {
       const gap = o.twoHand.gap, fL = this._fore.L;
       this._w.s = this.grip.s - Bd.s * gap - fL.s * HG; this._w.f = this.grip.f - Bd.f * gap - fL.f * HG; this._w.z = this.grip.z - Bd.z * gap - fL.z * HG;
@@ -320,7 +353,7 @@ class Rig {
       }
       for (const u of [0.5, 0.85]) cost += 0.25 * Math.abs(torsoPush(J, sh.s + (Es - sh.s) * u, sh.f + (Ef - sh.f) * u, sh.z + (Ez - sh.z) * u, 2.8));
       for (const u of [0.25, 0.6]) cost += 0.25 * Math.abs(torsoPush(J, Es + (Ws - Es) * u, Ef + (Wf - Ef) * u, Ez + (Wz - Ez) * u, 2.8));
-      if (prev.ok) cost += 0.008 * Math.hypot(Es - prev.s, Ef - prev.f, Ez - prev.z);    // no popping
+      if (prev.ok) cost += 0.06 * Math.hypot(Es - prev.s, Ef - prev.f, Ez - prev.z);    // no popping
       if (cost < best) { best = cost; bs = Es; bf = Ef; bz = Ez; }
     }
     el.s = bs; el.f = bf; el.z = bz; prev.s = bs; prev.f = bf; prev.z = bz; prev.ok = true;
@@ -547,7 +580,8 @@ function poseRig(p, dt, t) {
   { const G = R.grip, Bd = R.blade, L = o.bladeLen, ts = G.s + Bd.s * L, tf = G.f + Bd.f * L, tz = G.z + Bd.z * L;
     p.tipX = p.gx + ts * sy + tf * cy; p.tipY = p.gy - ts * cy + tf * sy; p.tipZ = tz;
     if (CP && clipKey[0] === 'm' && clipX >= 0.92 && clipX <= 2.3 && dt > 0) {
-      const ms = G.s + Bd.s * L * 0.35, mf = G.f + Bd.f * L * 0.35, mz = G.z + Bd.z * L * 0.35;
+      const inner = W === WEAPONS.spear ? 0.74 : W === WEAPONS.greatsword ? 0.42 : 0.35;   // only the blade sweeps a trail, not a spear's shaft
+      const ms = G.s + Bd.s * L * inner, mf = G.f + Bd.f * L * inner, mz = G.z + Bd.z * L * inner;
       p.trail.push({ t: p.g.t, x0: p.gx + ms * sy + mf * cy, y0: p.gy - ms * cy + mf * sy, z0: mz, x1: p.tipX, y1: p.tipY, z1: tz, heavy: mv.heft });
       if (p.trail.length > 16) p.trail.shift();
     } }
@@ -594,7 +628,7 @@ function clipBody(p, R, o, clip, x, key, wgt, mv, dt, yaw, bothHands) {
   const C = _CP;
   for (let d = 0; d < 3; d++) { C.g[d] = _lerp(F.g[d], _A.g[d], w); C.b[d] = _lerp(F.b[d], _A.b[d], w); }
   C.hasL = !bothHands && !!_A.l && !(p.gunReady > 0.5); if (C.hasL) for (let d = 0; d < 3; d++) C.l[d] = _A.l[d];
-  C.lw = w; C.cr = cur.cr;
+  C.lw = w; C.cr = cur.cr; C.hg = _A.hg;
   o.chestYaw = cur.tw * RAD; o.pelvisYaw = cur.hp * RAD; o.pitch = cur.ln * RAD;
   o.headYaw = o.chestYaw * 0.25;                     // the head turns a little with the chest; the eyes stay on the target
   // ---- footwork (attacks only: a charge keeps walking)
@@ -644,6 +678,7 @@ function clipArms(p, R, o, C, bothHands) {
   _grip.s = C.g[0]; _grip.f = C.g[1]; _grip.z = C.g[2];
   _blade.s = C.b[0]; _blade.f = C.b[1]; _blade.z = C.b[2];
   o.chestGrip = true;
+  if (bothHands && C.hg !== null && C.hg !== undefined) _two.gap = -C.hg;    // spear: the left hand ahead on the shaft
   if (C.hasL) { _lt3.s = C.l[0]; _lt3.f = C.l[1]; _lt3.z = C.l[2]; o.leftTarget = _lt3; }
   // remember the finished pose for the blend back out of the clip
   const Lp = p._last || (p._last = { g: [0, 0, 0], b: [0, 0, 0], tw: 0, hp: 0, ln: 0, cr: 0 });
@@ -758,8 +793,10 @@ class Cloth {
           const z = this.z[k];
           if (front) { if (Math.abs(S) < 9 && F < 5.5 && z > 18) F = 5.5; }        // stay in front of the hips
           else {
-            const back = z > 30 ? -5.5 : -4.5;
-            if (Math.abs(S) < 12 && F > back && z > 8) F = back;                   // stay behind the torso
+            if (Math.abs(S) < 14 && z > 8) {                                       // stay behind the torso and the hips
+              const fb = torsoBackF(R.j, S, F, z, 2.8);
+              if (fb < F) F = fb;
+            }
             const r = Math.hypot(S, F); if (r < 7) { const m = 7 / (r || 1); S *= m; F *= m; }
           }
           const Jj = R.j;

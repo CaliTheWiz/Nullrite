@@ -7,6 +7,7 @@
 //   g  [s, f, z]  right-hand grip, relative to the waist, in his own frame (s = his right, f = forward, z = up)
 //   b  [s, f, z]  blade direction (from the grip toward the tip): where the weapon aims in his frame
 //   l  [s, f, z]  left hand (one-handed weapons only), relative to the waist
+//   hg   spear: how far ahead of the right hand the left hand holds the shaft
 //   tw   chest turn, degrees (+ = toward his left). The hips follow on their own, leading it a little in time
 //        ("the hips lead the chest, the chest leads the arms").
 //   ln   lean forward from the waist, degrees     cr  crouch (hip drop)      rm  forward travel since the start
@@ -16,7 +17,7 @@
 //        a strike), 'in' (slow start: the moment the weight turns over), 'lin' (keeps the momentum through).
 // Events: [x, kind, power] fired when the clock passes x: 'ground' = the weapon hits the floor at the blade tip.
 
-const ANIM_CH = ['g', 'b', 'l', 'tw', 'ln', 'cr', 'rm'];
+const ANIM_CH = ['g', 'b', 'l', 'tw', 'ln', 'cr', 'rm', 'hg'];
 const EASE = {
   io: (u) => u * u * (3 - 2 * u), out: (u) => 1 - Math.pow(1 - u, 2.6), in: (u) => u * u * (1.6 - 0.6 * u), lin: (u) => u,
 };
@@ -83,7 +84,7 @@ function moveClock(st, t, mv) {
 // Shared guard poses (chest frame). Feet: left foot a little forward, right foot back.
 const GUARD_1H = { g: [8, 12, 0], b: [0.2, 0.7, 0.6], l: [-13, 6, -4] };
 const GUARD_2H = { g: [5, 11, -1], b: [0.15, 0.85, 0.5] };
-const GUARD_SP = { g: [5, 12, 2], b: [-0.06, 1, 0.06] };
+const GUARD_SP = { g: [7, 3, -1], b: [-0.22, 0.97, 0.08], hg: 16 };
 const ST = { L: [-5, 1], R: [5, -3] };
 const k = (x, o, base) => Object.assign({ x }, base || {}, o);
 
@@ -205,58 +206,59 @@ const ANIMS = {
     k(3.0, { tw: -5, ln: 2, cr: 2, rm: 22, R: [5, -1] }, GUARD_2H),
   ] },
 
-  // ======== spear: the point does the work. Front hand guides, the rear hand drives the shaft through it.
+  // ======== spear: right hand on the butt end at the hip, left hand forward guiding the shaft. The rear hand drives
+  // the shaft through the front hand (hg = how far ahead the left hand is: it closes as the point goes out).
   sp_l1: { keys: [            // quick jab
-    k(0, { tw: -15, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
-    k(0.85, { g: [6, 6, 3], b: [-0.05, 1, 0.06], tw: -25, ln: -3, cr: 3, rm: -1, L: ST.L, R: ST.R }),
-    k(1.0, { g: [6, 7, 3], tw: -24, ln: -2, cr: 3, rm: -0.5, e: 'in' }),
-    k(1.35, { g: [2, 27, 4], b: [-0.03, 1, 0], tw: 5, ln: 9, cr: 4.5, rm: 6, L: [-5, 8], e: 'out' }),
-    k(2.0, { g: [2, 27, 4], tw: 6, ln: 9, cr: 4.5, rm: 7 }),
-    k(2.4, { g: [4, 18, 3], b: [-0.05, 1, 0.05], tw: -6, ln: 5, cr: 3, rm: 6 }),
-    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 4, L: [-5, 2] }, GUARD_SP),
+    k(0, { tw: -25, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
+    k(0.85, { g: [8, -2, 0], b: [-0.2, 0.97, 0.08], hg: 20, tw: -30, ln: -3, cr: 3, rm: -1, L: ST.L, R: ST.R }),
+    k(1.0, { g: [8, -1, 0], hg: 19, tw: -29, ln: -2, cr: 3, rm: -0.5, e: 'in' }),
+    k(1.35, { g: [4, 17, 2], b: [-0.12, 0.99, 0.03], hg: 5, tw: 0, ln: 9, cr: 4.5, rm: 6, L: [-5, 8], e: 'out' }),
+    k(2.0, { g: [4, 17, 2], hg: 5, tw: 1, ln: 9, cr: 4.5, rm: 7 }),
+    k(2.4, { g: [6, 8, 0], b: [-0.18, 0.98, 0.06], hg: 12, tw: -14, ln: 5, cr: 3, rm: 6 }),
+    k(3.0, { tw: -25, ln: 0, cr: 2, rm: 4, L: [-5, 2] }, GUARD_SP),
   ] },
   sp_l2: { keys: [            // stepping second jab, aimed higher
-    k(0, { tw: -15, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
-    k(0.8, { g: [6, 5, 6], b: [-0.05, 1, 0.12], tw: -28, ln: -3, cr: 3, rm: -1, L: ST.L, R: ST.R }),
-    k(1.0, { g: [6, 6, 6], tw: -27, ln: -2, cr: 3, rm: 0, e: 'in' }),
-    k(1.35, { g: [2, 28, 9], b: [-0.05, 1, 0.12], tw: 8, ln: 10, cr: 5, rm: 9, L: [-5, 11], R: [5, -7], e: 'out' }),
-    k(2.0, { g: [2, 28, 9], tw: 9, ln: 10, cr: 5, rm: 10 }),
-    k(2.4, { g: [4, 18, 4], b: [-0.05, 1, 0.06], tw: -6, ln: 5, cr: 3, rm: 9 }),
-    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 7, R: [5, -2], L: [-5, 2] }, GUARD_SP),
+    k(0, { tw: -25, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
+    k(0.8, { g: [8, -3, 2], b: [-0.2, 0.96, 0.18], hg: 20, tw: -32, ln: -3, cr: 3, rm: -1, L: ST.L, R: ST.R }),
+    k(1.0, { g: [8, -2, 2], hg: 19, tw: -31, ln: -2, cr: 3, rm: 0, e: 'in' }),
+    k(1.35, { g: [4, 18, 7], b: [-0.12, 0.98, 0.16], hg: 5, tw: 4, ln: 10, cr: 5, rm: 9, L: [-5, 11], R: [5, -7], e: 'out' }),
+    k(2.0, { g: [4, 18, 7], hg: 5, tw: 5, ln: 10, cr: 5, rm: 10 }),
+    k(2.4, { g: [6, 8, 1], b: [-0.18, 0.98, 0.08], hg: 12, tw: -14, ln: 5, cr: 3, rm: 9 }),
+    k(3.0, { tw: -25, ln: 0, cr: 2, rm: 7, R: [5, -2], L: [-5, 2] }, GUARD_SP),
   ] },
   sp_l3: { keys: [            // the shaft swung round: the spear's one cut
-    k(0, { tw: -15, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
-    k(0.85, { g: [12, 6, 4], b: [0.75, 0.65, 0.05], tw: -50, ln: -2, cr: 4, rm: 0, L: ST.L, R: ST.R }),
-    k(1.0, { g: [12, 8, 4], b: [0.65, 0.75, 0.03], tw: -46, ln: 0, cr: 4, rm: 1, e: 'in' }),
-    k(1.45, { g: [2, 20, 4], b: [-0.55, 0.83, 0], tw: 5, ln: 6, cr: 5, rm: 7, R: [6, 6], e: 'lin' }),
-    k(1.9, { g: [-8, 12, 3], b: [-1, 0.05, 0.05], tw: 45, ln: 6, cr: 5, rm: 9, e: 'out' }),
-    k(2.5, { g: [-8, 12, 3], b: [-1, 0.08, 0.05], tw: 43, ln: 5, cr: 5, rm: 9, L: ST.L }),
-    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 9, L: [-5, 1] }, GUARD_SP),
+    k(0, { tw: -25, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
+    k(0.85, { g: [6, -2, 2], b: [0.6, 0.8, 0.05], hg: 16, tw: -45, ln: -2, cr: 4, rm: 0, L: ST.L, R: ST.R }),
+    k(1.0, { g: [6, -1, 2], b: [0.52, 0.85, 0.05], tw: -40, ln: 0, cr: 4, rm: 1, e: 'in' }),
+    k(1.5, { g: [3, 6, 2], b: [-0.3, 0.95, 0.05], tw: 5, ln: 6, cr: 5, rm: 7, R: [6, 6], e: 'lin' }),
+    k(2.0, { g: [-2, 6, 2], b: [-0.85, 0.52, 0.05], tw: 35, ln: 6, cr: 5, rm: 9, e: 'lin' }),
+    k(2.5, { g: [-2, 6, 2], b: [-0.85, 0.5, 0.05], tw: 34, ln: 5, cr: 5, rm: 9, L: ST.L }),
+    k(3.0, { tw: -25, ln: 0, cr: 2, rm: 9, L: [-5, 1] }, GUARD_SP),
   ] },
-  sp_heavy: { keys: [         // coiled far back over the rear leg, then the full lunge, shaft driven all the way through
-    k(0, { tw: -15, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
-    k(0.9, { g: [8, -2, 4], b: [-0.04, 1, 0.06], tw: -45, ln: -8, cr: 7, rm: -3, L: ST.L, R: ST.R }),
-    k(1.0, { g: [8, 0, 4], tw: -43, ln: -7, cr: 7, rm: -2, e: 'in' }),
-    k(1.45, { g: [1, 33, 5], b: [0, 1, -0.04], tw: 15, ln: 16, cr: 10, rm: 14, L: [-7, 20], R: [5, -11], e: 'out' }),
-    k(2.1, { g: [1, 33, 5], tw: 15, ln: 16, cr: 10, rm: 15 }),
-    k(2.6, { g: [4, 18, 3], b: [-0.04, 1, 0.05], tw: -8, ln: 8, cr: 7, rm: 13 }),
-    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 10, L: [-5, 3], R: [5, -3] }, GUARD_SP),
+  sp_heavy: { keys: [         // coiled far back over the rear leg, then the full lunge, the shaft driven all the way through
+    k(0, { tw: -25, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
+    k(0.9, { g: [9, -8, 0], b: [-0.2, 0.97, 0.08], hg: 22, tw: -50, ln: -8, cr: 7, rm: -3, L: ST.L, R: ST.R }),
+    k(1.0, { g: [9, -7, 0], hg: 21, tw: -48, ln: -7, cr: 7, rm: -2, e: 'in' }),
+    k(1.45, { g: [3, 20, 3], b: [-0.08, 1, 0], hg: 4, tw: 10, ln: 16, cr: 10, rm: 14, L: [-7, 20], R: [5, -11], e: 'out' }),
+    k(2.1, { g: [3, 20, 3], hg: 4, tw: 10, ln: 16, cr: 10, rm: 15 }),
+    k(2.6, { g: [6, 8, 1], b: [-0.18, 0.98, 0.06], hg: 12, tw: -15, ln: 8, cr: 7, rm: 13 }),
+    k(3.0, { tw: -25, ln: 0, cr: 2, rm: 10, L: [-5, 3], R: [5, -3] }, GUARD_SP),
   ] },
-  sp_charged: { keys: [       // raised high, then a downward stab driven into the ground ahead
-    k(0, { g: [4, 6, 16], b: [0, 0.9, 0.42], tw: -10, ln: -10, cr: 3, rm: 0, L: ST.L, R: ST.R }),
-    k(1.0, { g: [4, 6, 18], b: [0, 0.85, 0.52], tw: -8, ln: -12, cr: 3, rm: 2, e: 'in' }),
-    k(1.35, { g: [2, 20, 4], b: [0, 0.97, -0.22], tw: 5, ln: 16, cr: 10, rm: 12, L: [-6, 14], e: 'out' }),
-    k(1.55, { g: [1, 22, -4], b: [0, 0.93, -0.36], tw: 6, ln: 20, cr: 12, rm: 14 }),
-    k(2.3, { g: [1, 22, -5], b: [0, 0.93, -0.36], tw: 6, ln: 20, cr: 12, rm: 14 }),
-    k(2.8, { g: [3, 16, 2], b: [-0.03, 0.9, -0.3], tw: -6, ln: 10, cr: 6, rm: 14, R: ST.R }),
-    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 14, R: [5, -1] }, GUARD_SP),
+  sp_charged: { keys: [       // raised high, then the point driven down into the ground ahead
+    k(0, { g: [6, -2, 14], b: [-0.1, 0.9, 0.42], hg: 18, tw: -20, ln: -10, cr: 3, rm: 0, L: ST.L, R: ST.R }),
+    k(1.0, { g: [6, -3, 16], b: [-0.1, 0.85, 0.52], hg: 18, tw: -18, ln: -12, cr: 3, rm: 2, e: 'in' }),
+    k(1.35, { g: [3, 14, 4], b: [-0.05, 0.97, -0.22], hg: 8, tw: 0, ln: 16, cr: 10, rm: 12, L: [-6, 14], e: 'out' }),
+    k(1.55, { g: [2, 16, -2], b: [0, 0.93, -0.36], hg: 6, tw: 2, ln: 20, cr: 12, rm: 14 }),
+    k(2.3, { g: [2, 16, -3], b: [0, 0.93, -0.36], hg: 6, tw: 2, ln: 20, cr: 12, rm: 14 }),
+    k(2.8, { g: [5, 8, 1], b: [-0.15, 0.95, -0.1], hg: 12, tw: -15, ln: 10, cr: 6, rm: 14, R: ST.R }),
+    k(3.0, { tw: -25, ln: 0, cr: 2, rm: 14, R: [5, -1] }, GUARD_SP),
   ], ev: [[1.5, 'ground', 0.6]] },
   sp_dodge: { keys: [         // running thrust
-    k(0, { g: [6, 8, 4], b: [-0.03, 1, 0.04], tw: -25, ln: 6, cr: 5, rm: 0, L: ST.L, R: ST.R }),
-    k(1.0, { g: [6, 10, 4], tw: -22, ln: 8, cr: 5, rm: 5, e: 'in' }),
-    k(1.4, { g: [1, 32, 5], b: [0, 1, -0.03], tw: 14, ln: 16, cr: 8, rm: 22, L: [-6, 14], R: [5, -6], e: 'out' }),
-    k(2.2, { g: [1, 31, 5], tw: 13, ln: 14, cr: 8, rm: 26 }),
-    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 27, L: [-5, 2], R: [5, -3] }, GUARD_SP),
+    k(0, { g: [7, 0, 0], b: [-0.15, 0.99, 0.05], hg: 18, tw: -30, ln: 6, cr: 5, rm: 0, L: ST.L, R: ST.R }),
+    k(1.0, { g: [7, 2, 0], hg: 17, tw: -28, ln: 8, cr: 5, rm: 5, e: 'in' }),
+    k(1.4, { g: [3, 20, 3], b: [-0.05, 1, 0], hg: 4, tw: 8, ln: 16, cr: 8, rm: 22, L: [-6, 14], R: [5, -6], e: 'out' }),
+    k(2.2, { g: [3, 20, 3], hg: 4, tw: 8, ln: 14, cr: 8, rm: 26 }),
+    k(3.0, { tw: -25, ln: 0, cr: 2, rm: 27, L: [-5, 2], R: [5, -3] }, GUARD_SP),
   ] },
 };
 for (const n in ANIMS) { ANIMS[n].name = n; compileClip(ANIMS[n]); }
