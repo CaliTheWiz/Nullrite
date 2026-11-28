@@ -227,8 +227,13 @@ class MusicBank {
   /** Each frame: which track should be playing (null = silence). Crossfades; phase 2 keeps the beat. */
   set(name) {
     if (!this.ctx) return;
-    const now = this.ctx.currentTime, v = MUSIC_VOLUME * SETTINGS.ambience;
-    if (v !== this.vol) { this.out.gain.setTargetAtTime(v, now, 0.2); this.vol = v; }
+    // iOS hands out the context suspended (or "interrupted") until a touch really unlocks it: schedule nothing on a
+    // clock that isn't running, or the fades are lost and the track stays silent
+    if (this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime, v = MUSIC_VOLUME * SETTINGS.ambience, gn = this.out.gain;
+    if (v !== this.vol) {
+      gn.cancelScheduledValues(now); gn.setValueAtTime(this.vol < 0 ? v : gn.value, now); gn.linearRampToValueAtTime(v, now + 0.2); this.vol = v;
+    }
     if (name === this.cur) { if (name && !this.voices[name] && this.buf[name]) this.start(name, 0, 1.5); return; }
     const prev = this.cur; this.cur = name;
     if (prev && this.voices[prev]) this.fadeOut(prev, prev.startsWith('boss') && name && name.startsWith('boss') ? 1.2 : 2.2);

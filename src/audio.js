@@ -241,7 +241,7 @@ class SoundBank {
   constructor() { this.ctx = null; this.buffers = {}; this.ready = false; }
   /** Create the context and synthesize every SFX (call from a tap handler on iOS). */
   init() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    if (this.ctx) { if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') { const r = this.ctx.resume(); if (r && r.catch) r.catch(() => {}); } return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
@@ -251,7 +251,9 @@ class SoundBank {
       const data = SYNTHS[name](), buf = this.ctx.createBuffer(1, data.length, SR);
       buf.getChannelData(0).set(data); this.buffers[name] = buf;
     }
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx.state !== 'running') { const r = this.ctx.resume(); if (r && r.catch) r.catch(() => {}); }
+    // iOS: playing a buffer inside the gesture is what actually unlocks the output
+    { const b = this.ctx.createBuffer(1, 1, 22050), s = this.ctx.createBufferSource(); s.buffer = b; s.connect(this.ctx.destination); s.start(0); }
     this.buildDrone();
     this.ready = true;
   }

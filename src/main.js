@@ -61,7 +61,7 @@ function onStart(e) {
   for (const tch of e.changedTouches) controls.touchStart(tch.identifier, tch.clientX, H - tch.clientY);
 }
 function onMove(e) { e.preventDefault(); if (screen !== 'play') return; for (const tch of e.changedTouches) controls.touchMove(tch.identifier, tch.clientX, H - tch.clientY); }
-function onEnd(e) { e.preventDefault(); sound.init(); if (screen !== 'play') return; for (const tch of e.changedTouches) controls.touchEnd(tch.identifier); }
+function onEnd(e) { e.preventDefault(); sound.init(); music.init(sound.ctx); if (screen !== 'play') return; for (const tch of e.changedTouches) controls.touchEnd(tch.identifier); }
 canvas.addEventListener('touchstart', onStart, { passive: false });
 canvas.addEventListener('touchmove', onMove, { passive: false });
 canvas.addEventListener('touchend', onEnd, { passive: false });
