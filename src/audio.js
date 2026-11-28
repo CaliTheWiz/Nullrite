@@ -179,6 +179,31 @@ const SYNTHS = {
     });
     return dspFade(dspNorm(dspSoften(x, 3000), 0.9), 2, 60);
   },
+  // ---- muted interface sounds (low-passed, soft attacks; nothing bright)
+  ui_tap() {                                 // a soft wooden 'tock'
+    const d = 0.09, [s, t] = dspSweep(380, 240, d, 40), n = dspBand(dspNoise(t.length, 71), 180, 1100);
+    const x = dspMap(t.length, i => (s[i] * Math.exp(-t[i] * 55) + n[i] * Math.exp(-t[i] * 90) * 0.35) * Math.min(1, t[i] * 900));
+    return dspFade(dspNorm(dspSoften(x, 1300), 0.4), 1, 20);
+  },
+  ui_equip() {                               // a muffled clunk of leather and metal settling into place
+    const d = 0.32, [th, t] = dspSweep(150, 70, d, 22), n = dspBand(dspNoise(t.length, 72), 150, 900);
+    const x = dspMap(t.length, i => { const tt = t[i];
+      const ring = Math.sin(TAU * 410 * tt) * Math.exp(-tt * 30) + 0.6 * Math.sin(TAU * 655 * tt) * Math.exp(-tt * 38) + 0.4 * Math.sin(TAU * 980 * tt) * Math.exp(-tt * 50);
+      return (th[i] * Math.exp(-tt * 18) * 0.9 + ring * 0.22 + n[i] * Math.exp(-tt * 40) * 0.35) * Math.min(1, tt * 500); });
+    return dspFade(dspNorm(dspSoften(x, 1700), 0.6), 1, 40);
+  },
+  ui_deny() {                                // a dull double thump
+    const d = 0.22, t = dspTime(d);
+    const x = dspMap(t.length, i => { const tt = t[i], a = Math.exp(-tt * 30), b = tt > 0.09 ? Math.exp(-(tt - 0.09) * 30) : 0;
+      return Math.sin(TAU * 105 * tt) * (a + 0.7 * b) * Math.min(1, tt * 400); });
+    return dspFade(dspNorm(dspSoften(x, 700), 0.45), 1, 30);
+  },
+  ui_loot() {                                // something worth keeping: a low, warm swell
+    const d = 0.9, t = dspTime(d);
+    const x = dspMap(t.length, i => { const tt = t[i], env = Math.min(1, tt * 14) * Math.exp(-tt * 3.2);
+      return (Math.sin(TAU * 262 * tt) + 0.55 * Math.sin(TAU * 392 * tt + 0.3) + 0.35 * Math.sin(TAU * 131 * tt)) * env; });
+    return dspFade(dspNorm(dspSoften(x, 1200), 0.5), 2, 120);
+  },
   ready() {
     const t = dspTime(0.35);
     return dspFade(dspNorm(dspSoften(dspMap(t.length, i => (Math.sin(TAU * 1760 * t[i]) + 0.5 * Math.sin(TAU * 2640 * t[i] + 0.4)) * Math.exp(-t[i] * 14)), 6000), 0.45));

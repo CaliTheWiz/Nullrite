@@ -61,28 +61,28 @@ class EquipMenu {
     if (this.confirm > 0) this.confirm -= dt;
     if (this.hold && this.g.t - this.hold.t0 >= 1.2) {                  // reset progress (held)
       const inv = this.g.inv; inv.reset(); inv.flags = {}; inv.save(); this.g.player.applyLoadout(); this.hold = null; this.pick('right');
-      this.say('PROGRESS RESET'); this.g.sfx('thud', 0.6);
+      this.say('PROGRESS RESET'); this.g.sfx('ui_deny', 0.6);
     }
   }
   /** Touch down at CSS pixel (x, y) from the top-left. */
   touchStart(id, x, y) {
     for (const r of this.rects) {
       if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h) continue;
-      if (r.kind === 'close') { this.close(); this.g.sfx('ready', 0.25); return; }
-      if (r.kind === 'tab') { this.tab = r.tab; this.confirm = 0; this.g.sfx('ready', 0.2); return; }
+      if (r.kind === 'close') { this.close(); this.g.sfx('ui_tap', 0.5); return; }
+      if (r.kind === 'tab') { this.tab = r.tab; this.confirm = 0; this.g.sfx('ui_tap', 0.45); return; }
       if (r.kind === 'retry') {
-        if (this.confirm <= 0) { this.confirm = 3; this.g.sfx('ready', 0.2); return; }      // tap twice: it ends the current fight
+        if (this.confirm <= 0) { this.confirm = 3; this.g.sfx('ui_tap', 0.45); return; }      // tap twice: it ends the current fight
         this.confirm = 0; this.close(); this.g.retryBoss(); return;
       }
-      if (r.kind === 'slot') { this.pick(r.slot); this.g.sfx('ready', 0.2); return; }
+      if (r.kind === 'slot') { this.pick(r.slot); this.g.sfx('ui_tap', 0.45); return; }
       if (r.kind === 'reset') { this.hold = { id, t0: this.g.t }; return; }
       if (r.kind === 'quit') { if (this.onQuit) this.onQuit(); return; }
       if (r.kind === 'item') {
         const inv = this.g.inv;
-        if (this.focus !== r.id) { this.focus = r.id; this.g.sfx('ready', 0.15); return; }     // first tap: preview + compare
+        if (this.focus !== r.id) { this.focus = r.id; this.g.sfx('ui_tap', 0.4); return; }     // first tap: preview + compare
         if (inv.eq[this.slot] === r.id) return;                                                   // second tap: equip
         if (this.slot === 'left' && inv.leftLocked() && r.id !== null) { this.say('LEFT HAND HELD BY A TWO-HANDED WEAPON'); }
-        if (!this.g.equip(this.slot, r.id)) this.say(this.g.player.state === S_IDLE || this.g.player.state === S_MOVE ? "CAN'T EQUIP THAT HERE" : "CAN'T CHANGE EQUIPMENT NOW");
+        if (!this.g.equip(this.slot, r.id, true)) this.say(this.g.player.state === S_IDLE || this.g.player.state === S_MOVE ? "CAN'T EQUIP THAT HERE" : "CAN'T CHANGE EQUIPMENT NOW");
         return;
       }
     }

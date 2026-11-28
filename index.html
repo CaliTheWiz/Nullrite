@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = '6f03a9';
+const BUILD = '22122f';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -2546,7 +2546,7 @@ class Game {
     this.phaseMix = this.fight === 'won' ? this.phaseMix : 0; for (const w of this.waves) w.live = false;
     [this.cam_x, this.cam_y] = this.cameraTarget();
   }
-  retryBoss() { this.respawn(true); this.sfx('thud', 0.5); }
+  retryBoss() { this.respawn(true); this.sfx('ui_equip', 0.5); }
   /** The gate seals and the Sentinel comes down. immediate: skip the entrance (tests, sheets). */
   startFight(immediate) {
     const b = this.boss; this.fight = 'active'; this.victory_t = 0;
@@ -2622,11 +2622,11 @@ class Game {
   }
   deny() { this.stamDeny = 0.35; this.sfx('deny', 0.6); this.haptic('light', 0.4); }
   /** Change equipment (from the equipment screen). Only when not mid-action; the fight does not pause. */
-  equip(slot, id) {
-    const p = this.player;
-    if ((p.state !== S_IDLE && p.state !== S_MOVE) || this.outcome !== null) { this.deny(); return false; }
-    if (!this.inv.equip(slot, id)) { this.deny(); return false; }
-    p.applyLoadout(); this.sfx('thud', 0.35); this.sfx('ready', 0.35); this.haptic('medium', 0.5);
+  equip(slot, id, fromMenu) {
+    const p = this.player, no = () => { if (fromMenu) { this.sfx('ui_deny', 0.6); this.haptic('light', 0.3); } else this.deny(); return false; };
+    if ((p.state !== S_IDLE && p.state !== S_MOVE) || this.outcome !== null) return no();
+    if (!this.inv.equip(slot, id)) return no();
+    p.applyLoadout(); this.sfx('ui_equip', 0.7); this.haptic('medium', 0.4);
     return true;
   }
   onSwing(p) {
@@ -2744,7 +2744,7 @@ class Game {
     if (inv.flags[source]) return [];
     for (const id of items) inv.add(id);
     inv.flags[source] = 1; inv.save();
-    this.loot = { items: items.slice(), t: 3.4 }; this.sfx('ready', 0.8); this.sfx('flask', 0.4);
+    this.loot = { items: items.slice(), t: 3.4 }; this.sfx('ui_loot', 0.75);
     return items;
   }
   updatePickups(dt) {
@@ -5149,6 +5149,31 @@ const SYNTHS = {
     });
     return dspFade(dspNorm(dspSoften(x, 3000), 0.9), 2, 60);
   },
+  // ---- muted interface sounds (low-passed, soft attacks; nothing bright)
+  ui_tap() {                                 // a soft wooden 'tock'
+    const d = 0.09, [s, t] = dspSweep(380, 240, d, 40), n = dspBand(dspNoise(t.length, 71), 180, 1100);
+    const x = dspMap(t.length, i => (s[i] * Math.exp(-t[i] * 55) + n[i] * Math.exp(-t[i] * 90) * 0.35) * Math.min(1, t[i] * 900));
+    return dspFade(dspNorm(dspSoften(x, 1300), 0.4), 1, 20);
+  },
+  ui_equip() {                               // a muffled clunk of leather and metal settling into place
+    const d = 0.32, [th, t] = dspSweep(150, 70, d, 22), n = dspBand(dspNoise(t.length, 72), 150, 900);
+    const x = dspMap(t.length, i => { const tt = t[i];
+      const ring = Math.sin(TAU * 410 * tt) * Math.exp(-tt * 30) + 0.6 * Math.sin(TAU * 655 * tt) * Math.exp(-tt * 38) + 0.4 * Math.sin(TAU * 980 * tt) * Math.exp(-tt * 50);
+      return (th[i] * Math.exp(-tt * 18) * 0.9 + ring * 0.22 + n[i] * Math.exp(-tt * 40) * 0.35) * Math.min(1, tt * 500); });
+    return dspFade(dspNorm(dspSoften(x, 1700), 0.6), 1, 40);
+  },
+  ui_deny() {                                // a dull double thump
+    const d = 0.22, t = dspTime(d);
+    const x = dspMap(t.length, i => { const tt = t[i], a = Math.exp(-tt * 30), b = tt > 0.09 ? Math.exp(-(tt - 0.09) * 30) : 0;
+      return Math.sin(TAU * 105 * tt) * (a + 0.7 * b) * Math.min(1, tt * 400); });
+    return dspFade(dspNorm(dspSoften(x, 700), 0.45), 1, 30);
+  },
+  ui_loot() {                                // something worth keeping: a low, warm swell
+    const d = 0.9, t = dspTime(d);
+    const x = dspMap(t.length, i => { const tt = t[i], env = Math.min(1, tt * 14) * Math.exp(-tt * 3.2);
+      return (Math.sin(TAU * 262 * tt) + 0.55 * Math.sin(TAU * 392 * tt + 0.3) + 0.35 * Math.sin(TAU * 131 * tt)) * env; });
+    return dspFade(dspNorm(dspSoften(x, 1200), 0.5), 2, 120);
+  },
   ready() {
     const t = dspTime(0.35);
     return dspFade(dspNorm(dspSoften(dspMap(t.length, i => (Math.sin(TAU * 1760 * t[i]) + 0.5 * Math.sin(TAU * 2640 * t[i] + 0.4)) * Math.exp(-t[i] * 14)), 6000), 0.45));
@@ -5958,28 +5983,28 @@ class EquipMenu {
     if (this.confirm > 0) this.confirm -= dt;
     if (this.hold && this.g.t - this.hold.t0 >= 1.2) {                  // reset progress (held)
       const inv = this.g.inv; inv.reset(); inv.flags = {}; inv.save(); this.g.player.applyLoadout(); this.hold = null; this.pick('right');
-      this.say('PROGRESS RESET'); this.g.sfx('thud', 0.6);
+      this.say('PROGRESS RESET'); this.g.sfx('ui_deny', 0.6);
     }
   }
   /** Touch down at CSS pixel (x, y) from the top-left. */
   touchStart(id, x, y) {
     for (const r of this.rects) {
       if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h) continue;
-      if (r.kind === 'close') { this.close(); this.g.sfx('ready', 0.25); return; }
-      if (r.kind === 'tab') { this.tab = r.tab; this.confirm = 0; this.g.sfx('ready', 0.2); return; }
+      if (r.kind === 'close') { this.close(); this.g.sfx('ui_tap', 0.5); return; }
+      if (r.kind === 'tab') { this.tab = r.tab; this.confirm = 0; this.g.sfx('ui_tap', 0.45); return; }
       if (r.kind === 'retry') {
-        if (this.confirm <= 0) { this.confirm = 3; this.g.sfx('ready', 0.2); return; }      // tap twice: it ends the current fight
+        if (this.confirm <= 0) { this.confirm = 3; this.g.sfx('ui_tap', 0.45); return; }      // tap twice: it ends the current fight
         this.confirm = 0; this.close(); this.g.retryBoss(); return;
       }
-      if (r.kind === 'slot') { this.pick(r.slot); this.g.sfx('ready', 0.2); return; }
+      if (r.kind === 'slot') { this.pick(r.slot); this.g.sfx('ui_tap', 0.45); return; }
       if (r.kind === 'reset') { this.hold = { id, t0: this.g.t }; return; }
       if (r.kind === 'quit') { if (this.onQuit) this.onQuit(); return; }
       if (r.kind === 'item') {
         const inv = this.g.inv;
-        if (this.focus !== r.id) { this.focus = r.id; this.g.sfx('ready', 0.15); return; }     // first tap: preview + compare
+        if (this.focus !== r.id) { this.focus = r.id; this.g.sfx('ui_tap', 0.4); return; }     // first tap: preview + compare
         if (inv.eq[this.slot] === r.id) return;                                                   // second tap: equip
         if (this.slot === 'left' && inv.leftLocked() && r.id !== null) { this.say('LEFT HAND HELD BY A TWO-HANDED WEAPON'); }
-        if (!this.g.equip(this.slot, r.id)) this.say(this.g.player.state === S_IDLE || this.g.player.state === S_MOVE ? "CAN'T EQUIP THAT HERE" : "CAN'T CHANGE EQUIPMENT NOW");
+        if (!this.g.equip(this.slot, r.id, true)) this.say(this.g.player.state === S_IDLE || this.g.player.state === S_MOVE ? "CAN'T EQUIP THAT HERE" : "CAN'T CHANGE EQUIPMENT NOW");
         return;
       }
     }
@@ -6178,10 +6203,10 @@ class TitleScreen {
   /** Touch at CSS pixels from the top-left. */
   touch(x, y, sound) {
     if (this.leave) return;
-    if (this.stage === 'press') { this.stage = 'menu'; this.stage_t = 0; sound.play('ready', 0.5); return; }
+    if (this.stage === 'press') { this.stage = 'menu'; this.stage_t = 0; sound.play('ui_tap', 0.55); return; }
     for (const r of this.rects) {
       if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h || r.off) continue;
-      this.sel = r.i; sound.play('ready', 0.4);
+      this.sel = r.i; sound.play('ui_tap', 0.5);
       const a = r.act;
       if (a === 'continue') this.go('continue');
       else if (a === 'new') { if (hasSaveGame()) { this.stage = 'confirm'; this.stage_t = 0; } else this.go('new'); }
@@ -6190,7 +6215,7 @@ class TitleScreen {
       else if (a === 'options') { this.stage = 'options'; this.stage_t = 0; this.sel = -1; }
       else if (a === 'sfx' || a === 'ambience') {
         const v = clamp(Math.round((SETTINGS[a] + (r.dir || 0) * 0.1) * 10) / 10, 0, 1); SETTINGS[a] = v; saveSettings();
-        if (a === 'sfx') sound.play('thud', 0.6);
+        if (a === 'sfx') sound.play('ui_equip', 0.7);
       }
       else if (a === 'haptics') { SETTINGS.haptics = !SETTINGS.haptics; saveSettings(); if (SETTINGS.haptics) haptic('medium', 0.8); }
       else if (a === 'fps') { SETTINGS.fps = !SETTINGS.fps; saveSettings(); }

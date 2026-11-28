@@ -1022,7 +1022,7 @@ class Game {
     this.phaseMix = this.fight === 'won' ? this.phaseMix : 0; for (const w of this.waves) w.live = false;
     [this.cam_x, this.cam_y] = this.cameraTarget();
   }
-  retryBoss() { this.respawn(true); this.sfx('thud', 0.5); }
+  retryBoss() { this.respawn(true); this.sfx('ui_equip', 0.5); }
   /** The gate seals and the Sentinel comes down. immediate: skip the entrance (tests, sheets). */
   startFight(immediate) {
     const b = this.boss; this.fight = 'active'; this.victory_t = 0;
@@ -1098,11 +1098,11 @@ class Game {
   }
   deny() { this.stamDeny = 0.35; this.sfx('deny', 0.6); this.haptic('light', 0.4); }
   /** Change equipment (from the equipment screen). Only when not mid-action; the fight does not pause. */
-  equip(slot, id) {
-    const p = this.player;
-    if ((p.state !== S_IDLE && p.state !== S_MOVE) || this.outcome !== null) { this.deny(); return false; }
-    if (!this.inv.equip(slot, id)) { this.deny(); return false; }
-    p.applyLoadout(); this.sfx('thud', 0.35); this.sfx('ready', 0.35); this.haptic('medium', 0.5);
+  equip(slot, id, fromMenu) {
+    const p = this.player, no = () => { if (fromMenu) { this.sfx('ui_deny', 0.6); this.haptic('light', 0.3); } else this.deny(); return false; };
+    if ((p.state !== S_IDLE && p.state !== S_MOVE) || this.outcome !== null) return no();
+    if (!this.inv.equip(slot, id)) return no();
+    p.applyLoadout(); this.sfx('ui_equip', 0.7); this.haptic('medium', 0.4);
     return true;
   }
   onSwing(p) {
@@ -1220,7 +1220,7 @@ class Game {
     if (inv.flags[source]) return [];
     for (const id of items) inv.add(id);
     inv.flags[source] = 1; inv.save();
-    this.loot = { items: items.slice(), t: 3.4 }; this.sfx('ready', 0.8); this.sfx('flask', 0.4);
+    this.loot = { items: items.slice(), t: 3.4 }; this.sfx('ui_loot', 0.75);
     return items;
   }
   updatePickups(dt) {

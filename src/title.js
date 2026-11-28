@@ -30,10 +30,10 @@ class TitleScreen {
   /** Touch at CSS pixels from the top-left. */
   touch(x, y, sound) {
     if (this.leave) return;
-    if (this.stage === 'press') { this.stage = 'menu'; this.stage_t = 0; sound.play('ready', 0.5); return; }
+    if (this.stage === 'press') { this.stage = 'menu'; this.stage_t = 0; sound.play('ui_tap', 0.55); return; }
     for (const r of this.rects) {
       if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h || r.off) continue;
-      this.sel = r.i; sound.play('ready', 0.4);
+      this.sel = r.i; sound.play('ui_tap', 0.5);
       const a = r.act;
       if (a === 'continue') this.go('continue');
       else if (a === 'new') { if (hasSaveGame()) { this.stage = 'confirm'; this.stage_t = 0; } else this.go('new'); }
@@ -42,7 +42,7 @@ class TitleScreen {
       else if (a === 'options') { this.stage = 'options'; this.stage_t = 0; this.sel = -1; }
       else if (a === 'sfx' || a === 'ambience') {
         const v = clamp(Math.round((SETTINGS[a] + (r.dir || 0) * 0.1) * 10) / 10, 0, 1); SETTINGS[a] = v; saveSettings();
-        if (a === 'sfx') sound.play('thud', 0.6);
+        if (a === 'sfx') sound.play('ui_equip', 0.7);
       }
       else if (a === 'haptics') { SETTINGS.haptics = !SETTINGS.haptics; saveSettings(); if (SETTINGS.haptics) haptic('medium', 0.8); }
       else if (a === 'fps') { SETTINGS.fps = !SETTINGS.fps; saveSettings(); }
