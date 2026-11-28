@@ -350,8 +350,9 @@ function poseRig(p, dt, t) {
   const bothHands = W.stance && W.stance.hands === 2;
   // one-handed weapons: the free arm swings out and back for balance, opposite the blade
   function offhand(k) {
-    const O = W.stance.offhand || { s: -13, f: -5, z: 40 }, sw = attacking && mv && mv.motion[0] === 'swing' ? Math.sign(mv.motion[1]) : 0;
-    const ts = O.s - 2 * sw, tf = O.f + 3 * sw, tz = O.z + 2 * heft;
+    // out to the side and a little forward, so the pistol in that hand stays in sight; it rides opposite the blade
+    const O = W.stance.offhand || { s: -14.5, f: 4, z: 41 }, kind = attacking && mv ? mv.motion[0] : null, sw = kind === 'swing' ? Math.sign(mv.motion[1]) : 0;
+    const ts = O.s - 2 * sw, tf = O.f + 2.5 * sw + (kind === 'overhead' ? 5 : 0), tz = O.z + 2 * heft - (kind === 'overhead' ? 3 : 0);
     _lr.s += (ts - _lr.s) * k; _lr.f += (tf - _lr.f) * k; _lr.z += (tz - _lr.z) * k;
   }
   if (bothHands && gp < 0.05 && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }  // 2h: both hands unless the left is busy

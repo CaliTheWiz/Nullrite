@@ -132,7 +132,7 @@ class TitleScreen {
     });
   }
   options(c, cx, y0, a) {
-    const rows = [['SOUND EFFECTS', 'sfx'], ['AMBIENCE', 'ambience'], ['VIBRATION', 'haptics'], ['FPS COUNTER', 'fps']], dy = 30, lx = cx - 150, rx = cx + 150;
+    const rows = [['SOUND EFFECTS', 'sfx'], ['MUSIC', 'ambience'], ['VIBRATION', 'haptics'], ['FPS COUNTER', 'fps']], dy = 30, lx = cx - 150, rx = cx + 150;
     rows.forEach(([label, key], i) => {
       const y = y0 + i * dy, v = SETTINGS[key];
       this.label(c, label, lx + 70, y, 12, '#b3a68c', a, 1);

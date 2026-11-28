@@ -221,3 +221,10 @@ Weapon/hand rules (agreed):
 - Player draws into an offscreen layer (PLAYER_LAYER box) then composites, so fading/flicker treats the body as one
   piece (no seeing limbs through the cloak) and hurt/glow flashes tint the whole silhouette (source-atop).
 - Sword rests on his right side in every facing (he is right-handed; nothing is mirrored any more).
+
+## Music (src/music.js)
+All procedural: each track is rendered once at boot by an OfflineAudioContext (24 kHz, one cycle plus its reverb tail folded back onto the start, so loops are seamless), then looped and crossfaded on the live context after the first touch.
+- **title** (48 s): slow D-modal pads, distant bells, a low sub and wind.
+- **shrine** (40 s): a lyre arpeggio (Am–F–C–G) with cello, a hearth crackle and wind. Plays anywhere south of the arena.
+- **boss / boss2** (8 bars at 88 bpm): string ostinato, war drums, brass stabs and choir; phase 2 adds 16th-note high strings and ticks and swaps in on the same beat.
+- The arena is silent before the fight and after a win; music fades on death. Volume: OPTIONS → MUSIC.

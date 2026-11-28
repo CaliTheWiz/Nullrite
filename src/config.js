@@ -44,7 +44,7 @@ const WEAPONS = {
   // one-handed: quick cuts, the left hand free (pistol on the hip) and swung out for balance
   oathsword: {
     name: 'OATHBOUND SWORD', tex: 'oathsword', size: [70, 16], grip: 8, handGap: 0, glow: [30, 62, 10], speed: 1.06,
-    stance: { hands: 1, offhand: { s: -13, f: -5, z: 40 },
+    stance: { hands: 1, offhand: { s: -14.5, f: 4, z: 41 },
               rest: { off: -0.5, r: 16, elev: 34, point: -0.2, up: 0.15, sway: 2.0 },       // point forward, a little raised
               move: { off: -1.3, r: 13, elev: 30, point: -0.85, up: -0.5 },                    // low at his side, tip forward-down
               dash: { off: -(Math.PI - 0.9), r: 16, elev: 28, point: -(Math.PI - 0.35), up: -0.3 } },   // trailing behind

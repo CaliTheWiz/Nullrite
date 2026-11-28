@@ -11,6 +11,7 @@ const DPR = Math.min(window.devicePixelRatio || 1, 3);
 buildArt(Math.min(3, Math.max(2, DPR)));
 
 const sound = new SoundBank();
+const music = new MusicBank(); music.prepare();
 const game = new Game({ sfx: (n, v) => sound.play(n, v), haptic: (s, i) => haptic(s, i) });
 const renderer = new Renderer(canvas);
 const controls = new Controls(game);
@@ -54,7 +55,7 @@ resize();
 // ---- touch (y flipped to the y-up HUD space)
 function onStart(e) {
   e.preventDefault();
-  sound.init();                                  // iOS: audio may only start from a gesture
+  sound.init(); music.init(sound.ctx);           // iOS: audio may only start from a gesture
   if (H > W) return;
   if (screen === 'title') { for (const tch of e.changedTouches) title.touch(tch.clientX, tch.clientY, sound); return; }
   for (const tch of e.changedTouches) controls.touchStart(tch.identifier, tch.clientX, H - tch.clientY);
@@ -80,7 +81,7 @@ function frame(now) {
   if (fpsClock >= 0.5) { controls.ui.fps = Math.round(fpsFrames / fpsClock); adaptResolution(controls.ui.fps, fpsClock); fpsFrames = 0; fpsClock = 0; }
   if (H > W) renderer.drawRotate();
   else if (screen === 'title') {
-    const act = title.update(raw); title.draw(renderer); sound.setDrone(false, 1);
+    const act = title.update(raw); title.draw(renderer); sound.setDrone(false, 1); music.set('title');
     if (act) beginGame(act);
   }
   else {
@@ -90,9 +91,13 @@ function frame(now) {
     renderer.draw(game, controls.ui, game.t);
     if (game.outcome !== null && menu.open) menu.close();
     if (menu.open) { menu.update(raw); menu.draw(renderer); }
-    sound.setDrone(game.fight === 'active' && game.outcome === null, game.boss.phase);
+    sound.setDrone(false, 1);
+    // music: the boss track while the gate is sealed (phase 2 has its own), the shrine theme south of the arena,
+    // silence in the arena otherwise (before the fight, after the kill) and when you die
+    const b = game.boss, inArena = game.player.gy > ROOMS.arena[1];
+    music.set(game.outcome === 'death' ? null : game.fight === 'active' && b.present ? (b.phase === 2 ? 'boss2' : 'boss') : inArena ? null : 'shrine');
   }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__nullrite = { game, controls, renderer, sound, menu, C: { ART, tinted, CRIMSON, RUNE_GOLD, BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); game.fade = 0; game.startFight(true); controls.releaseAll(); } };
+window.__nullrite = { game, controls, renderer, sound, music, menu, C: { ART, tinted, CRIMSON, RUNE_GOLD, BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); game.fade = 0; game.startFight(true); controls.releaseAll(); } };
