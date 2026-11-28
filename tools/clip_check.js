@@ -2,7 +2,7 @@
 // (grip position, blade direction, after the chest turn/lean) with what the anatomical arm IK could reach.
 // usage: node tools/clip_check.js [weapon] [-v]
 const fs = require('fs');
-const src = ['config', 'mathx', 'gear', 'anim', 'rig', 'bossrig', 'logic'].map(f => fs.readFileSync(`src/${f}.js`, 'utf8')).join('\n');
+const src = ['config', 'mathx', 'gear', 'anim', 'rig', 'bossrig', 'logic', 'foes'].map(f => fs.readFileSync(`src/${f}.js`, 'utf8')).join('\n');
 const run = new Function('args', src + `
 const g = new Game({ sfx: () => {}, haptic: () => {} }), p = g.player;
 const weaps = args[0] ? [args[0]] : ['oathsword', 'greatsword', 'spear'], verbose = args[1] === '-v';

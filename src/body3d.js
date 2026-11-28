@@ -561,12 +561,13 @@ class CharGL {
     const fa = p.glowAlpha > 0.01 ? p.glowAlpha : 0, fc = hexRGB(p.glowColor && p.glowColor[0] === '#' ? p.glowColor : '#ff3048');
     gl.uniform4f(g.u.flash, fc[0], fc[1], fc[2], fa * 0.4);
     gl.uniform3f(g.u.back, 0.05, 0.04, 0.06); gl.uniform1f(g.u.backMix, 0.6); gl.uniform1f(g.u.emitGain, 1.5);
+    if (p.emberRGB) gl.uniform4f(g.u.emitTint, p.emberRGB[0], p.emberRGB[1], p.emberRGB[2], 1); else gl.uniform4f(g.u.emitTint, 1, 1, 1, 0);
     g.draw(this.base);
     for (const slot of GEAR_SLOTS) { const id = p.gear[slot]; if (id && this.gear[id]) g.draw(this.gear[id]); }
     const drawn = p.gunDrawn;
     const drinking = p.kind === 'flask' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
-    if (p.hasPistol) g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
-    if (!drinking) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
+    if (p.hasPistol && !p.noProps) g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
+    if (!drinking && !p.noProps) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
     if (drawn && !drinking) g.draw(this.weapons.pistol);
     if (drinking) g.draw(this.weapons.flaskHand);
     gl.uniform1f(g.u.emitGain, 1.1 + 1.6 * (p.swordGlow || 0));

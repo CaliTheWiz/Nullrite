@@ -262,3 +262,24 @@ All procedural: each track is rendered once at boot by an OfflineAudioContext (2
 Cape collision (DONE): the cape keeps behind the real coat profile (torsoBackF: same body shape as torsoPush plus a
 2.8 margin, turned with the chest above the waist and the hips below it), so it no longer sinks into his back or seat
 when it swings back in after a run.
+
+## Foes (DONE, vertical slice groundwork)
+src/foes.js + FOE_TYPES / FOE_SPAWNS in config.js. A foe is a Player body (same rig, gear meshes, movesets and attack
+clips) driven by an AI brain instead of the touch controls: the brain only sets the same inputs (move_dir, move_mag,
+faceDir, startMove) and the shared body update does the rest. New enemy types are a data entry.
+- Brain: idle at its post -> alert (turns to you, `react` seconds) -> engage (holds its `space` distance band: closes in,
+  backs off, circles; picks an attack whose range fits, weighted, with a cooldown; may chain the next light) -> return
+  (lost you or you left its rooms: walks home and recovers fully). Wind-ups track you for their first half only.
+- Fairness: attack tokens (FOE_TOKENS = 2 foes winding up / striking at once). Foes never enter the arena.
+- Poise: hits chip it; broken = staggered (S_HURT); it regenerates after 2.5 s without being hit.
+- Damage both ways uses the damage types: FOE_TYPES[*].resist (and the player's talisman dmg mods); foe blows go through
+  damagePlayer with the move's dtype, so armour matters.
+- Drops: `once` items through giveLoot (flag foe_<spawn id>), `chance` items as floor pickups (gone on respawn).
+- Everything stands again when you respawn or retry (Souls rule). Health bar over a foe for a few seconds after a hit.
+  Foes' embers and blades burn their own colour (uEmitTint). Posed and drawn only when on screen.
+- Types: hollow (fast 1h sword, low poise, chains cuts; weak to slash), pikeman (spear, keeps his distance, backs off;
+  weak to ranged; drops PIERCING FANG), ironclad (plate + greatsword, slow, huge poise; weak to stab/crush/magic,
+  resists slash/ranged; drops IRON KNOT). Placement: two hollows at the shrine room exit, the pikeman on the path, the
+  ironclad at the gate.
+- Bullets and firebombs now work anywhere in the rooms (they used to vanish outside the arena) and hit foes.
+Tests: test/foes_test.js (notice, tokens, hurt you, die, drop, respawn, stay out of the arena). tools/record_foes.py.

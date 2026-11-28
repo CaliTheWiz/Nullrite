@@ -67,6 +67,10 @@ const TALISMANS = {
     lore: 'Taken from the Sentinel. An oath with nothing left inside it weighs nothing at all.' },
   crimson_locket: { slot: 'necklace', name: 'CRIMSON LOCKET', mods: { hp: 15 }, effect: 'Max HP +15', icon: 'necklace',
     lore: 'A locket holding a dried crimson petal. Its owner swore to come home; the locket did.' },
+  piercing_fang:  { slot: 'ring', name: 'PIERCING FANG', mods: { dmg_stab: 0.12 }, effect: 'Stab damage +12%', icon: 'ring',
+    lore: 'A tooth of black iron worn by the pikemen of the path. They say it finds the gap before the hand does.' },
+  iron_knot:      { slot: 'necklace', name: 'IRON KNOT', mods: { poise: 8, dmg_crush: 0.1 }, effect: 'Poise +8, crush damage +10%', icon: 'necklace',
+    lore: 'A knot of iron chain, the last link of an ironclad\'s mail. Heavy to carry. Heavier to be hit by.' },
   sentinel_sigil: { slot: 'necklace', name: "SENTINEL'S SIGIL", mods: { poise: 10 }, effect: 'Poise +10', icon: 'necklace',
     lore: 'The Sentinel wore this beneath its plate. Whoever carries it stands a little more like a wall.' },
 };
@@ -92,7 +96,7 @@ const DEF_REF = 23, DEF_K = 60;          // damage taken x1 at the hunter set's 
 /** Stats from an equipment map (slot -> id). */
 function deriveStats(eq) {
   let defense = 0, poise = 0, weight = 0;
-  const mods = { regen: 0, load: 0, hp: 0, poise: 0 }, def = {};
+  const mods = { regen: 0, load: 0, hp: 0, poise: 0, dmg_slash: 0, dmg_stab: 0, dmg_crush: 0, dmg_ranged: 0, dmg_magic: 0 }, def = {};
   for (const ty of DAMAGE_TYPES) def[ty] = 0;
   for (const slot of EQUIP_SLOTS) {
     const d = eq[slot] && ITEM_DB[eq[slot]];
@@ -110,7 +114,8 @@ function deriveStats(eq) {
   const tier = LOAD_TIERS.find(t => ratio <= t.max);
   const taken = {}; for (const ty of DAMAGE_TYPES) taken[ty] = (DEF_REF + DEF_K) / (def[ty] + DEF_K);
   return { defense, def, taken, poise, weight, maxLoad, ratio, tier, dmgTaken: (DEF_REF + DEF_K) / (defense + DEF_K),
-    maxHp: PLAYER_MAX_HP + mods.hp, regen: tier.regen * (1 + mods.regen) };
+    maxHp: PLAYER_MAX_HP + mods.hp, regen: tier.regen * (1 + mods.regen),
+    dmg: { slash: 1 + mods.dmg_slash, stab: 1 + mods.dmg_stab, crush: 1 + mods.dmg_crush, ranged: 1 + mods.dmg_ranged, magic: 1 + mods.dmg_magic } };
 }
 
 class Inventory {

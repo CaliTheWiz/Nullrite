@@ -1,6 +1,6 @@
 // Phase 2: transition, immunity, shove, lance->sweep chain, slam waves (pure logic, Node)
 const fs=require('fs');
-const src=['config','mathx','gear','anim','rig','bossrig','logic'].map(f=>fs.readFileSync(`src/${f}.js`,'utf8')).join('\n');
+const src=['config','mathx','gear','anim','rig','bossrig','logic','foes'].map(f=>fs.readFileSync(`src/${f}.js`,'utf8')).join('\n');
 const sounds=[]; const out={sfx:(n)=>sounds.push(n), haptic:()=>{}};
 const run=new Function('out','sounds', src+`
 const g=new Game(out); g.startFight(true); const P=g.player,B=g.boss, r={};

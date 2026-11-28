@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = '854add';
+const BUILD = '9c429f';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -189,6 +189,61 @@ const CHESTS = [
 ];
 const CHEST_REACH = 82, CHEST_RADIUS = 26, CHEST_OPEN_TIME = 0.5;
 const BOSS_DROPS = { id: 'boss_sentinel', items: ['sentinel_helm', 'sentinel_plate', 'sentinel_sigil', 'oath_ring'] };
+
+// ---------------------------------------------------------------- foes (data only; the shared machinery is foes.js)
+// gear: worn pieces (GEAR ids). weapon: WEAPONS key (its movesets and clips are the same ones the player uses).
+// speed / dmg: multipliers on the player's movement and on the move's damage. aggro: how close you must be before he
+// notices you; leash: how far he follows from his post. react: seconds between noticing you and moving.
+// space: the distance band he tries to hold. attacks: what he may start at which distance (w = weight); chain = the
+// chance to follow on with the next light of the combo. track: how fast a wind-up turns to follow you (rad/s, first
+// half only). resist: damage taken per type. ember: the colour of the embers in his wrappings. drops: on death
+// (once: given the first time only; chance: a pickup on the floor).
+const FOE_TYPES = {
+  hollow: {                                        // fast, light, relentless: punishes a slow guard
+    name: 'HOLLOW', weapon: 'oathsword', gear: { chest: 'hunter_coat', legs: 'hunter_greaves', feet: 'hunter_boots' },
+    hp: 110, poise: 12, speed: 0.95, dmg: 0.75, aggro: 340, leash: 760, react: 0.45, aggression: 0.8,
+    space: [70, 130], think: [0.2, 0.6], cooldown: [0.6, 1.4], track: 3.5,
+    attacks: [
+      { kind: 'light', idx: 0, range: [0, 150], w: 3, chain: { p: 0.55, idx: 1, reach: 170 } },
+      { kind: 'light', idx: 2, range: [100, 200], w: 1 },
+      { kind: 'dodge', range: [180, 300], w: 1 },
+    ],
+    resist: { slash: 1.15, stab: 0.95, crush: 1.0, ranged: 1.15, magic: 1.0 }, ember: '#e0a050',
+    drops: [{ item: 'firebomb', chance: 0.4 }],
+  },
+  pikeman: {                                       // keeps you at the end of his spear and backs off when you close in
+    name: 'PIKEMAN', weapon: 'spear', gear: { head: 'hunter_hood', chest: 'hunter_coat', hands: 'hunter_gauntlets', legs: 'hunter_greaves', feet: 'hunter_boots', back: 'hunter_cloak' },
+    hp: 140, poise: 16, speed: 0.95, dmg: 0.8, aggro: 460, leash: 820, react: 0.55, aggression: 0.75,
+    space: [170, 230], think: [0.3, 0.8], cooldown: [0.8, 1.6], track: 2.6,
+    attacks: [
+      { kind: 'light', idx: 0, range: [110, 235], w: 3, chain: { p: 0.35, idx: 1, reach: 250 } },
+      { kind: 'heavy', range: [190, 320], w: 1 },
+      { kind: 'light', idx: 2, range: [0, 120], w: 2 },
+    ],
+    resist: { slash: 1.1, stab: 0.9, crush: 1.1, ranged: 1.25, magic: 1.0 }, ember: '#9fb8d0',
+    drops: [{ item: 'piercing_fang', once: true }, { item: 'firebomb', chance: 0.3 }],
+  },
+  brute: {                                         // plate and a greatsword: slow, tough, and every swing hurts
+    name: 'IRONCLAD', weapon: 'greatsword', gear: { head: 'sentinel_helm', chest: 'sentinel_plate', hands: 'hunter_gauntlets', legs: 'hunter_greaves', feet: 'hunter_boots' },
+    hp: 330, poise: 46, speed: 0.78, dmg: 0.7, aggro: 380, leash: 700, react: 0.8, aggression: 0.7, radius: 26,
+    space: [100, 170], think: [0.4, 0.9], cooldown: [1.1, 2.0], track: 1.6,
+    attacks: [
+      { kind: 'light', idx: 0, range: [0, 200], w: 2, chain: { p: 0.4, idx: 1, reach: 210 } },
+      { kind: 'light', idx: 2, range: [80, 220], w: 1 },
+      { kind: 'heavy', range: [100, 240], w: 1 },
+    ],
+    resist: { slash: 0.8, stab: 1.2, crush: 1.25, ranged: 0.7, magic: 1.15 }, ember: '#c8c0a8',
+    drops: [{ item: 'iron_knot', once: true }],
+  },
+};
+// where they stand: the two hollows watch the way out of the shrine room, the pikeman holds the path, the ironclad
+// guards the gate. face: degrees (-90 = south, toward the shrine).
+const FOE_SPAWNS = [
+  { id: 'hollow_w', type: 'hollow', pos: [-95, -1215], face: -100 },
+  { id: 'hollow_e', type: 'hollow', pos: [95, -1235], face: -80 },
+  { id: 'pike_path', type: 'pikeman', pos: [0, -1010], face: -90 },
+  { id: 'brute_gate', type: 'brute', pos: [0, -830], face: -90 },
+];
 const THROW_MOVE = move({ windup: 0.18, active: 0.05, recovery: 0.30, cancel: 0.14, stamina: 8, damage: 0, poise: 0,
                           lunge: 0, hitbox: null, motion: ['rest'], slash: null, sfx: ['whoosh', 0.5],
                           haptic: ['light', 0.5] });
@@ -378,6 +433,10 @@ const TALISMANS = {
     lore: 'Taken from the Sentinel. An oath with nothing left inside it weighs nothing at all.' },
   crimson_locket: { slot: 'necklace', name: 'CRIMSON LOCKET', mods: { hp: 15 }, effect: 'Max HP +15', icon: 'necklace',
     lore: 'A locket holding a dried crimson petal. Its owner swore to come home; the locket did.' },
+  piercing_fang:  { slot: 'ring', name: 'PIERCING FANG', mods: { dmg_stab: 0.12 }, effect: 'Stab damage +12%', icon: 'ring',
+    lore: 'A tooth of black iron worn by the pikemen of the path. They say it finds the gap before the hand does.' },
+  iron_knot:      { slot: 'necklace', name: 'IRON KNOT', mods: { poise: 8, dmg_crush: 0.1 }, effect: 'Poise +8, crush damage +10%', icon: 'necklace',
+    lore: 'A knot of iron chain, the last link of an ironclad\'s mail. Heavy to carry. Heavier to be hit by.' },
   sentinel_sigil: { slot: 'necklace', name: "SENTINEL'S SIGIL", mods: { poise: 10 }, effect: 'Poise +10', icon: 'necklace',
     lore: 'The Sentinel wore this beneath its plate. Whoever carries it stands a little more like a wall.' },
 };
@@ -403,7 +462,7 @@ const DEF_REF = 23, DEF_K = 60;          // damage taken x1 at the hunter set's 
 /** Stats from an equipment map (slot -> id). */
 function deriveStats(eq) {
   let defense = 0, poise = 0, weight = 0;
-  const mods = { regen: 0, load: 0, hp: 0, poise: 0 }, def = {};
+  const mods = { regen: 0, load: 0, hp: 0, poise: 0, dmg_slash: 0, dmg_stab: 0, dmg_crush: 0, dmg_ranged: 0, dmg_magic: 0 }, def = {};
   for (const ty of DAMAGE_TYPES) def[ty] = 0;
   for (const slot of EQUIP_SLOTS) {
     const d = eq[slot] && ITEM_DB[eq[slot]];
@@ -421,7 +480,8 @@ function deriveStats(eq) {
   const tier = LOAD_TIERS.find(t => ratio <= t.max);
   const taken = {}; for (const ty of DAMAGE_TYPES) taken[ty] = (DEF_REF + DEF_K) / (def[ty] + DEF_K);
   return { defense, def, taken, poise, weight, maxLoad, ratio, tier, dmgTaken: (DEF_REF + DEF_K) / (defense + DEF_K),
-    maxHp: PLAYER_MAX_HP + mods.hp, regen: tier.regen * (1 + mods.regen) };
+    maxHp: PLAYER_MAX_HP + mods.hp, regen: tier.regen * (1 + mods.regen),
+    dmg: { slash: 1 + mods.dmg_slash, stab: 1 + mods.dmg_stab, crush: 1 + mods.dmg_crush, ranged: 1 + mods.dmg_ranged, magic: 1 + mods.dmg_magic } };
 }
 
 class Inventory {
@@ -2406,7 +2466,7 @@ class Player {
     this.items = {}; for (const k in ITEMS) this.items[k] = 0;
     this.kind = null; this.move = null; this.attack_dir = this.facing; this.combo = -1; this.combo_expire_t = -1;
     this.dodge_end_t = -10; this.hit_done = false; this.dodge_dir = 0; this.ghost_t = 0; this.invuln = false;
-    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0; this.running = false; this.trail = []; this.animX = 0;
+    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0; this.running = false; this.trail = []; this.animX = 0; this.hitSet = []; this.RADIUS = PLAYER_RADIUS;
     this.charging = 0; this.sprint_req = false; this.sprinting = false; this.sprint_block = false; this.sprint_t = -10;
     this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = this.dodgeBase;
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
@@ -2485,7 +2545,7 @@ class Player {
     else if (kind === 'heavy' || kind === 'charged') this.combo = -1;
     if (kind !== 'flask') { this.attack_dir = d; this.turnTo(d); }
     this.hit_done = false; this.charging = 0; this.enter(S_WINDUP);
-    this.moveSerial = (this.moveSerial || 0) + 1; this.animX = 0; this.trail.length = 0;
+    this.moveSerial = (this.moveSerial || 0) + 1; this.animX = 0; this.trail.length = 0; this.hitSet.length = 0;
   }
   startDodge(d) {
     const prof = this.dodge_prof = this.dodgeBase;
@@ -2556,7 +2616,7 @@ class Player {
         if (aiming) this.sprinting = false;
         const walk = this.stats.tier.walk;
         this.running = this.move_mag >= RUN_EDGE[this.running ? 0 : 1];
-        const base = PLAYER_SPEED * this.weapon.speed * walk;   // aiming or charging a heavy holds you to a walk
+        const base = PLAYER_SPEED * this.weapon.speed * walk * (this.speedMul || 1);   // aiming or charging a heavy holds you to a walk
         const spd = base * (this.sprinting ? SPRINT_MULT : this.running && !aiming && this.charging <= 0 ? 1 : WALK_MULT);
         this.vx = smooth(this.vx, Math.cos(this.move_dir) * spd, 18, dt);
         this.vy = smooth(this.vy, Math.sin(this.move_dir) * spd, 18, dt);
@@ -2567,6 +2627,7 @@ class Player {
       }
       if (this.sprinting) this.facing = approachAngle(this.facing, this.move_dir, 14 * dt);
       else if (this.aim_dir !== null) this.facing = approachAngle(this.facing, this.aim_dir, 18 * dt);
+      else if (this.faceDir !== null && this.faceDir !== undefined) this.facing = approachAngle(this.facing, this.faceDir, 9 * dt);   // foes: eyes on you
       else if (this.move_dir !== null) this.facing = approachAngle(this.facing, this.move_dir, 14 * dt);
       if (this.sprinting) {
         this.sprint_t = t;
@@ -3048,9 +3109,9 @@ class Projectiles {
   }
   throwItem(p, item) {
     for (const bm of this.bombs) if (!bm.live) {
-      const a = p.attack_dir, L = item.throw, lim = ARENA_HALF - 10;
-      Object.assign(bm, { live: true, t: 0, item, x0: p.gx, y0: p.gy, gx: p.gx, gy: p.gy, elev: 30,
-        x1: clamp(p.gx + Math.cos(a) * L, -lim, lim), y1: clamp(p.gy + Math.sin(a) * L, -lim, lim) });
+      const a = p.attack_dir, L = item.throw, to = { gx: p.gx + Math.cos(a) * L, gy: p.gy + Math.sin(a) * L };
+      this.g.clampWalk(to, 10, Object.values(ROOMS));                                  // it lands on the floor somewhere
+      Object.assign(bm, { live: true, t: 0, item, x0: p.gx, y0: p.gy, gx: p.gx, gy: p.gy, elev: 30, x1: to.gx, y1: to.gy });
       return;
     }
   }
@@ -3060,7 +3121,9 @@ class Projectiles {
     for (const sh of this.shots) {
       if (!sh.live) continue;
       sh.gx += sh.vx * dt; sh.gy += sh.vy * dt; sh.dist += BULLET_SPEED * dt;
-      let gone = sh.dist >= BULLET_RANGE || Math.abs(sh.gx) > ARENA_HALF || Math.abs(sh.gy) > ARENA_HALF;
+      let gone = sh.dist >= BULLET_RANGE || !g.inAnyRoom(sh.gx, sh.gy);
+      if (!gone) for (const f of g.foes) if (f.alive && !f.gone && hypot(sh.gx - f.gx, sh.gy - f.gy) <= f.RADIUS + 6) {
+        g.hitFoe(f, BULLET_DAMAGE, BULLET_POISE + 6, Math.atan2(sh.vy, sh.vx), 'ranged'); gone = true; sh.hit = true; break; }
       for (const pil of g.pillars) if (hypot(sh.gx - pil.gx, sh.gy - pil.gy) <= pil.RADIUS) gone = true;
       if (!gone && b.alive && b.elev < 40 && hypot(sh.gx - b.gx, sh.gy - b.gy) <= b.RADIUS + 6) {
         g.onShotHit(Math.atan2(sh.vy, sh.vx), sh.gx, sh.gy); gone = true; sh.hit = true;
@@ -3088,6 +3151,7 @@ class Game {
     this.inv = Inventory.load();
     this.boss = new Boss(this);
     this.player = new Player(this);
+    this.foes = FOE_SPAWNS.map(s => new Foe(this, s)); this.foeTokens = 0;
     this.proj = new Projectiles(this);
     this.pickups = PICKUPS.map(p => new Pickup(p[0], p[1], p[2]));
     this.chests = CHESTS.map(d => new Chest(d)); this.chestNear = null; this.loot = null;
@@ -3105,7 +3169,8 @@ class Game {
     if (resetBoss || this.fight !== 'won') { this.fight = 'idle'; this.boss.reset(); }
     this.gate_t = 0; this.victory_t = this.fight === 'won' ? 99 : 0; this.fade = 1;
     this.player.reset(); this.fx.clear(); this.proj.clear();
-    for (const pk of this.pickups) pk.reset();
+    if (this.foes) for (const f of this.foes) f.reset();          // everything that was killed stands again
+    this.pickups = this.pickups.filter(pk => !pk.temp); for (const pk of this.pickups) pk.reset();
     for (const ch of this.chests) ch.reset(this.inv); this.chestNear = null; this.loot = null; this.bossLoot = [];
     this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0; this.bump_y = 0; this.bump_v = 0;
     this.ox = 0; this.oy = 0; this.stamDeny = 0; this.toast_t = 0; this.toast_key = null;
@@ -3211,9 +3276,10 @@ class Game {
       p.hp = Math.min(p.maxHp, p.hp + FLASK_HEAL); p.rally = Math.min(p.rally, p.maxHp - p.hp);
       this.fx.heal(p); this.sfx('flask', 0.9); this.haptic('light', 0.5); return;
     }
-    if (mv.sfx) this.sfx(mv.sfx[0], mv.sfx[1]);
+    const mine = p === this.player;
+    if (mv.sfx) this.sfx(mv.sfx[0], mv.sfx[1] * (mine ? 1 : 0.8));
     if (mv.thud) this.sfx('thud', 0.55);
-    if (mv.haptic) this.haptic(mv.haptic[0], mv.haptic[1]);
+    if (mv.haptic && mine) this.haptic(mv.haptic[0], mv.haptic[1]);
     this.fx.slash(p);
   }
   /** A foot planting at the end of a step inside an attack: the weight lands on it. */
@@ -3230,8 +3296,9 @@ class Game {
     for (let i = 0; i < Math.round(5 + 8 * power); i++) this.fx.chip(x, y * K + 4, 200 + 160 * power);
     this.fx.clank(x, y, 0.6 + 0.6 * power);
     this.sfx('boom', 0.45 + 0.5 * power); this.sfx('clank', 0.5 + 0.3 * power);
-    this.addBump(3 + 9 * power); this.addShake(Math.PI / 2, 4 + 8 * power);
-    this.haptic(power > 0.8 ? 'heavy' : 'medium', 0.6 + 0.4 * power);
+    const mine = p === this.player, k = mine ? 1 : 0.6;
+    this.addBump((3 + 9 * power) * k); this.addShake(Math.PI / 2, (4 + 8 * power) * k);
+    if (mine) this.haptic(power > 0.8 ? 'heavy' : 'medium', 0.6 + 0.4 * power);
   }
   attackHits(p, target) {
     const shape = p.move.hitbox, dx = target.gx - p.gx, dy = target.gy - p.gy, r = target.RADIUS;
@@ -3300,6 +3367,8 @@ class Game {
     }
     f.glows.spawn({ x: gx, y: gy * K + 20, life: 0.25, size: [2.6 * R, 2.6 * R], color: '#ff8a3a', alpha: 0.9, s0: 0.4, s1: 1.1 });
     this.sfx('thud', 0.9); this.sfx('crunch', 0.7); this.addShake(Math.PI / 2, 7); this.haptic('medium', 0.8);
+    for (const fo of this.foes) if (fo.alive && !fo.gone && hypot(fo.gx - gx, fo.gy - gy) <= R + fo.RADIUS)
+      this.hitFoe(fo, item.damage, item.poise, Math.atan2(fo.gy - gy, fo.gx - gx), 'magic');
     const b = this.boss;
     if (b.alive && hypot(b.gx - gx, b.gy - gy) <= R + b.RADIUS && b.elev < 60)
       this.hitBoss(Math.round(item.damage * (BOSS_RESIST.magic || 1)), item.poise, Math.atan2(b.gy - gy, b.gx - gx), true, false);
@@ -3476,8 +3545,74 @@ class Game {
     const dx = e.gx - cx, dy = e.gy - cy, d = hypot(dx, dy);
     if (d > 1e-4 && d < minD) { const k = (minD - d) / d; e.gx += dx * k; e.gy += dy * k; }
   }
+  inAnyRoom(x, y) {
+    for (const k in ROOMS) { const R = ROOMS[k]; if (x >= R[0] && x <= R[2] && y >= R[1] && y <= R[3]) return true; }
+    return false;
+  }
+  /** Cheap visibility cull: only foes near the camera get posed and drawn. */
+  near(e, m) {                     // on screen (plus a margin, in world units): the view is ~1065 wide, ~760 deep
+    return Math.abs(e.gx - this.cam_x) < 540 + m && e.gy - this.cam_y < 330 + m && this.cam_y - e.gy < 430 + m;
+  }
+  /** Where foes live (and where they notice you): the shrine room and the path. They never follow into the arena. */
+  inFoeRooms(e) {
+    for (const R of [ROOMS.shrine, ROOMS.path]) if (e.gx >= R[0] && e.gx <= R[2] && e.gy >= R[1] && e.gy <= R[3]) return true;
+    return false;
+  }
+  /** Blows between the player and the foes, both ways. */
+  updateFoeHits() {
+    const p = this.player;
+    for (const f of this.foes) {
+      if (f.gone || !f.alive) continue;
+      if (p.state === S_ACTIVE && p.move && p.move.hitbox && p.hitSet.indexOf(f) < 0 && this.attackHits(p, f)) { p.hitSet.push(f); this.onPlayerHitFoe(p, f); }
+      if (f.state === S_ACTIVE && f.move && f.move.hitbox && !f.hitPlayer && p.alive && this.attackHits(f, p)) {
+        const mv = f.move;
+        f.hitPlayer = this.damagePlayer(Math.round(mv.damage * f.def.dmg), f.attack_dir, 200 + 220 * mv.heft, mv.poise, mv.dtype);
+        if (f.hitPlayer) this.sfx('crunch', 0.6);
+      }
+    }
+  }
+  onPlayerHitFoe(p, f) {
+    const mv = p.move, heavy = mv.heft >= 0.6, a = p.attack_dir, sa = groundToScreenAngle(a);
+    const mult = (f.def.resist[mv.dtype] || 1) * ((p.stats.dmg && p.stats.dmg[mv.dtype]) || 1);
+    const res = f.takeDamage(Math.round(mv.damage * mult), mv.poise, a);
+    this.hitstop = Math.max(this.hitstop, mv.hitstop * (res === 'dead' ? 1.3 : 0.85)); this.addShake(sa, mv.shake * 0.8);
+    const cx = f.gx - Math.cos(a) * f.RADIUS * 0.6, cy = f.gy - Math.sin(a) * f.RADIUS * 0.6;
+    this.fx.hitBurst(cx, cy * K + 42, sa, heavy, f.gx, f.gy, Math.round(mv.sparks * 0.7), mv.flash * 0.7);
+    this.sfx('crunch', heavy ? 0.95 : 0.75); if (heavy) this.sfx('thud', 0.7);
+    if (mult > 1.05) this.sfx('clank', 0.35);
+    this.haptic(heavy ? 'heavy' : 'rigid', heavy ? 0.9 : 0.7);
+    const got = p.regain(mv.damage * mult * RALLY_RATIO * 0.6); if (got >= 1) this.fx.rally(p, got);
+    if (res === 'stagger') { this.sfx('stagger', 0.45); }
+    if (res === 'dead') this.onFoeDeath(f);
+  }
+  onFoeAlert(f) { this.sfx(f.def.weapon === 'greatsword' ? 'clank' : 'whoosh', 0.25); }
+  onFoeDeath(f) {
+    this.sfx('thud', 0.7); this.fx.stomp(f.gx, f.gy, 0.7);
+    for (const d of f.def.drops || []) {
+      if (d.once) { const got = this.giveLoot('foe_' + f.spawn.id, [d.item]); void got; }
+      else if (Math.random() < d.chance) {
+        const pk = new Pickup([f.gx, f.gy], d.item, 1); pk.temp = true; this.pickups.push(pk);
+      }
+    }
+  }
+  /** Damage from anything that isn't a sword: bullets, bombs. */
+  hitFoe(f, dmg, poise, angle, dtype) {
+    const mult = (f.def.resist[dtype] || 1) * ((this.player.stats.dmg && this.player.stats.dmg[dtype]) || 1);
+    const res = f.takeDamage(Math.round(dmg * mult), poise, angle);
+    this.fx.hitBurst(f.gx, f.gy * K + 42, groundToScreenAngle(angle), false, f.gx, f.gy, 6, 60);
+    this.sfx('crunch', 0.45);
+    if (res === 'dead') this.onFoeDeath(f);
+  }
   resolveCollisions() {
     const p = this.player, b = this.boss;
+    for (const f of this.foes) {
+      if (f.gone || f.state === S_DEAD) continue;
+      if (p.alive) this.pushOut(p, f.gx, f.gy, PLAYER_RADIUS + f.RADIUS);
+      for (const o of this.foes) if (o !== f && !o.gone && o.state !== S_DEAD) this.pushOut(f, o.gx, o.gy, f.RADIUS + o.RADIUS);
+      for (const ch of this.chests) this.pushOut(f, ch.gx, ch.gy, f.RADIUS + ch.RADIUS);
+      for (const pil of this.pillars) this.pushOut(f, pil.gx, pil.gy, f.RADIUS + pil.RADIUS);
+      this.clampWalk(f, f.RADIUS + 6, [ROOMS.shrine, ROOMS.path]);
+    }
     if (b.alive && b.elev < 30) this.pushOut(p, b.gx, b.gy, PLAYER_RADIUS + b.RADIUS);
     for (const ch of this.chests) { this.pushOut(p, ch.gx, ch.gy, PLAYER_RADIUS + ch.RADIUS); if (b.elev < 30) this.pushOut(b, ch.gx, ch.gy, b.RADIUS + ch.RADIUS); }
     for (const pil of this.pillars) {
@@ -3545,16 +3680,158 @@ class Game {
     }
     p.update(dt, t);
     b.update(dt, t, p);
+    this.foeTokens = 0;
+    for (const f of this.foes) if (f.alive && (f.state === S_WINDUP || f.state === S_ACTIVE) && f.kind !== 'dodge') this.foeTokens++;
+    for (const f of this.foes) if (!f.gone) f.update(dt, t);
     this.resolveCollisions();
     if (p.state === S_ACTIVE && p.move.hitbox && !p.hit_done && b.alive && this.attackHits(p, b)) {
       p.hit_done = true; this.onPlayerHitBoss(p);
     }
+    this.updateFoeHits();
     p.animate(dt, t); b.animate(dt, t);
+    for (const f of this.foes) if (!f.gone && this.near(f, 160)) f.animate(dt, t);
     this.fx.update(dt, this.cam_x, this.cam_y);
     this.ritualFlash = smooth(this.ritualFlash, 0, 3, dt);
     this.updateCamera(dt);
   }
 }
+
+// ============================================================ FOES (regular enemies)
+// A foe is built from the same parts as the player: the jointed body, the gear meshes, the weapon movesets and the
+// keyed attack clips. Only the brain differs: instead of the touch controls, an AI state machine sets the same
+// inputs (where to move, how fast, which attack to start). Every foe type is pure data (FOE_TYPES in config.js),
+// placed by FOE_SPAWNS; the shared machinery here is what lets new types cost a table entry instead of a class.
+//
+// Brain states: idle (at its post) -> alert (spotted you: turns, a beat to react) -> engage (spacing, strafing,
+// attacking) -> return (lost you: walks back to its post and recovers) ; dead. The body's own states (wind-up,
+// strike, recovery, hurt) run underneath and the brain waits for them.
+// Fairness: at most FOE_TOKENS foes may be winding up or striking at once (the others keep their distance), every
+// foe commits to an attack once its wind-up is half through, and nothing attacks you from off screen.
+
+const FOE_TOKENS = 2;
+
+class Foe extends Player {
+  constructor(game, spawn) { Foe._pending = spawn; super(game); this.spawn = spawn; Foe._pending = null; this.reset(); }
+  get def() { return FOE_TYPES[(this.spawn || Foe._pending).type]; }
+  /** Its gear and weapon come from its type, not from the inventory. */
+  applyLoadout() {
+    const D = this.def, eq = Object.assign({ right: D.weapon }, D.gear), st = this.stats = deriveStats(eq);
+    this.maxHp = D.hp;
+    if (D.weapon !== this.weaponKey) this.setWeapon(D.weapon);
+    this.leftLocked = WEAPONS[D.weapon].stance.hands === 2; this.hasPistol = false; this.leftItem = null;
+    const armor = {}; for (const s of ARMOR_SLOTS) armor[s] = eq[s] || null;
+    const key = JSON.stringify(armor);
+    if (key !== this._armorKey) { this._armorKey = key; this.setGear(armor); }
+    this.dodgeBase = Object.assign({}, DODGE_ROLL);
+  }
+  reset() {
+    super.reset();
+    const S = this.spawn || Foe._pending, D = this.def;
+    [this.gx, this.gy] = S.pos; this.facing = (S.face === undefined ? -90 : S.face) * RAD; this.attack_dir = this.facing;
+    this.hp = this.hp_lag = D.hp; this.poiseCur = D.poise; this.poiseDelay = 0;
+    this.flasks = 0; this.bullets = 0; this.noProps = true; this.speedMul = D.speed;
+    this.brain = 'idle'; this.brain_t = 0; this.think_t = 0; this.cool = 0; this.strafe = Math.random() < 0.5 ? -1 : 1;
+    this.strafe_t = 0; this.chain = null; this.hitPlayer = false; this.seen_t = -10; this.dead_t = 0; this.gone = false;
+    this.faceDir = null; this.hurtShow = 0; this.RADIUS = D.radius || PLAYER_RADIUS + 2;
+    { const v = parseInt(D.ember.slice(1), 16); this.emberRGB = [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255]; } this.glowAlpha = 0;
+    this.animate(0, 0);
+  }
+  /** Damage from the player. Poise soaks hits until it breaks; then he staggers. Returns 'hit' | 'stagger' | 'dead'. */
+  takeDamage(dmg, poiseDmg, angle) {
+    if (!this.alive) return null;
+    this.hp = Math.max(0, this.hp - dmg); this.hurtShow = 5; this.poiseDelay = 2.5; this.hp_lag_hold = 0.6; this.flash_t = 0.1;
+    if (this.brain === 'idle' || this.brain === 'return' || this.brain === 'alert') this.engage();
+    if (this.hp <= 0) {
+      this.charging = 0; this.vx = Math.cos(angle) * 160; this.vy = Math.sin(angle) * 160;
+      this.knock_dir = angle; this.turnTo(angle + Math.PI); this.enter(S_DEAD); this.brain = 'dead'; this.dead_t = 0;
+      return 'dead';
+    }
+    this.poiseCur -= poiseDmg;
+    if (this.poiseCur <= 0) {                     // poise broken: knocked out of whatever he was doing
+      this.poiseCur = this.def.poise; this.chain = null;
+      this.knock_dir = angle; this.vx = Math.cos(angle) * 220; this.vy = Math.sin(angle) * 220;
+      this.turnTo(angle + Math.PI); this.enter(S_HURT); return 'stagger';
+    }
+    return 'hit';
+  }
+  engage() { this.brain = 'engage'; this.brain_t = 0; this.think_t = 0.15; this.cool = Math.max(this.cool, 0.35); }
+
+  /** The brain: sets the same inputs the touch controls set for the player, then the shared body update runs. */
+  update(dt, t) {
+    const g = this.g, P = g.player, D = this.def;
+    this.move_dir = null; this.move_mag = 0; this.sprint_req = false; this.aim_dir = null; this.faceDir = null;
+    this.stamina = STAM_MAX;
+    if (this.hurtShow > 0) this.hurtShow -= dt;
+    if (this.poiseDelay > 0) this.poiseDelay -= dt; else this.poiseCur = Math.min(D.poise, this.poiseCur + D.poise * 0.5 * dt);
+    if (this.state === S_DEAD) {
+      this.dead_t += dt; if (this.dead_t > 3.0) this.gone = true;
+      super.update(dt, t); return;
+    }
+    const dx = P.gx - this.gx, dy = P.gy - this.gy, d = hypot(dx, dy), toP = Math.atan2(dy, dx);
+    const home = this.spawn.pos, dh = hypot(home[0] - this.gx, home[1] - this.gy), sees = P.alive && g.outcome === null && g.inFoeRooms(P);
+    this.brain_t += dt;
+    this.lookOn = this.brain === 'engage' || this.brain === 'alert'; this.lookX = P.gx; this.lookY = P.gy;   // his head follows you
+    if (this.brain === 'idle') {
+      this.faceDir = this.spawn.face === undefined ? -Math.PI / 2 : this.spawn.face * RAD;
+      if (sees && d < D.aggro) { this.brain = 'alert'; this.brain_t = 0; g.onFoeAlert(this); }
+    } else if (this.brain === 'alert') {
+      this.faceDir = toP;
+      if (this.brain_t > D.react) this.engage();
+    } else if (this.brain === 'return') {
+      if (sees && d < D.aggro * 0.8) this.engage();
+      else if (dh < 12) { this.brain = 'idle'; this.hp = this.hp_lag = D.hp; this.poiseCur = D.poise; }
+      else { this.move_dir = Math.atan2(home[1] - this.gy, home[0] - this.gx); this.move_mag = 0.3; }
+    } else if (this.brain === 'engage') {
+      if (!sees || d > D.leash || hypot(home[0] - P.gx, home[1] - P.gy) > D.leash) { this.brain = 'return'; this.brain_t = 0; }
+      else this.fight(dt, d, toP);
+    }
+    // wind-ups track you for their first half, then he is committed
+    if (this.state === S_WINDUP && this.move && this.state_t < this.move.windup * 0.5 && this.kind !== 'dodge') {
+      this.attack_dir = approachAngle(this.attack_dir, toP, D.track * dt); this.facing = this.attack_dir;
+    }
+    super.update(dt, t);
+    if (this.state !== S_ACTIVE) this.hitPlayer = false;
+  }
+  /** The shared body animation, plus a white flash when struck and the slow fade once he has fallen. */
+  animate(dt, t) {
+    super.animate(dt, t);
+    if (this.flash_t > 0) { this.flash_t -= dt; this.glowColor = '#ffffff'; this.glowAlpha = 0.55; }
+    if (this.state === S_DEAD) this.bodyAlpha = clamp(1 - (this.dead_t - 2.2) / 0.8, 0, 1);
+  }
+  /** Spacing, strafing and picking attacks. */
+  fight(dt, d, toP) {
+    const g = this.g, D = this.def, W = this.weapon;
+    this.cool -= dt; this.think_t -= dt; this.strafe_t -= dt;
+    if (this.strafe_t <= 0) { this.strafe_t = uniform(1.2, 2.8); if (Math.random() < 0.55) this.strafe = -this.strafe; }
+    // carry on a chain: the next swing of a combo, started as soon as the last one's recovery allows
+    if (this.chain && this.state === S_RECOVERY && this.state_t >= this.move.cancel) {
+      const c = this.chain; this.chain = null;
+      if (d < c.reach) { this.startMove('light', W.light[c.idx], toP, c.idx); this.chain = c.next || null; return; }
+    }
+    if (!this.canAct()) return;
+    this.faceDir = toP; this.aim_dir = null;
+    const lo = D.space[0], hi = D.space[1];
+    // pick an attack when one fits the distance, the cooldown is over and a token is free
+    if (this.cool <= 0 && this.think_t <= 0 && g.foeTokens < FOE_TOKENS) {
+      this.think_t = uniform(D.think[0], D.think[1]);
+      const fits = D.attacks.filter(a => d >= a.range[0] && d <= a.range[1]);
+      if (fits.length && Math.random() < D.aggression) {
+        let r = Math.random() * fits.reduce((s, a) => s + a.w, 0), a = fits[0];
+        for (const f of fits) { r -= f.w; if (r <= 0) { a = f; break; } }
+        const mv = a.kind === 'light' ? W.light[a.idx] : W[a.kind];
+        this.startMove(a.kind === 'charged' ? 'charged' : a.kind, mv, toP, a.kind === 'light' ? a.idx : null);
+        this.chain = a.chain && Math.random() < a.chain.p ? { idx: a.chain.idx, reach: a.chain.reach, next: a.chain.next } : null;
+        this.cool = uniform(D.cooldown[0], D.cooldown[1]);
+        return;
+      }
+    }
+    // keep his distance band: close in, back off, or circle
+    if (d > hi) { this.move_dir = toP; this.move_mag = d > hi + 160 ? 1 : 0.3; }
+    else if (d < lo) { this.move_dir = toP + Math.PI; this.move_mag = 0.3; }
+    else { this.move_dir = toP + this.strafe * 1.35; this.move_mag = 0.3; }
+  }
+}
+Foe._pending = null;
 
 // ============================================================ ART (procedural textures)
 // Everything is drawn in code at boot into offscreen canvases. Coordinates are in points
@@ -4555,7 +4832,7 @@ const GL_FS = `
 precision highp float;
 varying vec3 vN; varying vec3 vCol; varying float vEmit; varying float vSpec; varying float vZ; varying vec3 vP; varying float vMat;
 uniform vec3 uLight; uniform vec3 uView; uniform vec3 uRim; uniform vec4 uFlash; uniform vec3 uBack;
-uniform float uBackMix; uniform float uEmitGain; uniform float uDetail;
+uniform float uBackMix; uniform float uEmitGain; uniform float uDetail; uniform vec4 uEmitTint;
 // surface detail from the model's own (bind-space) position, so it stays put on the surface as he moves
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 float vnoise(vec3 x) {
@@ -4594,7 +4871,8 @@ void main() {
   vec3 H = normalize(uLight + uView);
   float spec = pow(max(dot(N, H), 0.0), 28.0) * vSpec * specMul;
   vec3 lit = col * (0.32 * hemi + 0.95 * diff) + spec * vec3(0.85, 0.86, 0.95) + rim * uRim + col * sheen * pow(1.0 - facing, 2.0);
-  lit = mix(lit, col * uEmitGain, vEmit);
+  vec3 ec = mix(col, vec3(max(col.r, max(col.g, col.b))) * uEmitTint.rgb, uEmitTint.a);   // foes burn another colour
+  lit = mix(lit, ec * uEmitGain, vEmit);
   lit += uFlash.rgb * uFlash.a;                                         // hit / glow flash (additive)
   gl_FragColor = vec4(lit, 1.0);
 }`;
@@ -4668,7 +4946,7 @@ class GLChar {
     const A = (n) => gl.getAttribLocation(pr, n), U = (n) => gl.getUniformLocation(pr, n);
     this.a = { pos: A('aPos'), nrm: A('aNrm'), col: A('aCol'), bone: A('aBone'), w: A('aW'), emit: A('aEmit'), spec: A('aSpec'), mat: A('aMat') };
     this.u = { bones: U('uBones'), yaw: U('uYaw'), box: U('uBox'), k: U('uK'), light: U('uLight'), view: U('uView'), rim: U('uRim'),
-      flash: U('uFlash'), depth: U('uDepth'), detail: U('uDetail'), back: U('uBack'), backMix: U('uBackMix'), emitGain: U('uEmitGain') };
+      flash: U('uFlash'), depth: U('uDepth'), detail: U('uDetail'), back: U('uBack'), backMix: U('uBackMix'), emitGain: U('uEmitGain'), emitTint: U('uEmitTint') };
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.disable(gl.CULL_FACE);
     gl.uniform1f(this.u.k, K); gl.uniform1f(this.u.depth, 420); gl.uniform1f(this.u.detail, 1);
     const L = v3.norm([-0.5, -0.65, 0.75]), V = v3.norm([0, -1, K]);
@@ -5264,12 +5542,13 @@ class CharGL {
     const fa = p.glowAlpha > 0.01 ? p.glowAlpha : 0, fc = hexRGB(p.glowColor && p.glowColor[0] === '#' ? p.glowColor : '#ff3048');
     gl.uniform4f(g.u.flash, fc[0], fc[1], fc[2], fa * 0.4);
     gl.uniform3f(g.u.back, 0.05, 0.04, 0.06); gl.uniform1f(g.u.backMix, 0.6); gl.uniform1f(g.u.emitGain, 1.5);
+    if (p.emberRGB) gl.uniform4f(g.u.emitTint, p.emberRGB[0], p.emberRGB[1], p.emberRGB[2], 1); else gl.uniform4f(g.u.emitTint, 1, 1, 1, 0);
     g.draw(this.base);
     for (const slot of GEAR_SLOTS) { const id = p.gear[slot]; if (id && this.gear[id]) g.draw(this.gear[id]); }
     const drawn = p.gunDrawn;
     const drinking = p.kind === 'flask' && (p.state === S_WINDUP || p.state === S_ACTIVE || p.state === S_RECOVERY);
-    if (p.hasPistol) g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
-    if (!drinking) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
+    if (p.hasPistol && !p.noProps) g.draw(this.props[drawn ? 'holsterEmpty' : 'holster']);
+    if (!drinking && !p.noProps) g.draw(this.props[p.flasks > 0 ? 'flask' : 'flaskEmpty']);
     if (drawn && !drinking) g.draw(this.weapons.pistol);
     if (drinking) g.draw(this.weapons.flaskHand);
     gl.uniform1f(g.u.emitGain, 1.1 + 1.6 * (p.swordGlow || 0));
@@ -6351,6 +6630,7 @@ class Renderer {
     if (g.boss.present) list.push([-g.boss.gy, () => this.drawBoss(g.boss)]);
     list.push([-GATE.y - 0.1, () => this.drawGate(g, t)]);
     list.push([-g.player.gy, () => this.drawPlayer(g.player)]);
+    for (const f of g.foes) if (!f.gone && g.near(f, 90)) list.push([-f.gy, () => { this.drawPlayer(f); this.drawFoeBar(f); }]);
     for (const bm of g.proj.bombs) if (bm.live) list.push([-bm.gy + 0.5, () => this.drawBomb(bm, t)]);
     for (const q of this.ghosts) if (q.live) list.push([-q.gy - 0.5, () => this.drawGhost(q, g.t)]);
     list.sort((a, b) => a[0] - b[0]);
@@ -6423,7 +6703,7 @@ class Renderer {
       o.x.fillStyle = p.glowColor; o.x.fillRect(0, 0, o.c.width, o.c.height);
       o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
     }
-    if ((p.ghostSeq || 0) !== this.ghostSeq) {                 // dash afterimage: snapshot this frame, tinted crimson
+    if (p === this.g.player && (p.ghostSeq || 0) !== this.ghostSeq) {                 // dash afterimage: snapshot this frame, tinted crimson
       this.ghostSeq = p.ghostSeq || 0;
       const q = this.ghosts.find(z => !z.live) || this.ghosts.reduce((a, z) => (z.t0 < a.t0 ? z : a));
       q.x.setTransform(1, 0, 0, 1, 0, 0); q.x.globalCompositeOperation = 'source-over'; q.x.globalAlpha = 1;
@@ -6438,6 +6718,16 @@ class Renderer {
     main.drawImage(o.c, this.snap(this.sx(p.gx) - L.ox * CAMERA_ZOOM), this.snap(this.sy(p.gy * K) - L.oy * CAMERA_ZOOM), o.c.width / this.dpr, o.c.height / this.dpr);
     main.globalAlpha = 1;
     if (this.gl3d) { this.entityFrame(p.gx, p.gy); this.drawPlayerGlows(p); }
+  }
+  /** A foe's health, over his head once you have hurt him (fades a few seconds after the last hit). */
+  drawFoeBar(f) {
+    if (!(f.hurtShow > 0) || !f.alive) return;
+    const c = this.ctx, w = 42 * CAMERA_ZOOM, h = 3, x = this.sx(f.gx) - w / 2, y = this.sy(f.gy * K + 92), a = clamp(f.hurtShow / 1.2, 0, 1);
+    c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.globalAlpha = 0.85 * a; c.globalCompositeOperation = 'source-over';
+    c.fillStyle = 'rgba(0,0,0,0.7)'; c.fillRect(x - 1, y - 1, w + 2, h + 2);
+    c.fillStyle = '#6b5a4a'; c.fillRect(x, y, w * clamp(f.hp_lag / f.maxHp, 0, 1), h);
+    c.fillStyle = '#b8342f'; c.fillRect(x, y, w * clamp(f.hp / f.maxHp, 0, 1), h);
+    c.globalAlpha = 1;
   }
   /** Soft wide shadow, a darker core under him, and a small shadow under each foot that fades as it lifts. */
   contactShadow(p) {

@@ -156,6 +156,61 @@ const CHESTS = [
 ];
 const CHEST_REACH = 82, CHEST_RADIUS = 26, CHEST_OPEN_TIME = 0.5;
 const BOSS_DROPS = { id: 'boss_sentinel', items: ['sentinel_helm', 'sentinel_plate', 'sentinel_sigil', 'oath_ring'] };
+
+// ---------------------------------------------------------------- foes (data only; the shared machinery is foes.js)
+// gear: worn pieces (GEAR ids). weapon: WEAPONS key (its movesets and clips are the same ones the player uses).
+// speed / dmg: multipliers on the player's movement and on the move's damage. aggro: how close you must be before he
+// notices you; leash: how far he follows from his post. react: seconds between noticing you and moving.
+// space: the distance band he tries to hold. attacks: what he may start at which distance (w = weight); chain = the
+// chance to follow on with the next light of the combo. track: how fast a wind-up turns to follow you (rad/s, first
+// half only). resist: damage taken per type. ember: the colour of the embers in his wrappings. drops: on death
+// (once: given the first time only; chance: a pickup on the floor).
+const FOE_TYPES = {
+  hollow: {                                        // fast, light, relentless: punishes a slow guard
+    name: 'HOLLOW', weapon: 'oathsword', gear: { chest: 'hunter_coat', legs: 'hunter_greaves', feet: 'hunter_boots' },
+    hp: 110, poise: 12, speed: 0.95, dmg: 0.75, aggro: 340, leash: 760, react: 0.45, aggression: 0.8,
+    space: [70, 130], think: [0.2, 0.6], cooldown: [0.6, 1.4], track: 3.5,
+    attacks: [
+      { kind: 'light', idx: 0, range: [0, 150], w: 3, chain: { p: 0.55, idx: 1, reach: 170 } },
+      { kind: 'light', idx: 2, range: [100, 200], w: 1 },
+      { kind: 'dodge', range: [180, 300], w: 1 },
+    ],
+    resist: { slash: 1.15, stab: 0.95, crush: 1.0, ranged: 1.15, magic: 1.0 }, ember: '#e0a050',
+    drops: [{ item: 'firebomb', chance: 0.4 }],
+  },
+  pikeman: {                                       // keeps you at the end of his spear and backs off when you close in
+    name: 'PIKEMAN', weapon: 'spear', gear: { head: 'hunter_hood', chest: 'hunter_coat', hands: 'hunter_gauntlets', legs: 'hunter_greaves', feet: 'hunter_boots', back: 'hunter_cloak' },
+    hp: 140, poise: 16, speed: 0.95, dmg: 0.8, aggro: 460, leash: 820, react: 0.55, aggression: 0.75,
+    space: [170, 230], think: [0.3, 0.8], cooldown: [0.8, 1.6], track: 2.6,
+    attacks: [
+      { kind: 'light', idx: 0, range: [110, 235], w: 3, chain: { p: 0.35, idx: 1, reach: 250 } },
+      { kind: 'heavy', range: [190, 320], w: 1 },
+      { kind: 'light', idx: 2, range: [0, 120], w: 2 },
+    ],
+    resist: { slash: 1.1, stab: 0.9, crush: 1.1, ranged: 1.25, magic: 1.0 }, ember: '#9fb8d0',
+    drops: [{ item: 'piercing_fang', once: true }, { item: 'firebomb', chance: 0.3 }],
+  },
+  brute: {                                         // plate and a greatsword: slow, tough, and every swing hurts
+    name: 'IRONCLAD', weapon: 'greatsword', gear: { head: 'sentinel_helm', chest: 'sentinel_plate', hands: 'hunter_gauntlets', legs: 'hunter_greaves', feet: 'hunter_boots' },
+    hp: 330, poise: 46, speed: 0.78, dmg: 0.7, aggro: 380, leash: 700, react: 0.8, aggression: 0.7, radius: 26,
+    space: [100, 170], think: [0.4, 0.9], cooldown: [1.1, 2.0], track: 1.6,
+    attacks: [
+      { kind: 'light', idx: 0, range: [0, 200], w: 2, chain: { p: 0.4, idx: 1, reach: 210 } },
+      { kind: 'light', idx: 2, range: [80, 220], w: 1 },
+      { kind: 'heavy', range: [100, 240], w: 1 },
+    ],
+    resist: { slash: 0.8, stab: 1.2, crush: 1.25, ranged: 0.7, magic: 1.15 }, ember: '#c8c0a8',
+    drops: [{ item: 'iron_knot', once: true }],
+  },
+};
+// where they stand: the two hollows watch the way out of the shrine room, the pikeman holds the path, the ironclad
+// guards the gate. face: degrees (-90 = south, toward the shrine).
+const FOE_SPAWNS = [
+  { id: 'hollow_w', type: 'hollow', pos: [-95, -1215], face: -100 },
+  { id: 'hollow_e', type: 'hollow', pos: [95, -1235], face: -80 },
+  { id: 'pike_path', type: 'pikeman', pos: [0, -1010], face: -90 },
+  { id: 'brute_gate', type: 'brute', pos: [0, -830], face: -90 },
+];
 const THROW_MOVE = move({ windup: 0.18, active: 0.05, recovery: 0.30, cancel: 0.14, stamina: 8, damage: 0, poise: 0,
                           lunge: 0, hitbox: null, motion: ['rest'], slash: null, sfx: ['whoosh', 0.5],
                           haptic: ['light', 0.5] });

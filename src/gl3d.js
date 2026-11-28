@@ -31,7 +31,7 @@ const GL_FS = `
 precision highp float;
 varying vec3 vN; varying vec3 vCol; varying float vEmit; varying float vSpec; varying float vZ; varying vec3 vP; varying float vMat;
 uniform vec3 uLight; uniform vec3 uView; uniform vec3 uRim; uniform vec4 uFlash; uniform vec3 uBack;
-uniform float uBackMix; uniform float uEmitGain; uniform float uDetail;
+uniform float uBackMix; uniform float uEmitGain; uniform float uDetail; uniform vec4 uEmitTint;
 // surface detail from the model's own (bind-space) position, so it stays put on the surface as he moves
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 float vnoise(vec3 x) {
@@ -70,7 +70,8 @@ void main() {
   vec3 H = normalize(uLight + uView);
   float spec = pow(max(dot(N, H), 0.0), 28.0) * vSpec * specMul;
   vec3 lit = col * (0.32 * hemi + 0.95 * diff) + spec * vec3(0.85, 0.86, 0.95) + rim * uRim + col * sheen * pow(1.0 - facing, 2.0);
-  lit = mix(lit, col * uEmitGain, vEmit);
+  vec3 ec = mix(col, vec3(max(col.r, max(col.g, col.b))) * uEmitTint.rgb, uEmitTint.a);   // foes burn another colour
+  lit = mix(lit, ec * uEmitGain, vEmit);
   lit += uFlash.rgb * uFlash.a;                                         // hit / glow flash (additive)
   gl_FragColor = vec4(lit, 1.0);
 }`;
@@ -144,7 +145,7 @@ class GLChar {
     const A = (n) => gl.getAttribLocation(pr, n), U = (n) => gl.getUniformLocation(pr, n);
     this.a = { pos: A('aPos'), nrm: A('aNrm'), col: A('aCol'), bone: A('aBone'), w: A('aW'), emit: A('aEmit'), spec: A('aSpec'), mat: A('aMat') };
     this.u = { bones: U('uBones'), yaw: U('uYaw'), box: U('uBox'), k: U('uK'), light: U('uLight'), view: U('uView'), rim: U('uRim'),
-      flash: U('uFlash'), depth: U('uDepth'), detail: U('uDetail'), back: U('uBack'), backMix: U('uBackMix'), emitGain: U('uEmitGain') };
+      flash: U('uFlash'), depth: U('uDepth'), detail: U('uDetail'), back: U('uBack'), backMix: U('uBackMix'), emitGain: U('uEmitGain'), emitTint: U('uEmitTint') };
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.disable(gl.CULL_FACE);
     gl.uniform1f(this.u.k, K); gl.uniform1f(this.u.depth, 420); gl.uniform1f(this.u.detail, 1);
     const L = v3.norm([-0.5, -0.65, 0.75]), V = v3.norm([0, -1, K]);

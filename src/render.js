@@ -224,6 +224,7 @@ class Renderer {
     if (g.boss.present) list.push([-g.boss.gy, () => this.drawBoss(g.boss)]);
     list.push([-GATE.y - 0.1, () => this.drawGate(g, t)]);
     list.push([-g.player.gy, () => this.drawPlayer(g.player)]);
+    for (const f of g.foes) if (!f.gone && g.near(f, 90)) list.push([-f.gy, () => { this.drawPlayer(f); this.drawFoeBar(f); }]);
     for (const bm of g.proj.bombs) if (bm.live) list.push([-bm.gy + 0.5, () => this.drawBomb(bm, t)]);
     for (const q of this.ghosts) if (q.live) list.push([-q.gy - 0.5, () => this.drawGhost(q, g.t)]);
     list.sort((a, b) => a[0] - b[0]);
@@ -296,7 +297,7 @@ class Renderer {
       o.x.fillStyle = p.glowColor; o.x.fillRect(0, 0, o.c.width, o.c.height);
       o.x.globalCompositeOperation = 'source-over'; o.x.globalAlpha = 1;
     }
-    if ((p.ghostSeq || 0) !== this.ghostSeq) {                 // dash afterimage: snapshot this frame, tinted crimson
+    if (p === this.g.player && (p.ghostSeq || 0) !== this.ghostSeq) {                 // dash afterimage: snapshot this frame, tinted crimson
       this.ghostSeq = p.ghostSeq || 0;
       const q = this.ghosts.find(z => !z.live) || this.ghosts.reduce((a, z) => (z.t0 < a.t0 ? z : a));
       q.x.setTransform(1, 0, 0, 1, 0, 0); q.x.globalCompositeOperation = 'source-over'; q.x.globalAlpha = 1;
@@ -311,6 +312,16 @@ class Renderer {
     main.drawImage(o.c, this.snap(this.sx(p.gx) - L.ox * CAMERA_ZOOM), this.snap(this.sy(p.gy * K) - L.oy * CAMERA_ZOOM), o.c.width / this.dpr, o.c.height / this.dpr);
     main.globalAlpha = 1;
     if (this.gl3d) { this.entityFrame(p.gx, p.gy); this.drawPlayerGlows(p); }
+  }
+  /** A foe's health, over his head once you have hurt him (fades a few seconds after the last hit). */
+  drawFoeBar(f) {
+    if (!(f.hurtShow > 0) || !f.alive) return;
+    const c = this.ctx, w = 42 * CAMERA_ZOOM, h = 3, x = this.sx(f.gx) - w / 2, y = this.sy(f.gy * K + 92), a = clamp(f.hurtShow / 1.2, 0, 1);
+    c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.globalAlpha = 0.85 * a; c.globalCompositeOperation = 'source-over';
+    c.fillStyle = 'rgba(0,0,0,0.7)'; c.fillRect(x - 1, y - 1, w + 2, h + 2);
+    c.fillStyle = '#6b5a4a'; c.fillRect(x, y, w * clamp(f.hp_lag / f.maxHp, 0, 1), h);
+    c.fillStyle = '#b8342f'; c.fillRect(x, y, w * clamp(f.hp / f.maxHp, 0, 1), h);
+    c.globalAlpha = 1;
   }
   /** Soft wide shadow, a darker core under him, and a small shadow under each foot that fades as it lifts. */
   contactShadow(p) {
