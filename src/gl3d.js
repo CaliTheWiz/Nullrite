@@ -3,17 +3,17 @@
 // crimson rim light, plate specular, emissive glows and a hit-flash tint. Depth buffer does the sorting.
 
 const GL_BONES = 20;                         // skin matrices uploaded per frame
-const GL_STRIDE = 14;                        // pos3 nrm3 col3 bone2 weight1 emit1 spec1
+const GL_STRIDE = 15;                        // pos3 nrm3 col3 bone2 weight1 emit1 spec1 mat1
 
 const GL_VS = `
 precision highp float;
 attribute vec3 aPos; attribute vec3 aNrm; attribute vec3 aCol; attribute vec2 aBone; attribute float aW;
-attribute float aEmit; attribute float aSpec;
+attribute float aEmit; attribute float aSpec; attribute float aMat;
 uniform mat4 uBones[${GL_BONES}];
 uniform vec2 uYaw;           // cos, sin of facing
 uniform vec4 uBox;           // layer: origin x, origin y (points from top-left), width, height
 uniform float uK; uniform float uDepth;
-varying vec3 vN; varying vec3 vCol; varying float vEmit; varying float vSpec; varying float vZ;
+varying vec3 vN; varying vec3 vCol; varying float vEmit; varying float vSpec; varying float vZ; varying vec3 vP; varying float vMat;
 void main() {
   mat4 m = uBones[int(aBone.x)] * aW + uBones[int(aBone.y)] * (1.0 - aW);
   vec3 p = (m * vec4(aPos, 1.0)).xyz;
@@ -24,25 +24,52 @@ void main() {
   vN = vec3(n.x * s + n.y * c, -n.x * c + n.y * s, n.z);
   float sx = uBox.x + W.x, sy = uBox.y - (W.y * uK + W.z);
   gl_Position = vec4(sx / uBox.z * 2.0 - 1.0, 1.0 - sy / uBox.w * 2.0, (W.y - uK * W.z) / uDepth, 1.0);
-  vCol = aCol; vEmit = aEmit; vSpec = aSpec; vZ = W.z;
+  vCol = aCol; vEmit = aEmit; vSpec = aSpec; vZ = W.z; vP = aPos; vMat = aMat;
 }`;
 
 const GL_FS = `
-precision mediump float;
-varying vec3 vN; varying vec3 vCol; varying float vEmit; varying float vSpec; varying float vZ;
+precision highp float;
+varying vec3 vN; varying vec3 vCol; varying float vEmit; varying float vSpec; varying float vZ; varying vec3 vP; varying float vMat;
 uniform vec3 uLight; uniform vec3 uView; uniform vec3 uRim; uniform vec4 uFlash; uniform vec3 uBack;
-uniform float uBackMix; uniform float uEmitGain;
+uniform float uBackMix; uniform float uEmitGain; uniform float uDetail;
+// surface detail from the model's own (bind-space) position, so it stays put on the surface as he moves
+float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float vnoise(vec3 x) {
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1.0, 0.0, 0.0)), f.x), mix(h3(i + vec3(0.0, 1.0, 0.0)), h3(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0.0, 0.0, 1.0)), h3(i + vec3(1.0, 0.0, 1.0)), f.x), mix(h3(i + vec3(0.0, 1.0, 1.0)), h3(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+}
 void main() {
   vec3 N = normalize(vN);
   vec3 col = vCol;
   if (dot(N, uView) < 0.0) { N = -N; col = mix(col, uBack, uBackMix); }   // seeing the inside / underside of a surface
+  float specMul = 1.0, sheen = 0.0;
+  if (vMat > 0.5 && uDetail > 0.0) {
+    vec3 p = vP * uDetail;
+    col *= 0.9 + 0.2 * vnoise(p * 0.16);                                       // broad tonal variation: nothing is flat
+    if (vMat < 1.5) {                                                         // cloth: weave + soft fuzz at grazing angles
+      float w = 0.5 + 0.5 * sin(dot(p, vec3(1.5, 0.0, 1.5))) * sin(dot(p, vec3(-1.5, 0.9, 1.5)));
+      col *= 0.92 + 0.1 * w + 0.14 * (vnoise(p * 0.9) - 0.5);
+      sheen = 0.18;
+    } else if (vMat < 2.5) {                                                  // leather / skin: grain and blotching
+      float g = vnoise(p * 1.7), b = vnoise(p * 0.45 + 3.1);
+      col *= 0.84 + 0.22 * g + 0.12 * (b - 0.5);
+      specMul = 0.55 + 0.9 * g;
+    } else {                                                                  // metal / obsidian: brushing, scratches, grime
+      float br = vnoise(p * vec3(3.6, 0.6, 0.6)), s = vnoise(p * 1.9 + 7.0), d = vnoise(p * 0.7 + 11.0);
+      float scr = smoothstep(0.80, 0.84, s) * (1.0 - smoothstep(0.84, 0.88, s));
+      col *= 0.9 + 0.14 * br; col += vec3(0.07) * scr;
+      col *= mix(0.86, 1.0, smoothstep(0.2, 0.4, d));                         // dull grime in patches
+      specMul = (0.7 + 0.5 * br) * mix(0.5, 1.0, smoothstep(0.22, 0.42, d)) + 1.2 * scr;
+    }
+  }
   float diff = max(dot(N, uLight), 0.0);
   float hemi = mix(0.45, 1.0, N.z * 0.5 + 0.5);                     // darker undersides
   float facing = max(dot(N, uView), 0.0);
   float rim = pow(1.0 - facing, 4.0);
   vec3 H = normalize(uLight + uView);
-  float spec = pow(max(dot(N, H), 0.0), 28.0) * vSpec;
-  vec3 lit = col * (0.32 * hemi + 0.95 * diff) + spec * vec3(0.85, 0.86, 0.95) + rim * uRim;
+  float spec = pow(max(dot(N, H), 0.0), 28.0) * vSpec * specMul;
+  vec3 lit = col * (0.32 * hemi + 0.95 * diff) + spec * vec3(0.85, 0.86, 0.95) + rim * uRim + col * sheen * pow(1.0 - facing, 2.0);
   lit = mix(lit, col * uEmitGain, vEmit);
   lit += uFlash.rgb * uFlash.a;                                         // hit / glow flash (additive)
   gl_FragColor = vec4(lit, 1.0);
@@ -58,8 +85,11 @@ function glCompile(gl, type, src) {
 class MeshBuilder {
   constructor() { this.v = []; this.i = []; }
   get count() { return this.v.length / GL_STRIDE; }
-  vert(p, n, col, b0, b1, w, emit, spec) {
-    this.v.push(p[0], p[1], p[2], n[0], n[1], n[2], col[0], col[1], col[2], b0, b1, w, emit || 0, spec || 0);
+  /** mat: surface detail kind; left out = worked out from emit/spec (glowing: none, shiny: metal, matte: cloth, else leather). */
+  vert(p, n, col, b0, b1, w, emit, spec, mat) {
+    emit = emit || 0; spec = spec || 0;
+    if (mat === undefined) mat = emit > 0.5 ? 0 : spec >= 0.45 ? 3 : spec <= 0.1 ? 1 : 2;
+    this.v.push(p[0], p[1], p[2], n[0], n[1], n[2], col[0], col[1], col[2], b0, b1, w, emit, spec, mat);
     return this.count - 1;
   }
   tri(a, b, c) { this.i.push(a, b, c); }
@@ -112,11 +142,11 @@ class GLChar {
     if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
     this.pr = pr; gl.useProgram(pr);
     const A = (n) => gl.getAttribLocation(pr, n), U = (n) => gl.getUniformLocation(pr, n);
-    this.a = { pos: A('aPos'), nrm: A('aNrm'), col: A('aCol'), bone: A('aBone'), w: A('aW'), emit: A('aEmit'), spec: A('aSpec') };
+    this.a = { pos: A('aPos'), nrm: A('aNrm'), col: A('aCol'), bone: A('aBone'), w: A('aW'), emit: A('aEmit'), spec: A('aSpec'), mat: A('aMat') };
     this.u = { bones: U('uBones'), yaw: U('uYaw'), box: U('uBox'), k: U('uK'), light: U('uLight'), view: U('uView'), rim: U('uRim'),
-      flash: U('uFlash'), depth: U('uDepth'), back: U('uBack'), backMix: U('uBackMix'), emitGain: U('uEmitGain') };
+      flash: U('uFlash'), depth: U('uDepth'), detail: U('uDetail'), back: U('uBack'), backMix: U('uBackMix'), emitGain: U('uEmitGain') };
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.disable(gl.CULL_FACE);
-    gl.uniform1f(this.u.k, K); gl.uniform1f(this.u.depth, 420);
+    gl.uniform1f(this.u.k, K); gl.uniform1f(this.u.depth, 420); gl.uniform1f(this.u.detail, 1);
     const L = v3.norm([-0.5, -0.65, 0.75]), V = v3.norm([0, -1, K]);
     gl.uniform3f(this.u.light, L[0], L[1], L[2]); gl.uniform3f(this.u.view, V[0], V[1], V[2]);
     gl.uniform3f(this.u.rim, 0.30, 0.04, 0.07);
@@ -139,7 +169,7 @@ class GLChar {
     const gl = this.gl, a = this.a, S = GL_STRIDE * 4;
     gl.bindBuffer(gl.ARRAY_BUFFER, m.vb); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ib);
     const at = (loc, n, off) => { if (loc < 0) return; gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, n, gl.FLOAT, false, S, off * 4); };
-    at(a.pos, 3, 0); at(a.nrm, 3, 3); at(a.col, 3, 6); at(a.bone, 2, 9); at(a.w, 1, 11); at(a.emit, 1, 12); at(a.spec, 1, 13);
+    at(a.pos, 3, 0); at(a.nrm, 3, 3); at(a.col, 3, 6); at(a.bone, 2, 9); at(a.w, 1, 11); at(a.emit, 1, 12); at(a.spec, 1, 13); at(a.mat, 1, 14);
     gl.drawElements(gl.TRIANGLES, m.n, gl.UNSIGNED_SHORT, 0);
   }
   updateDynamic(m) {

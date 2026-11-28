@@ -170,6 +170,13 @@ Base body (DONE): what is under the armour is a person, not a black suit: ashen 
 deep-set eyes with a faint ember), dark hair, a quilted gambeson with sleeves to the elbow, belted trousers, leather
 wraps at the wrists, cloth-wrapped shins and feet. Same bones and silhouette as before so armour still fits over it;
 the hunter hood now carries its own iron mask behind the face opening.
+Faceless base + surface detail (DONE): the bare head is wrapped in linen with a real slit cut over the eyes (shadow
+and two faint embers inside), a cowl at the neck, wrapped hands: no painted features (they read uncanny at play size).
+Shader surface detail (src/gl3d.js GL_FS): every vertex carries a material id (GL_STRIDE 15; MeshBuilder.vert works it
+out from emit/spec unless given: glowing 0 = none, shiny 3 = metal/obsidian, matte 1 = cloth, else 2 = leather/skin;
+simulated cloth is 0 because it moves). Bind-space value noise gives broad tonal variation on everything, weave + sheen
+on cloth, grain on leather/skin, brushing, scratches and grime on metal. uDetail scales it (player 1, boss 0.55).
+Later: sculpted forms and a rotating close-up of the character on the equipment screen.
 Next: per-weapon unique animation sets (incl. left-hand / dual-wield movesets), shields, catalysts, enemy drops.
 Blunderbuss (spread shot) is a future off-hand weapon.
 Weapon/hand rules (agreed):

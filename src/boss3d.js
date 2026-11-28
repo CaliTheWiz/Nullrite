@@ -243,7 +243,7 @@ class BossGL {
     if (rc.w <= 0 || rc.h <= 0) return rc;
     gl.viewport(0, 0, W, H); gl.enable(gl.SCISSOR_TEST); gl.scissor(x0, H - y1, rc.w, rc.h);
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.uniform4f(g.u.box, L.ox, L.oy, L.w, L.h); gl.uniform1f(g.u.depth, 900);
+    gl.uniform4f(g.u.box, L.ox, L.oy, L.w, L.h); gl.uniform1f(g.u.depth, 900); gl.uniform1f(g.u.detail, 0.55);   // he is twice the size: coarser surface detail
     gl.uniform2f(g.u.yaw, Math.cos(R.yaw), Math.sin(R.yaw));
     bossBoneFrames(R.j, R.R, R.headF, R.headU, this.cur);
     const Hl = R.hal; frameFrom(this.cur[BB.halberd], Hl.o, Hl.x, Hl.y);

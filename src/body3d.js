@@ -52,7 +52,7 @@ function tube(mb, S, refFn, n, capStart, capEnd, skip) {
       const p = v3.add(q.p, v3.add(v3.mul(u, cu * q.r[0]), v3.mul(v, sv * q.r[1])));
       const nr = v3.norm(v3.add(v3.mul(u, cu / q.r[0]), v3.mul(v, sv / q.r[1])));
       const m = q.colFn ? q.colFn(th, k) : [q.col, q.emit || 0, q.spec || 0];
-      ring.push(mb.vert(p, nr, m[0], q.bones[0], q.bones[1], q.bones[2], m[1], m[2]));
+      ring.push(mb.vert(p, nr, m[0], q.bones[0], q.bones[1], q.bones[2], m[1], m[2], m[3]));
     }
     rings.push(ring);
   }
@@ -64,7 +64,7 @@ function tube(mb, S, refFn, n, capStart, capEnd, skip) {
   const cap = (k, dir) => {
     const q = S[k], r = rings[k], t = v3.norm(v3.sub(S[Math.min(S.length - 1, k + 1)].p, S[Math.max(0, k - 1)].p));
     const m = q.colFn ? q.colFn(0, k) : [q.col, q.emit || 0, q.spec || 0];
-    const tip = mb.vert(v3.add(q.p, v3.mul(t, dir * Math.min(q.r[0], q.r[1]) * 0.6)), v3.mul(t, dir), m[0], q.bones[0], q.bones[1], q.bones[2], m[1], m[2]);
+    const tip = mb.vert(v3.add(q.p, v3.mul(t, dir * Math.min(q.r[0], q.r[1]) * 0.6)), v3.mul(t, dir), m[0], q.bones[0], q.bones[1], q.bones[2], m[1], m[2], m[3]);
     for (let i = 0; i < r.length; i++) mb.tri(r[i], r[(i + 1) % r.length], tip);
   };
   if (capStart) cap(0, -1); if (capEnd) cap(S.length - 1, 1);
@@ -103,7 +103,7 @@ function ellipsoid(mb, c, R, bones, colFn, nLon, nLat, opts) {
       let nr = v3.norm([p[0] / (R[0] * R[0]), p[1] / (R[1] * R[1]), p[2] / (R[2] * R[2])]);
       if (opts.deform) { const q = opts.deform(p, th, ps); p = q[0]; nr = q[1] || nr; }
       const m = colFn(th, ps), bw = typeof bones === 'function' ? bones(p) : bones;
-      row.push(mb.vert(v3.add(c, p), nr, m[0], bw[0], bw[1], bw[2], m[1], m[2]));
+      row.push(mb.vert(v3.add(c, p), nr, m[0], bw[0], bw[1], bw[2], m[1], m[2], m[3]));
     }
     grid.push(row);
   }
@@ -125,7 +125,7 @@ function loftZ(mb, secs, z0, z1, nz, nt, bonesAt, colFn, skip, grow) {
       const p = [a * s, f + b * c, z];
       const nr = v3.norm([s / a, c / b, -(slopeA * s * s / a + slopeB * c * c / b)]);
       const m = colFn(th, z), bw = bonesAt(z, th);
-      row.push(mb.vert(p, nr, m[0], bw[0], bw[1], bw[2], m[1], m[2]));
+      row.push(mb.vert(p, nr, m[0], bw[0], bw[1], bw[2], m[1], m[2], m[3]));
     }
     rows.push(row);
   }
@@ -179,25 +179,24 @@ function buildBase(mb) {
     const quilt = Math.abs(((z - 38.4) % 3.4) - 1.7) < 0.28 || Math.abs(th) < 0.04 || Math.abs(Math.abs(th) - 1.3) < 0.04;
     return [quilt ? M.quilt : M.cloth, 0, 0.06];
   });
-  // neck + head: jaw, chin, brow; hair over the crown and back; nose; deep-set eyes with a faint ember
-  tube(mb, chainSamples([BIND.neck, BIND.head], [B.neck], 3, () => [2.9, 2.7], M.skin, 1, () => ({ spec: 0.12 })), fwdRef, 10, false, false);
-  const hc = v3.add(BIND.head, [0, 0.6, 0.2]);
-  ellipsoid(mb, hc, [4.7, 5.3, 6.4], [B.head, B.head, 1], (th, ps) => {
-    const front = Math.cos(th) > 0.35;
-    if (ps > 0.42 || (!front && ps > -0.25) || (Math.cos(th) < 0.62 && ps > 0.18)) return [M.hair, 0, 0.15];
-    return [M.skin, 0, 0.14];
-  }, 18, 14, { deform: (p, th, ps) => {
-    const lo = ps < -0.1 ? 1 + 0.32 * Math.sin(ps + 0.1) : 1;                                      // jaw narrows to the chin
-    const brow = Math.max(0, Math.cos(th)) * Math.exp(-Math.pow((ps - 0.22) / 0.12, 2)) * 0.35;   // brow ridge
-    const chin = Math.max(0, Math.cos(th)) * Math.exp(-Math.pow((ps + 0.75) / 0.18, 2)) * 0.5;
-    return [[p[0] * lo, p[1] * (ps < -0.1 ? 1 + 0.12 * Math.sin(ps + 0.1) : 1) + brow + chin, p[2]], null];
+  // head: wrapped in linen, a narrow slit left open over the eyes; inside the slit only shadow and two embers
+  const hc = v3.add(BIND.head, [0, 0.6, 0.2]), HR = [4.9, 5.45, 6.6];
+  const slit = (th, ps) => Math.abs(th) < 0.62 && ps > -0.02 && ps < 0.26;
+  ellipsoid(mb, hc, HR, [B.head, B.head, 1], (th, ps) => {
+    if (slit(th, ps)) return [C3('#0a0808'), 0, 0.02, 0];
+    const band = (Math.floor(ps * 7.5 + th * 0.9 + 20) % 2 === 0);                                   // overlapping turns of cloth
+    return [band ? C3('#3e342c') : C3('#483d33'), 0, 0.06];
+  }, 22, 18, { deform: (p, th, ps) => {
+    const lo = ps < -0.1 ? 1 + 0.28 * Math.sin(ps + 0.1) : 1;                                      // narrower at the jaw
+    const inS = Math.abs(th) < 0.7 && ps > -0.08 && ps < 0.32;                                      // the slit is cut into the wrap
+    const depth = inS ? 0.9 * Math.min(1, (0.7 - Math.abs(th)) / 0.12) * Math.min(1, Math.min(ps + 0.08, 0.32 - ps) / 0.06) : 0;
+    const k = 1 - depth * 0.16;
+    return [[p[0] * lo * k, p[1] * (ps < -0.1 ? 1 + 0.1 * Math.sin(ps + 0.1) : 1) * k, p[2] * k], null];
   } });
-  for (const S of [1, -1]) {                                                                       // eyes
-    ellipsoid(mb, v3.add(hc, [S * 1.75, 4.55, 0.85]), [0.85, 0.45, 0.55], [B.head, B.head, 1], () => [M.eye, 0, 0.4], 8, 6);
-    ellipsoid(mb, v3.add(hc, [S * 1.75, 4.95, 0.85]), [0.28, 0.12, 0.22], [B.head, B.head, 1], () => [MAT.crimson, 0.55, 0], 6, 4);
-  }
-  box(mb, v3.add(hc, [0, 5.2, -0.4]), 0.45, 0.5, 1.2, [1, 0, 0], v3.norm([0, 1, 0.25]), v3.norm([0, -0.25, 1]), M.skinD, B.head, 0, 0.12);   // nose
-  box(mb, v3.add(hc, [0, 4.75, -2.5]), 1.1, 0.12, 0.14, [1, 0, 0], [0, 1, 0], [0, 0, 1], M.skinD, B.head, 0, 0);                             // mouth
+  for (const S of [1, -1]) ellipsoid(mb, v3.add(hc, [S * 1.6, 4.15, 0.75]), [0.32, 0.12, 0.2], [B.head, B.head, 1], () => [MAT.crimson, 0.5, 0, 0], 6, 4);
+  // a loose cowl of the same cloth around the neck
+  loftZ(mb, [{ z: 60.4, a: 9.0, b: 6.0, f: 0.4 }, { z: 63.4, a: 6.0, b: 4.9, f: 0.8 }, { z: 66.6, a: 4.2, b: 3.9, f: 1.0 }], 60.4, 66.6, 5, 20,
+    (z) => z > 63 ? [B.spine, B.neck, 0.6] : [B.spine, B.spine, 1], (th, z) => [Math.floor(z * 1.3 + th) % 2 === 0 ? M.wrap : M.wrapD, 0, 0.06]);
   for (const [sd, S] of [['R', 1], ['L', -1]]) {
     // legs: trousers to below the knee, cloth wraps down the shin, a wrapped foot
     const leg = chainSamples([BIND['hip' + sd], BIND['knee' + sd], BIND['ankle' + sd]], [B['thigh' + sd], B['shin' + sd]], 18,
@@ -223,8 +222,8 @@ function buildBase(mb) {
         return { col: M.skin, spec: 0.14 };
       });
     tube(mb, arm, sideRef(S), 12, true, false);
-    const fist = chainSamples([BIND['wr' + sd], BIND['hand' + sd]], [B['hand' + sd]], 4, (u) => [2.2 + 0.3 * Math.sin(Math.PI * u), 1.7 + 0.2 * Math.sin(Math.PI * u)], M.skin, 1,
-      (u) => ({ col: u < 0.3 ? M.wrapD : M.skin, spec: 0.14 }));
+    const fist = chainSamples([BIND['wr' + sd], BIND['hand' + sd]], [B['hand' + sd]], 4, (u) => [2.2 + 0.3 * Math.sin(Math.PI * u), 1.7 + 0.2 * Math.sin(Math.PI * u)], M.wrap, 1,
+      (u) => ({ col: Math.floor(u * 5) % 2 === 0 ? M.wrap : M.wrapD, spec: 0.08 }));
     fist[0].bones = [B['hand' + sd], B['fore' + sd], 0.5];
     tube(mb, fist, sideRef(S), 10, false, true);
   }
@@ -492,7 +491,7 @@ function clothMeshFor(cp) {
   const mb = new MeshBuilder(), C = cp.cols, R = cp.rows, cl = cp.cloth, out = hexRGB(cl.outer), hem = hexRGB(cl.hem.startsWith('#') ? cl.hem : '#8A2432');
   for (let j = 0; j < R; j++) for (let i = 0; i < C; i++) {
     const bottom = j === R - 1, col = bottom ? hem : v3.lerp(out, hexRGB(cl.outerL), 0.25 * (1 - j / R));
-    mb.vert([0, 0, 0], [0, 1, 0], col, B.world, B.world, 1, bottom ? 0.4 : 0, 0.04);
+    mb.vert([0, 0, 0], [0, 1, 0], col, B.world, B.world, 1, bottom ? 0.4 : 0, 0.04, 0);     // cloth moves: no surface pattern
   }
   for (let j = 0; j < R - 1; j++) for (let i = 0; i < C - 1; i++) { const k = j * C + i; mb.quad(k, k + 1, k + C + 1, k + C); }
   return mb;
