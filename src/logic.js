@@ -1045,7 +1045,8 @@ class Game {
     if (this.fight === 'idle' && b.state === S_ABSENT && p.alive && this.outcome === null && p.gy > FIGHT_TRIGGER_Y && Math.abs(p.gx) < ARENA_HALF) this.startFight(false);
     const want = this.fight === 'active' ? 1 : (this.fight === 'won' && this.victory_t < 2.6 ? 1 : 0);
     const prev = this.gate_t;
-    this.gate_t = want > this.gate_t ? Math.min(1, this.gate_t + dt / GATE.close) : Math.max(0, this.gate_t - dt / GATE.open);
+    if (want > this.gate_t) this.gate_t = Math.min(1, this.gate_t + dt / GATE.close);
+    else if (want < this.gate_t) this.gate_t = Math.max(0, this.gate_t - dt / GATE.open);
     if (prev >= 1 && this.gate_t < 1) { this.sfx('skid', 0.7); this.sfx('clank', 0.5); this.addBump(2); }
     if (prev < 1 && this.gate_t >= 1 && this.fight === 'active') { this.sfx('boom', 0.6); this.addBump(5); this.addShake(Math.PI / 2, 5); }
     if (this.fight === 'won') this.victory_t += dt;

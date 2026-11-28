@@ -319,7 +319,11 @@ function poseRig(p, dt, t) {
     else if (st === S_ACTIVE) gp = 1;
     else { const q = clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1); gp = p.aimHold ? 1 : q < 0.35 ? 1 : q < 0.85 ? 1 - 0.5 * (q - 0.35) / 0.5 : 0.5 * (1 - (q - 0.85) / 0.15); }
   }
-  p.gunDrawn = gp >= 0.5;
+  // the pistol stays in the left hand (low ready) unless that hand is busy: a 2h grip, the flask, a throw
+  const leftBusy = tool && attacking && p.kind !== 'shoot';
+  const inHand = p.leftItem === 'pistol' && !leftBusy;
+  if (inHand) gp = Math.max(0.5, gp);
+  p.gunDrawn = inHand && gp >= 0.5;
   const bothHands = W.stance && W.stance.hands === 2;
   // one-handed weapons: the free arm swings out and back for balance, opposite the blade
   function offhand(k) {
@@ -344,12 +348,15 @@ function poseRig(p, dt, t) {
     // draw from the left hip, then up into the aim; recoil kicks the hand back and up and tips the muzzle
     const rel = gunDir - yaw, ds = -Math.sin(rel), df = Math.cos(rel), k = p.gunKick;
     const shZ = RIG.SHOULDER_Z - 0.6 * crouch;
-    const Hs = -8.8, Hf = 1.6, Hz = RIG.HIP_Z - crouch + 4.5;                       // the holster grip
+    // where the hand starts from: low ready in front of the hip (pistol in hand), else the holster grip
+    const Hs = inHand ? -11.6 : -8.8, Hf = inHand ? 10.5 + swingL * 0.35 : 1.6, Hz = RIG.HIP_Z - crouch + (inHand ? 6.5 : 4.5);
+    const meleeBusy = attacking && !tool;
     const As = -RIG.SHOULDER_W + ds * 24 - ds * 2 * k, Af = 0.8 + df * 24 - df * 2 * k, Az = shZ - 1.5 + 1.2 * k;
-    if (gp < 0.5) { const u = gp / 0.5; _lr.s += (Hs - _lr.s) * u; _lr.f += (Hf - _lr.f) * u; _lr.z += (Hz - _lr.z) * u; }
+    if (gp <= 0.5) { const u = gp / 0.5 * (meleeBusy || st === S_DODGE ? 0 : 1); _lr.s += (Hs - _lr.s) * u; _lr.f += (Hf - _lr.f) * u; _lr.z += (Hz - _lr.z) * u; }
     else { const u = (gp - 0.5) / 0.5, arc = Math.sin(Math.PI * u) * 4; _lr.s = Hs + (As - Hs) * u; _lr.f = Hf + (Af - Hf) * u; _lr.z = Hz + (Az - Hz) * u + arc; }
     _feet.f = Math.min(_feet.f, -2 * Math.max(0, gp - 0.5) * 2);
-    p.gunPitch = 0.36 * k;                                                       // muzzle flip ~20 deg (wrist extension)
+    const aimK = clamp((gp - 0.5) / 0.5, 0, 1);
+    p.gunPitch = (inHand ? 0.3 * (1 - aimK) : 0) + 0.36 * k;                    // low ready: wrist extended so the muzzle points ahead-down; recoil flip
   } else p.gunPitch = 0;
   if (tool && attacking && p.kind !== 'shoot') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);

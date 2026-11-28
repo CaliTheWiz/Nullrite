@@ -163,6 +163,13 @@ localStorage 'nullrite.settings.v1', src/settings.js). The in-game SYSTEM tab ha
 shrine. App icon: concept B 'The Rite' (crimson sigil, the oath sword planted point-down through it):
 `python3 tools/make_icon.py`. Concept boards: `python3 tools/concepts.py`. iOS keeps the old home-screen icon until
 the shortcut is removed and added again.
+Left hand always shown: the pistol stays in the left hand at low ready (wrist extended a little so the muzzle points
+ahead-down) and rises straight into the aim; it goes to the hip holster only while the left hand is busy (flask,
+throw) or locked by a two-handed grip.
+Base body (DONE): what is under the armour is a person, not a black suit: ashen skin, a face (jaw, brow, nose, mouth,
+deep-set eyes with a faint ember), dark hair, a quilted gambeson with sleeves to the elbow, belted trousers, leather
+wraps at the wrists, cloth-wrapped shins and feet. Same bones and silhouette as before so armour still fits over it;
+the hunter hood now carries its own iron mask behind the face opening.
 Next: per-weapon unique animation sets (incl. left-hand / dual-wield movesets), shields, catalysts, enemy drops.
 Blunderbuss (spread shot) is a future off-hand weapon.
 Weapon/hand rules (agreed):
