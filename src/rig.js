@@ -17,6 +17,8 @@ function V3() { return { s: 0, f: 0, z: 0, x: 0, y: 0, d: 0 }; }   // char frame
 
 /** How far forward (+) or back (-) a char-frame point must move to sit outside his torso (coat + an arm's thickness). */
 function torsoPush(J, s, f, z, margin) {
+  if (J._cy) { const c = Math.cos(J._cy), sn = Math.sin(J._cy), ds = s - J.waist.s, df = f - J.waist.f;   // into the twisted chest
+    s = J.waist.s + ds * c + df * sn; f = J.waist.f - ds * sn + df * c; }
   const zr = z - J.pelvis.z;
   if (zr < -12 || zr > 25) return 0;
   // coat profile: skirt / hips / belly / chest / shoulders (half width a, half depth b)
@@ -43,24 +45,57 @@ function ik2(ax, ay, tx, ty, L1, L2, bend, mid, end) {
 
 /**
  * Gait: where one foot is in its cycle. phase (radians, 2 pi = one full cycle = two steps), duty = share of the cycle
- * the foot is planted. Planted, it sweeps back from +amp to -amp at exactly ground speed (no sliding); in the air it
- * swings forward with the knee driven up. duty < 0.5 = running (both feet off the ground between steps).
- * Returns [stride, lift] into the scratch array.
+ * the foot is planted. Planted, it sweeps back from +amp to -amp at exactly ground speed (no sliding): heel strike
+ * with the toe up, foot flat, then the heel rises while the toe stays down. In the air it follows the human swing
+ * path: it lifts BEHIND him first (knee folding, heel up), passes low under the hip, and the leg reaches forward
+ * almost straight to land on the heel. A run folds the knee much more (the heel kicks back) and floats between steps.
+ * duty < 0.5 = running. Writes [stride, lift, toe] (toe: how far the toe sits above its flat-foot height).
  */
+const _gk = [0, 0.27, 0.52, 0.8, 1];
+function _herm(k, ys) {                              // smooth curve through 5 knots (Catmull-Rom on uneven spacing)
+  const X = _gk; let i = 0; while (i < 3 && k > X[i + 1]) i++;
+  const h = X[i + 1] - X[i], u = (k - X[i]) / h;
+  const m = (j) => j <= 0 ? (ys[1] - ys[0]) / (X[1] - X[0]) : j >= 4 ? (ys[4] - ys[3]) / (X[4] - X[3]) : (ys[j + 1] - ys[j - 1]) / (X[j + 1] - X[j - 1]);
+  const u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * ys[i] + (u3 - 2 * u2 + u) * h * m(i) + (-2 * u3 + 3 * u2) * ys[i + 1] + (u3 - u2) * h * m(i + 1);
+}
+const _gf_s = [0, 0, 0, 0, 0], _gf_l = [0, 0, 0, 0, 0], _gf_t = [0, 0, 0, 0, 0];
 function gaitFoot(phase, amp, duty, out) {
   const u = ((phase / TAU) % 1 + 1) % 1;
-  if (!duty) { out[0] = Math.sin(phase) * amp; out[1] = Math.max(0, Math.cos(phase)) * (2 + amp * 0.45); return out; }
-  if (u < duty) { out[0] = amp * (1 - 2 * u / duty); out[1] = 0; }
-  else { const k = (u - duty) / (1 - duty), e = 0.5 - 0.5 * Math.cos(Math.PI * k); out[0] = amp * (2 * e - 1); out[1] = Math.sin(Math.PI * k) * (2.5 + amp * (0.35 + 0.5 * (0.6 - duty))); }
+  if (!duty) { out[0] = Math.sin(phase) * amp; out[1] = Math.max(0, Math.cos(phase)) * (2 + amp * 0.45); out[2] = 0; return out; }
+  const r = clamp((0.5 - duty) / 0.33, 0, 1), heel = 1.0 + 2.0 * r;
+  if (u < duty) {
+    const s = u / duty;
+    out[0] = amp * (1 - 2 * s);
+    out[1] = heel * Math.max(0, (s - 0.55) / 0.45) ** 2;                            // heel rises late in the stance
+    out[2] = s < 0.18 ? (1 - s / 0.18) * 2.4 * (1 - 0.6 * r) : -out[1];             // toe up at the strike, then on the floor
+    return out;
+  }
+  const k = (u - duty) / (1 - duty), H = (3.0 + 0.05 * amp) * (1 - r) + 0.66 * amp * r;
+  // f (in units of amp) and lift along the swing; walk and run paths blended
+  _gf_s[0] = -1; _gf_s[1] = -0.72 - 0.18 * r; _gf_s[2] = 0.02 + 0.04 * r; _gf_s[3] = 0.82 + 0.08 * r; _gf_s[4] = 1;
+  _gf_l[0] = heel; _gf_l[1] = H; _gf_l[2] = 1.5 * (1 - r) + 0.72 * H * r; _gf_l[3] = 0.8 * (1 - r) + 0.28 * H * r; _gf_l[4] = 0;
+  _gf_t[0] = -heel; _gf_t[1] = -1.8; _gf_t[2] = -0.4; _gf_t[3] = 1.0; _gf_t[4] = 2.4 * (1 - 0.6 * r);
+  out[0] = amp * _herm(k, _gf_s); out[1] = Math.max(0, _herm(k, _gf_l)); out[2] = _herm(k, _gf_t);
   return out;
 }
-const _gf = [0, 0];
+/** Vertical bob of the hips for a gait (left foot at `phase`): a walk is lowest just after each heel strike and
+ *  highest as he passes over the planted leg; a run sinks into each landing and rises in the float. */
+function gaitBob(phase, amp, duty) {
+  const u = ((phase / TAU) % 1 + 1) % 1, r = clamp((0.5 - duty) / 0.33, 0, 1), h = (u % 0.5) / 0.5;   // half-cycle = one step
+  const walk = -1.25 * amp / 15 * 0.5 * (1 + Math.cos(TAU * (h - 0.12)));
+  const st = duty / 0.5;                                                                             // share of the step on the ground
+  const run = h < st ? -2.2 * amp / 17 * Math.sin(Math.PI * h / st) : 1.4 * amp / 17 * Math.sin(Math.PI * (h - st) / (1 - st));
+  return walk * (1 - r) + run * r;
+}
+const _gf = [0, 0, 0];
 
 class Rig {
   constructor() {
     const J = this.j = {};
     for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR',
       'shL', 'shR', 'elL', 'elR', 'wrL', 'wrR', 'handL', 'handR', 'holster', 'flaskProp']) J[n] = V3();
+    Object.defineProperty(J, '_cy', { value: 0, writable: true, enumerable: false });   // chest twist, for torsoPush
     // parts: what to draw. kind 'seg' = limb between two joints, 'view' = per-view picture at a joint.
     const P = (name, kind, a, b, bias) => ({ name, kind, a, b, bias, key: 0, x: 0, y: 0, rot: 0, len: 0, side: 0 });
     this.parts = [
@@ -94,14 +129,17 @@ class Rig {
     J.x = X; J.y = Y * K + J.z; J.d = Y;
   }
 
-  /** Leg IK in the char frame: hip -> knee -> ankle, knee folds forward along `kf` (forward-ish unit vector). */
-  leg(hip, knee, ankle, tS, tF, tZ) {
+  /** Leg IK in the char frame: hip -> knee -> ankle; the knee is a hinge that folds toward (ks, kf) (where the
+   *  kneecap points: forward, turned with the hips and the foot). */
+  leg(hip, knee, ankle, tS, tF, tZ, ks, kf) {
     const L1 = RIG.THIGH, L2 = RIG.SHIN;
     let ds = tS - hip.s, df = tF - hip.f, dz = tZ - hip.z, d = Math.hypot(ds, df, dz);
     const dd = clamp(d, 1, L1 + L2 - 0.05);
     const us = ds / d, uf = df / d, uz = dz / d;
-    // forward vector made perpendicular to the leg line: that is where the knee goes
-    let ps = -us * uf, pf = 1 - uf * uf, pz = -uz * uf;
+    // knee direction made perpendicular to the leg line: that is where the knee goes
+    if (ks === undefined) { ks = 0; kf = 1; }
+    const kd = ks * us + kf * uf;
+    let ps = ks - us * kd, pf = kf - uf * kd, pz = -uz * kd;
     const pl = Math.hypot(ps, pf, pz) || 1; ps /= pl; pf /= pl; pz /= pl;
     const a = (L1 * L1 - L2 * L2 + dd * dd) / (2 * dd), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
     knee.s = hip.s + us * a + ps * h; knee.f = hip.f + uf * a + pf * h; knee.z = hip.z + uz * a + pz * h;
@@ -119,25 +157,42 @@ class Rig {
     this.yaw = o.yaw; this.dir = ((Math.round(o.yaw / (TAU / RIG_DIRS)) % RIG_DIRS) + RIG_DIRS) % RIG_DIRS;
     this._c = Math.cos(o.yaw); this._s = Math.sin(o.yaw);
     const w = o.walk, cr = o.crouch;
-    // ---- legs + pelvis (3D)
-    // the body dips as each foot takes the weight (mid-stance) and rises between steps
-    const bob = w.duty ? -(0.6 + 0.16 * w.amp * (0.65 - w.duty)) * w.amp / 8 * (0.5 + 0.5 * Math.cos(2 * (w.phase - Math.PI * w.duty))) : -1.6 * w.amp / 11 * Math.pow(Math.sin(w.phase), 2);
-    J.pelvis.s = o.sway || 0; J.pelvis.f = 0; J.pelvis.z = RIG.HIP_Z - cr + bob;
-    J.hipL.s = J.pelvis.s - RIG.HIP_W; J.hipR.s = J.pelvis.s + RIG.HIP_W;
-    for (const h of [J.hipL, J.hipR]) { h.f = 0; h.z = J.pelvis.z; }
-    const feet = o.feet;
+    // ---- legs + pelvis (3D). pelvisYaw turns the hips (+ = toward his left), chestYaw turns the ribcage and
+    // shoulders on top of that, pitch leans the upper body forward from the waist.
+    const py = o.pelvisYaw || 0, cyaw = o.chestYaw || 0, pitch = o.pitch || 0, pc = Math.cos(py), pyS = Math.sin(py);
+    const bob = w.duty ? gaitBob(w.phase, w.amp, w.duty) : -1.6 * w.amp / 11 * Math.pow(Math.sin(w.phase), 2);
+    let pz = RIG.HIP_Z - cr + bob;
+    J.pelvis.s = o.sway || 0; J.pelvis.f = o.pelvisF || 0;
+    J.hipL.s = J.pelvis.s - RIG.HIP_W * pc; J.hipL.f = J.pelvis.f - RIG.HIP_W * pyS;
+    J.hipR.s = J.pelvis.s + RIG.HIP_W * pc; J.hipR.f = J.pelvis.f + RIG.HIP_W * pyS;
+    const feet = o.feet, FL = o.feetLock, ft = this._ft;
     for (const side of [-1, 1]) {
       const ph = w.phase + (side < 0 ? 0 : Math.PI); gaitFoot(ph, w.amp, w.duty, _gf);
       const stride = _gf[0], lift = _gf[1];
-      let tS = side * RIG.FOOT_W + w.ms * stride, tF = w.mf * stride, tZ = 3.5 + lift;
+      let tS = side * RIG.FOOT_W + w.ms * stride, tF = w.mf * stride, tZ = 3.5 + lift, toeOff = _gf[2], yawF = py * 0.5;
       if (feet) { tS += side * feet.spread; tF += feet.f * side + feet.fwd; tZ += feet.z; }
+      if (FL && FL.w > 0) {                     // attack footwork: feet planted in the world or stepping (see poseRig)
+        const L = side < 0 ? FL.L : FL.R, k = FL.w;
+        tS += (L.s - tS) * k; tF += (L.f - tF) * k; tZ += (L.z - tZ) * k; toeOff += (L.toe - toeOff) * k; yawF += (L.yaw - yawF) * k;
+      }
+      const q = side < 0 ? ft.L : ft.R; q.s = tS; q.f = tF; q.z = tZ; q.toe = toeOff; q.yaw = yawF;
+    }
+    // the hips come down when a foot is planted further out than the straight leg reaches (long strides, lunges)
+    for (const side of [-1, 1]) {
+      const q = side < 0 ? ft.L : ft.R, hip = side < 0 ? J.hipL : J.hipR, dh = Math.hypot(q.s - hip.s, q.f - hip.f), LM = RIG.THIGH + RIG.SHIN - 0.6;
+      pz = Math.min(pz, Math.max(q.z + Math.sqrt(Math.max(0, LM * LM - dh * dh)), RIG.HIP_Z - cr - 8));
+    }
+    J.pelvis.z = pz; J.hipL.z = J.hipR.z = pz;
+    for (const side of [-1, 1]) {
+      const q = side < 0 ? ft.L : ft.R;
       const hip = side < 0 ? J.hipL : J.hipR, knee = side < 0 ? J.kneeL : J.kneeR, ank = side < 0 ? J.ankleL : J.ankleR;
-      this.leg(hip, knee, ank, tS, tF, tZ);
+      const fy = q.yaw, ks = -Math.sin(fy), kf = Math.cos(fy);              // the knee tracks over the foot
+      this.leg(hip, knee, ank, q.s, q.f, q.z, ks, kf);
       const toe = side < 0 ? J.toeL : J.toeR;
-      toe.s = ank.s + side * 1.2; toe.f = ank.f + RIG.FOOT; toe.z = Math.max(0.5, ank.z - 2.5);
+      toe.s = ank.s + side * 1.2 * kf + ks * RIG.FOOT; toe.f = ank.f + kf * RIG.FOOT - side * 1.2 * ks; toe.z = Math.max(0.5, ank.z - 2.5 + q.toe);
     }
     // ---- spine, all in the char frame; a little roll into the direction he is moving
-    J.waist.s = 0; J.waist.f = 0.5; J.waist.z = J.pelvis.z + (RIG.WAIST_Z - RIG.HIP_Z);
+    J.waist.s = 0; J.waist.f = 0.5 + (o.pelvisF || 0); J.waist.z = J.pelvis.z + (RIG.WAIST_Z - RIG.HIP_Z);
     J.neck.s = 0; J.neck.f = 1.0 + o.hunch; J.neck.z = J.pelvis.z + (RIG.NECK_Z - RIG.HIP_Z);
     J.head.s = 0; J.head.f = 1.5 + o.hunch; J.head.z = J.neck.z + 9;
     const br = o.breath || 0, sw = (o.sway || 0) * 0.55;                  // breathing lifts the chest; the torso rides the hip shift
@@ -149,6 +204,13 @@ class Rig {
     if (o.roll) {
       const rc = Math.cos(o.roll), rs = Math.sin(o.roll), wz = J.waist.z;
       for (const q of [J.neck, J.head, J.shL, J.shR]) { const ds = q.s, dz = q.z - wz; q.s = ds * rc + dz * rs; q.z = wz - ds * rs + dz * rc; }
+    }
+    // lean and twist the upper body around the waist (the chest frame)
+    J._cy = cyaw; this._cyc = Math.cos(cyaw); this._cys = Math.sin(cyaw); this._pc = Math.cos(pitch); this._ps = Math.sin(pitch);
+    if (pitch || cyaw) for (const q of [J.neck, J.head, J.shL, J.shR]) this.chestToChar(q, q, true);
+    if (o.chestGrip) {                         // clip hand targets are given relative to the waist (char frame)
+      const Wt = J.waist; o.grip.s += Wt.s; o.grip.f += Wt.f; o.grip.z += Wt.z;
+      if (o.leftTarget) { o.leftTarget.s += Wt.s; o.leftTarget.f += Wt.f; o.leftTarget.z += Wt.z; }
     }
     // ---- arms: anatomical IK (see arm3). The fist sits on the grip with the handle across the palm.
     const G = o.grip, HG = RIG.HAND * 0.5, Bd = this.blade;
@@ -164,6 +226,10 @@ class Rig {
         const k = c - Math.sign(c) * lim; Bd.s -= fR.s * k; Bd.f -= fR.f * k; Bd.z -= fR.z * k;
         const l = Math.hypot(Bd.s, Bd.f, Bd.z) || 1; Bd.s /= l; Bd.f /= l; Bd.z /= l;
       } }
+    // the blade stops at the floor: a strike that reaches it lands on it instead of going through
+    if (o.bladeLen) { const L = o.bladeLen, tz = this.grip.z + Bd.z * L;
+      if (tz < 0.8) { const z1 = (0.8 - this.grip.z) / L, h = Math.hypot(Bd.s, Bd.f) || 1, hh = Math.sqrt(Math.max(0, 1 - z1 * z1));
+        Bd.s = Bd.s / h * hh; Bd.f = Bd.f / h * hh; Bd.z = z1; } }
     if (o.twoHand) {
       const gap = o.twoHand.gap, fL = this._fore.L;
       this._w.s = this.grip.s - Bd.s * gap - fL.s * HG; this._w.f = this.grip.f - Bd.f * gap - fL.f * HG; this._w.z = this.grip.z - Bd.z * gap - fL.z * HG;
@@ -187,6 +253,26 @@ class Rig {
     this.place(o);
   }
 
+  /** Inverse of chestToChar, with this frame's (or the last frame's) chest rotation. */
+  charToChest(q, out, pos) {
+    const W = this.j.waist;
+    let s = q.s, f = q.f, z = q.z;
+    if (pos) { s -= W.s; f -= W.f; z -= W.z; }
+    const s1 = s * this._cyc + f * this._cys, f1 = -s * this._cys + f * this._cyc, pc = pos ? this._pc : 1, ps = pos ? this._ps : 0;
+    out.s = s1; out.f = f1 * pc - z * ps; out.z = f1 * ps + z * pc;
+  }
+  /** A point or a direction in the chest frame -> the char frame. pos: true = a char-frame point turned with the
+   *  chest around the waist, 2 = a point given relative to the waist, false = a direction. In place is fine. */
+  chestToChar(q, out, pos) {
+    const W = this.j.waist;
+    let s = q.s, f = q.f, z = q.z;
+    if (pos === true) { s -= W.s; f -= W.f; z -= W.z; }
+    const pc = pos ? this._pc : 1, ps = pos ? this._ps : 0;                              // blades aim in the world: no lean
+    const f1 = f * pc + z * ps, z1 = -f * ps + z * pc;                                   // lean forward
+    const s2 = s * this._cyc - f1 * this._cys, f2 = s * this._cys + f1 * this._cyc;     // turn
+    out.s = s2 + (pos ? W.s : 0); out.f = f2 + (pos ? W.f : 0); out.z = z1 + (pos ? W.z : 0);
+  }
+
   /**
    * Anatomical two-bone arm IK in the char frame.
    * - elbow is a hinge: straight at full reach, folds one way only, at most ~145 degrees
@@ -199,7 +285,7 @@ class Rig {
   arm3(sh, el, wr, hand, t0, side, blade, key) {
     const L1 = RIG.UPPER, L2 = RIG.FORE, J = this.j;
     const t = this._t3; t.s = t0.s; t.f = t0.f; t.z = t0.z;
-    t.f += torsoPush(J, t.s, t.f, t.z, 3.6);                        // the hand can't be inside him
+    { const pu = torsoPush(J, t.s, t.f, t.z, 3.6); t.s -= pu * Math.sin(J._cy || 0); t.f += pu * Math.cos(J._cy || 0); }   // the hand can't be inside him
     let ds = t.s - sh.s, df = t.f - sh.f, dz = t.z - sh.z, d = Math.hypot(ds, df, dz) || 1e-4;
     const us = ds / d, uf = df / d, uz = dz / d;
     const dmin = Math.sqrt(L1 * L1 + L2 * L2 - 2 * L1 * L2 * Math.cos(35 * RAD));   // fullest fold
@@ -277,6 +363,8 @@ class Rig {
 }
 // scratch objects (allocated once)
 Rig.prototype._tmp = V3(); Rig.prototype._w = V3(); Rig.prototype._t3 = V3();
+Rig.prototype._ft = { L: { s: 0, f: 0, z: 0, toe: 0, yaw: 0 }, R: { s: 0, f: 0, z: 0, toe: 0, yaw: 0 } };
+Rig.prototype._cyc = 1; Rig.prototype._cys = 0; Rig.prototype._pc = 1; Rig.prototype._ps = 0;
 Rig.prototype._m1 = { x: 0, y: 0 }; Rig.prototype._m2 = { x: 0, y: 0 }; Rig.prototype._e1 = { x: 0, y: 0 }; Rig.prototype._e2 = { x: 0, y: 0 };
 Object.defineProperty(Rig.prototype, '_all', { get() { if (!this.__all) this.__all = Object.values(this.j); return this.__all; } });
 Rig.prototype.weaponRot0 = 0;
@@ -323,6 +411,15 @@ function poseRig(p, dt, t) {
   o.breath = Math.sin(t * 2.0) * 0.55 * (0.4 + 0.6 * idle) + (p.sprinting ? Math.sin(t * 5.5) * 0.4 : 0);
   p.swayAmt = dt > 0 ? smooth(p.swayAmt || 0, idle, 2, dt) : idle;
   o.sway = Math.sin(t * 0.55) * 1.2 * p.swayAmt;
+  // walking hips: they turn forward with the swinging leg and shift over the planted foot; the chest counter-turns
+  o.pelvisYaw = 0; o.chestYaw = 0; o.pitch = 0; o.pelvisF = 0; o.feetLock = null; o.chestGrip = false;
+  if (loco && _walk.duty && p.walkAmp > 1) {
+    const gr = clamp((0.5 - _walk.duty) / 0.33, 0, 1), sL = gaitFoot(p.walkPhase, p.walkAmp, _walk.duty, _gf)[0] / Math.max(1, p.walkAmp);
+    const k = Math.min(1, p.walkAmp / 12);
+    o.pelvisYaw = -(0.12 + 0.06 * gr) * sL * k; o.chestYaw = -(0.45 + 0.25 * gr) * o.pelvisYaw;
+    o.sway += -1.1 * (1 - gr) * k * Math.cos(p.walkPhase - Math.PI * _walk.duty);
+    o.pitch = (0.03 + 0.09 * gr + 0.05 * clamp((ratio - 1.1) / 0.5, 0, 1)) * k;          // a run leans into it
+  }
   if (p._lastSt === S_DODGE && st !== S_DODGE) p.landT = 0;
   p._lastSt = st; p.landT = (p.landT === undefined ? 9 : p.landT) + dt;
   if (p.landT < 0.3 && st !== S_DODGE) { const k = Math.sin(Math.PI * p.landT / 0.3); crouch += 4.5 * k; hunch += 2 * k; }
@@ -356,7 +453,16 @@ function poseRig(p, dt, t) {
     _lr.s += (ts - _lr.s) * k; _lr.f += (tf - _lr.f) * k; _lr.z += (tz - _lr.z) * k;
   }
   if (bothHands && gp < 0.05 && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }  // 2h: both hands unless the left is busy
-  if (attacking && !tool && p.kind !== 'visceral') {
+  // keyed full-body clips (anim.js): the attack itself, or holding a charged heavy (the clip's first pose)
+  let clip = null, clipX = 0, clipKey = null, clipW = 1;
+  if (attacking && !tool && mv.anim) { clip = ANIMS[mv.anim]; clipX = moveClock(st, p.state_t, mv); clipKey = 'm' + p.moveSerial; }
+  else if (p.charging > 0 && loco && W.charged && W.charged.anim) {
+    clip = ANIMS[W.charged.anim]; clipX = 0; clipKey = 'c' + (p.moveSerial || 0);
+    clipW = clamp((p.charging - CHARGE_START) / (CHARGE_FULL - CHARGE_START), 0, 1) * 0.85 + 0.15;
+  }
+  if (clip && bothHands) { o.twoHand = _two; _two.gap = W.handGap || 8; }
+  if (clip) { /* the clip block below poses the whole body */ }
+  else if (attacking && !tool && p.kind !== 'visceral') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
     crouch += (2 + 5 * heft) * ph; hunch = 1.5 + 2.5 * heft * ph;
     _feet.f = -(3 + 3 * heft) * ph - 1.5; _feet.spread = 1.5 + 2 * ph;          // left foot forward, wider base
@@ -414,6 +520,8 @@ function poseRig(p, dt, t) {
   look = clamp(look, -1.05, 1.05);
   p.headYaw = dt > 0 ? smooth(p.headYaw || 0, look, 7, dt) : look;
   o.headYaw = st === S_DEAD ? 0 : p.headYaw;
+  const CP = clipBody(p, R, o, clip, clipX, clipKey, clipW, mv, dt, yaw, bothHands);
+  if (CP) { crouch += CP.cr; hunch = 0; }
   o.crouch = crouch; o.hunch = hunch; o.roll = roll - o.sway * 0.012; o.tilt = st === S_DEAD ? Math.abs(tilt) : 0; o.spin = 0; o.lean = 0;
   void lean; void spin;
   // ---- the weapon in 3D: grip position and blade direction from the weapon animation, in the char frame
@@ -427,11 +535,22 @@ function poseRig(p, dt, t) {
   } else if (p.charging > 0) _grip.f += 6;
   const bh = p.bladeH, be = p.bladeE, bX = Math.cos(be) * Math.cos(bh), bY = Math.cos(be) * Math.sin(bh);
   _blade.s = bX * sy - bY * cy; _blade.f = bX * cy + bY * sy; _blade.z = Math.sin(be);
+  if (CP) clipArms(p, R, o, CP, bothHands);
+  else if (p._outT > 0) clipOut(p, o, dt);
   o.grip = _grip; o.blade = _blade;
   o.capeLow = p.cloths.cape && p.cloths.cape.live ? p.cloths.cape.lowDepth() : undefined;
   o.tabardDepth = p.cloths.tabard && p.cloths.tabard.live ? p.cloths.tabard.lowDepth() : undefined;
+  o.bladeLen = (W === WEAPONS.spear ? 150 : W === WEAPONS.greatsword ? 100 : 56) * (p.sword_scale || 1);
   R.pose(o);
   for (const name in p.cloths) p.cloths[name].step(p, dt);
+  // the blade tip in the world (floor strikes) and the blade's trail through the strike
+  { const G = R.grip, Bd = R.blade, L = o.bladeLen, ts = G.s + Bd.s * L, tf = G.f + Bd.f * L, tz = G.z + Bd.z * L;
+    p.tipX = p.gx + ts * sy + tf * cy; p.tipY = p.gy - ts * cy + tf * sy; p.tipZ = tz;
+    if (CP && clipKey[0] === 'm' && clipX >= 0.92 && clipX <= 2.3 && dt > 0) {
+      const ms = G.s + Bd.s * L * 0.35, mf = G.f + Bd.f * L * 0.35, mz = G.z + Bd.z * L * 0.35;
+      p.trail.push({ t: p.g.t, x0: p.gx + ms * sy + mf * cy, y0: p.gy - ms * cy + mf * sy, z0: mz, x1: p.tipX, y1: p.tipY, z1: tz, heavy: mv.heft });
+      if (p.trail.length > 16) p.trail.shift();
+    } }
   // pistol muzzle (world) for the flash and the tracer: from the left fist along the forearm, tipped by recoil
   { const J = R.j; let fs = J.wrL.s - J.elL.s, ff = J.wrL.f - J.elL.f, fz = J.wrL.z - J.elL.z; const l = Math.hypot(fs, ff, fz) || 1;
     fs /= l; ff /= l; fz = fz / l + Math.tan(p.gunPitch); const ms = J.handL.s + fs * 19.6, mf = J.handL.f + ff * 19.6, mz = J.handL.z + fz * 19.6 + 1.8;
@@ -440,6 +559,113 @@ function poseRig(p, dt, t) {
   const H = R.j.head, hy = yaw + (o.headYaw || 0), hc = Math.cos(hy), hs = Math.sin(hy), fwd = -hs;
   p.visorX = H.x + hc * 5.6; p.visorY = H.y + hs * 5.6 * K - 0.5;
   p.visorSX = Math.max(0.25, Math.abs(fwd)); p.visorAlpha = st === S_DEAD ? 0 : clamp((fwd + 0.25) * 1.8, 0, 1);
+}
+
+// ---------------------------------------------------------------- clip posing
+const _A = { g: [0, 0, 0], b: [0, 0, 0], l: [0, 0, 0] }, _CP = { cr: 0, g: [0, 0, 0], b: [0, 0, 0], l: [0, 0, 0], hasL: false };
+const _lt3 = { s: 0, f: 0, z: 0 }, _feetLock = { w: 1, L: { s: 0, f: 0, z: 3.5, toe: 0, yaw: 0 }, R: { s: 0, f: 0, z: 3.5, toe: 0, yaw: 0 } };
+const _lerp = (a, b, k) => a + (b - a) * k;
+/**
+ * Pose the body from a clip: chest turn, hips, lean, crouch, the feet (planted in the world or stepping), and the
+ * hands' targets in the chest frame. The first moments blend from wherever the body was (a combo flows straight
+ * out of the last swing's follow-through). Returns the crouch to add (and the hand targets), or null.
+ */
+function clipBody(p, R, o, clip, x, key, wgt, mv, dt, yaw, bothHands) {
+  if (!clip) { if (p._clipKey) { p._clipKey = null; p._outT = 0.22; } return null; }
+  const J = R.j, cy = Math.cos(yaw), sy = Math.sin(yaw);
+  if (p._clipKey !== key) {                     // a new clip: remember where the body is, in the chest frame
+    const F = p._from || (p._from = { g: [0, 0, 0], b: [0, 0, 0], tw: 0, hp: 0, ln: 0, cr: 0 }), c = p._cur || { tw: 0, hp: 0, ln: 0, cr: 0 };
+    F.g[0] = R.grip.s - J.waist.s; F.g[1] = R.grip.f - J.waist.f; F.g[2] = R.grip.z - J.waist.z;
+    F.b[0] = R.blade.s; F.b[1] = R.blade.f; F.b[2] = R.blade.z;
+    F.tw = c.tw; F.hp = c.hp; F.ln = c.ln; F.cr = c.cr;
+    // the feet, where they stand now (world)
+    const fw = p._fw || (p._fw = { L: { x: 0, y: 0, seg: -9, fx: 0, fy: 0 }, R: { x: 0, y: 0, seg: -9, fx: 0, fy: 0 } });
+    for (const side of ['L', 'R']) {
+      const A = side === 'L' ? J.ankleL : J.ankleR, q = fw[side], ryc = Math.cos(R.yaw), rys = Math.sin(R.yaw);
+      q.x = p.gx + A.s * rys + A.f * ryc; q.y = p.gy - A.s * ryc + A.f * rys; q.seg = -9;
+    }
+    p._clipKey = key; p._clipT = 0;
+  }
+  p._clipT += dt;
+  sampleClip(clip, x, _A);
+  const F = p._from, bl = (key[0] === 'm' ? Math.min(0.14, mv.windup * 0.6) : 0.16), w = EASE.io(clamp(p._clipT / bl, 0, 1)) * wgt;
+  const cur = p._cur || (p._cur = { tw: 0, hp: 0, ln: 0, cr: 0 });
+  cur.tw = _lerp(F.tw, _A.tw || 0, w); cur.hp = _lerp(F.hp, _A.hp || 0, w); cur.ln = _lerp(F.ln, _A.ln || 0, w); cur.cr = _lerp(F.cr, _A.cr || 0, w);
+  const C = _CP;
+  for (let d = 0; d < 3; d++) { C.g[d] = _lerp(F.g[d], _A.g[d], w); C.b[d] = _lerp(F.b[d], _A.b[d], w); }
+  C.hasL = !bothHands && !!_A.l && !(p.gunReady > 0.5); if (C.hasL) for (let d = 0; d < 3; d++) C.l[d] = _A.l[d];
+  C.lw = w; C.cr = cur.cr;
+  o.chestYaw = cur.tw * RAD; o.pelvisYaw = cur.hp * RAD; o.pitch = cur.ln * RAD;
+  o.headYaw = o.chestYaw * 0.25;                     // the head turns a little with the chest; the eyes stay on the target
+  // ---- footwork (attacks only: a charge keeps walking)
+  if (key[0] === 'm') {
+    o.feetLock = _feetLock; _feetLock.w = 1;
+    const rm = clipRoot(clip, x);
+    for (const side of ['L', 'R']) clipFoot(p, clip, side, x, rm, cy, sy, _feetLock[side]);
+  }
+  return C;
+}
+/** One foot during a clip: planted where it is in the world, or stepping to where the clip puts it. */
+function clipFoot(p, clip, side, x, rmNow, cy, sy, out) {
+  const ks = clip._feet[side], q = p._fw[side];
+  let i = -1; for (let j = 0; j < ks.length; j++) if (ks[j].x <= x) i = j;
+  // world position of a key's target: relative to where the root will be at that key
+  const tgt = (kk) => { const ahead = clipRoot(clip, kk.x) - rmNow, rx = p.gx + Math.cos(p.attack_dir) * ahead, ry = p.gy + Math.sin(p.attack_dir) * ahead;
+    return [rx + kk.s * sy + kk.f * cy, ry - kk.s * cy + kk.f * sy]; };
+  let lift = 0, toe = 0;
+  // settle into the clip's first stance in the opening moments if the foot was caught mid-stride
+  const seg = i;
+  if (seg !== q.seg) {
+    if (q.stepping && q.seg !== -9 && p.g && p.g.onAttackStep) p.g.onAttackStep(p, q.x, q.y);   // the foot comes down
+    q.fx = q.x; q.fy = q.y; q.seg = seg; q.stepping = false;
+  }
+  if (i >= 0 && i < ks.length - 1) {
+    const a = ks[i], b = ks[i + 1];
+    if (Math.hypot(b.s - a.s, b.f - a.f) > 0.8) {                       // a step
+      q.stepping = true;
+      const [tx, ty] = tgt(b), u = b.e(clamp((x - a.x) / (b.x - a.x), 0, 1)), dist = Math.hypot(tx - q.fx, ty - q.fy);
+      q.x = q.fx + (tx - q.fx) * u; q.y = q.fy + (ty - q.fy) * u;
+      lift = Math.sin(Math.PI * u) * Math.min(7, 1.2 + 0.22 * dist);
+      toe = u > 0.65 ? 2.2 * (u - 0.65) / 0.35 * (1 - u) * 3 : -lift * 0.4;
+    } else if (i === 0 && x < Math.min(0.5, b.x)) {                     // settle into the first stance
+      const [tx, ty] = tgt(a), d0 = Math.hypot(tx - q.fx, ty - q.fy);
+      if (d0 > 3) { const u = EASE.io(x / Math.min(0.5, b.x)); q.x = q.fx + (tx - q.fx) * u; q.y = q.fy + (ty - q.fy) * u; lift = Math.sin(Math.PI * u) * Math.min(5, 1 + 0.2 * d0); }
+    }
+  }
+  // a planted foot can't be left further behind than the leg reaches: it gets dragged
+  const dx = q.x - p.gx, dy = q.y - p.gy, d = Math.hypot(dx, dy), lim = 24;
+  if (d > lim) { q.x = p.gx + dx / d * lim; q.y = p.gy + dy / d * lim; q.fx = q.x; q.fy = q.y; }
+  const X = q.x - p.gx, Y = q.y - p.gy;
+  out.s = X * sy - Y * cy; out.f = X * cy + Y * sy; out.z = 3.5 + lift; out.toe = toe;
+  out.yaw = side === 'R' ? -0.45 : 0.12;               // rear foot turned out, front foot pointing at the target
+}
+/** Hands for a clip pose: the grip and the blade (and a free left hand) in the chest frame. */
+function clipArms(p, R, o, C, bothHands) {
+  _grip.s = C.g[0]; _grip.f = C.g[1]; _grip.z = C.g[2];
+  _blade.s = C.b[0]; _blade.f = C.b[1]; _blade.z = C.b[2];
+  o.chestGrip = true;
+  if (C.hasL) { _lt3.s = C.l[0]; _lt3.f = C.l[1]; _lt3.z = C.l[2]; o.leftTarget = _lt3; }
+  // remember the finished pose for the blend back out of the clip
+  const Lp = p._last || (p._last = { g: [0, 0, 0], b: [0, 0, 0], tw: 0, hp: 0, ln: 0, cr: 0 });
+  Lp.tw = p._cur.tw; Lp.hp = p._cur.hp; Lp.ln = p._cur.ln; Lp.cr = p._cur.cr;
+}
+/** Just out of a clip: ease the body from its last clip pose back to the normal carry. */
+function clipOut(p, o, dt) {
+  p._outT = Math.max(0, p._outT - dt);
+  const w = EASE.io(p._outT / 0.22), Lp = p._last, R = p.rig;
+  if (!Lp) return;
+  if (!p._outInit) { p._outInit = true; }
+  // grip and blade: from where the rig drew them last (char frame) toward the carry
+  _grip.s = _lerp(_grip.s, R.grip.s, w); _grip.f = _lerp(_grip.f, R.grip.f, w); _grip.z = _lerp(_grip.z, R.grip.z, w);
+  _blade.s = _lerp(_blade.s, R.blade.s, w); _blade.f = _lerp(_blade.f, R.blade.f, w); _blade.z = _lerp(_blade.z, R.blade.z, w);
+  o.chestYaw += Lp.tw * RAD * w; o.pelvisYaw += Lp.hp * RAD * w; o.pitch += Lp.ln * RAD * w; o.crouch += Lp.cr * w;
+  if (p._fw && o.feetLock === null) {
+    o.feetLock = _feetLock; _feetLock.w = w;
+    const cy = Math.cos(p.facing), sy = Math.sin(p.facing);
+    for (const side of ['L', 'R']) { const q = p._fw[side], X = q.x - p.gx, Y = q.y - p.gy, out = _feetLock[side];
+      out.s = X * sy - Y * cy; out.f = X * cy + Y * sy; out.z = 3.5; out.toe = 0; out.yaw = side === 'R' ? -0.45 : 0.12; }
+  }
+  if (p._outT <= 0) { p._last.tw = p._last.hp = p._last.ln = p._last.cr = 0; if (p._cur) p._cur.tw = p._cur.hp = p._cur.ln = p._cur.cr = 0; }
 }
 
 // ---------------------------------------------------------------- cloth (cloak, tabard, sashes)

@@ -20,7 +20,8 @@ function boneFrames(J, out, headYaw) {
   const hy = headYaw || 0, headFwd = [-Math.sin(hy), Math.cos(hy), 0], neckFwd = [-Math.sin(hy * 0.45), Math.cos(hy * 0.45), 0];
   const g = (n) => { const q = J[n]; return Array.isArray(q) ? q : [q.s, q.f, q.z]; };
   const F = (i, o, a, ref) => frameFrom(out[i], g(o), v3.sub(g(a), g(o)), ref);
-  F(B.pelvis, 'pelvis', 'waist', FWD); F(B.spine, 'waist', 'neck', FWD);
+  const across = (a, b) => { const A = g(a), Bq = g(b); return [-(Bq[1] - A[1]), Bq[0] - A[0], 0]; };   // forward from a left->right pair
+  F(B.pelvis, 'pelvis', 'waist', across('hipL', 'hipR')); F(B.spine, 'waist', 'neck', across('shL', 'shR'));
   frameFrom(out[B.neck], g('neck'), v3.sub(g('head'), g('neck')), neckFwd);
   frameFrom(out[B.head], g('head'), v3.sub(g('head'), g('neck')), headFwd);
   for (const [sd, S] of [['R', 1], ['L', -1]]) {

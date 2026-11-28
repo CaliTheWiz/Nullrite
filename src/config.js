@@ -31,8 +31,11 @@ const MOVE_DEFAULTS = {
   windup: 0.12, active: 0.10, recovery: 0.25, cancel: 0.08, stamina: 14, damage: 35, poise: 7,
   lunge: 300, hitbox: ['arc', 140, 55], motion: ['swing', 75, -75], reach: 46, heft: 0, hyper: false,
   slash: ['arc', 'gold'], sfx: ['whoosh', 0.85], haptic: ['light', 0.6], shake: 6, sparks: 14,
-  flash: 120, hitstop: HITSTOP, thud: false,
+  flash: 120, hitstop: HITSTOP, thud: false, anim: null, dtype: 'slash',
 };
+// damage types: what an attack does, what armour stops and what an enemy is weak to
+const DAMAGE_TYPES = ['slash', 'stab', 'crush', 'ranged', 'magic'];
+const DTYPE_NAME = { slash: 'SLASH', stab: 'STAB', crush: 'CRUSH', ranged: 'RANGED', magic: 'MAGIC' };
 function move(kw) { return Object.assign({}, MOVE_DEFAULTS, kw); }
 
 const SLASH_COLORS = { gold: '#ffe2b0', crimson: '#ff3048', white: '#fff4f0' };
@@ -40,8 +43,10 @@ const COMBO_WINDOW = 0.35;
 const DODGE_ATTACK_WINDOW = 0.30;
 const CHARGE_START = 0.20, CHARGE_FULL = 0.65, CHARGE_WALK = 0.45;
 
+// Each weapon: its own clips (anim.js), its own speed, damage and damage type. Light chains are committed: long
+// recoveries, late cancels. dtype: 'slash' | 'stab' | 'crush' | 'ranged' | 'magic' (see DAMAGE_TYPES).
 const WEAPONS = {
-  // one-handed: quick cuts, the left hand free (pistol on the hip) and swung out for balance
+  // one-handed: quick, a mix of cuts and thrusts; the left hand free (pistol at low ready) and swung for balance
   oathsword: {
     name: 'OATHBOUND SWORD', tex: 'oathsword', size: [70, 16], grip: 8, handGap: 0, glow: [30, 62, 10], speed: 1.06,
     stance: { hands: 1, offhand: { s: -14.5, f: 4, z: 41 },
@@ -49,77 +54,75 @@ const WEAPONS = {
               move: { off: -1.3, r: 13, elev: 30, point: -0.85, up: -0.5 },                    // low at his side, tip forward-down
               dash: { off: -(Math.PI - 0.9), r: 16, elev: 28, point: -(Math.PI - 0.35), up: -0.3 } },   // trailing behind
     light: [
-      move({ windup: 0.08, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 10, damage: 26, poise: 5, lunge: 300,
-             hitbox: ['arc', 122, 50], motion: ['swing', 70, -62], reach: 40 }),
-      move({ windup: 0.07, active: 0.08, recovery: 0.21, cancel: 0.07, stamina: 10, damage: 27, poise: 5, lunge: 300,
-             hitbox: ['arc', 124, 52], motion: ['swing', -72, 64], reach: 42 }),
-      move({ windup: 0.10, active: 0.08, recovery: 0.26, cancel: 0.10, stamina: 12, damage: 33, poise: 8, lunge: 380,
-             hitbox: ['thrust', 150, 32], motion: ['thrust'], reach: 62, slash: ['thrust', 'gold'], shake: 6, sparks: 12, flash: 110 }),
+      move({ anim: 'os_l1', dtype: 'slash', windup: 0.14, active: 0.10, recovery: 0.34, cancel: 0.22, stamina: 11, damage: 26, poise: 6,
+             hitbox: ['arc', 120, 55], motion: ['swing', 70, -62], reach: 40, hitstop: 0.045, shake: 5 }),
+      move({ anim: 'os_l2', dtype: 'slash', windup: 0.13, active: 0.10, recovery: 0.34, cancel: 0.22, stamina: 11, damage: 27, poise: 6,
+             hitbox: ['arc', 122, 55], motion: ['swing', -72, 64], reach: 42, hitstop: 0.045, shake: 5 }),
+      move({ anim: 'os_l3', dtype: 'stab', windup: 0.18, active: 0.10, recovery: 0.40, cancel: 0.28, stamina: 13, damage: 31, poise: 9,
+             hitbox: ['thrust', 150, 30], motion: ['thrust'], reach: 62, hitstop: 0.05, shake: 6 }),
     ],
-    heavy: move({ windup: 0.30, active: 0.12, recovery: 0.40, cancel: 0.18, stamina: 24, damage: 62, poise: 22,
-                  lunge: 420, hitbox: ['thrust', 150, 62], motion: ['overhead'], reach: 52, heft: 0.6,
-                  slash: ['slam', 'crimson'], sfx: ['whoosh_heavy', 0.85], haptic: ['medium', 0.8], shake: 10, sparks: 22, flash: 150 }),
-    charged: move({ windup: 0.12, active: 0.15, recovery: 0.44, cancel: 0.22, stamina: 34, damage: 92, poise: 34,
-                    lunge: 520, hitbox: ['arc', 168, 80], motion: ['swing', 150, -150], reach: 50, heft: 0.8,
-                    hyper: true, slash: ['arc', 'white'], sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
-                    shake: 15, sparks: 32, flash: 210, hitstop: 0.08, thud: true }),
-    dodge: move({ windup: 0.05, active: 0.10, recovery: 0.22, cancel: 0.08, stamina: 12, damage: 29, poise: 6,
-                  lunge: 720, hitbox: ['thrust', 170, 34], motion: ['thrust'], reach: 64, slash: ['thrust', 'gold'], sparks: 12 }),
+    heavy: move({ anim: 'os_heavy', dtype: 'stab', windup: 0.42, active: 0.12, recovery: 0.55, cancel: 0.36, stamina: 22, damage: 58, poise: 22,
+                  hitbox: ['thrust', 175, 34], motion: ['thrust'], reach: 64, heft: 0.6,
+                  sfx: ['whoosh_heavy', 0.85], haptic: ['medium', 0.8], shake: 10, sparks: 22, flash: 150, hitstop: 0.07 }),
+    charged: move({ anim: 'os_charged', dtype: 'slash', windup: 0.14, active: 0.18, recovery: 0.6, cancel: 0.4, stamina: 30, damage: 84, poise: 34,
+                    hitbox: ['arc', 160, 85], motion: ['swing', 150, -150], reach: 50, heft: 0.8,
+                    hyper: true, sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
+                    shake: 14, sparks: 32, flash: 210, hitstop: 0.09, thud: true }),
+    dodge: move({ anim: 'os_dodge', dtype: 'slash', windup: 0.08, active: 0.12, recovery: 0.40, cancel: 0.26, stamina: 12, damage: 29, poise: 7,
+                  hitbox: ['arc', 135, 70], motion: ['swing', 80, -80], reach: 48, sparks: 12, hitstop: 0.05 }),
   },
   greatsword: {
-    name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, handGap: 8, glow: [50, 96, 16], speed: 0.95,
+    name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, handGap: 8, glow: [50, 96, 16], speed: 0.92,
     // stance: how this weapon is carried (angle offset from facing, distance, height, blade tilt: 1 upright, <0 tip down)
     // off = where the hands are (angle from facing), point = where the blade points (angle from facing)
     stance: { hands: 2, rest: { off: -0.55, r: 15, elev: 32, point: -0.35, up: -0.35, sway: 2.5 },  // low guard, tip forward-down
               move: { off: -0.9, r: 13, elev: 36, point: -1.2, up: 0.55 },                            // carried angled up across the body
               dash: { off: -(Math.PI - 0.6), r: 18, elev: 26, point: -(Math.PI - 0.25), up: -0.35 } },   // dragged low behind, right side
+    // slow and heavy: big wind-ups, long follow-through; every hit lands like it means it
     light: [
-      move({ windup: 0.11, active: 0.10, recovery: 0.24, damage: 38, poise: 7, lunge: 340,
-             hitbox: ['arc', 140, 55], motion: ['swing', 75, -75] }),
-      move({ windup: 0.10, active: 0.10, recovery: 0.26, damage: 40, poise: 8, lunge: 320,
-             hitbox: ['arc', 145, 58], motion: ['swing', -80, 80], reach: 48 }),
-      move({ windup: 0.20, active: 0.12, recovery: 0.38, cancel: 0.16, stamina: 18, damage: 58, poise: 16,
-             lunge: 420, hitbox: ['thrust', 175, 74], motion: ['overhead'], reach: 60, heft: 0.6,
-             slash: ['slam', 'gold'], sfx: ['whoosh_heavy', 0.8], haptic: ['medium', 0.8], shake: 9,
-             sparks: 20, flash: 150 }),
+      move({ anim: 'gs_l1', dtype: 'slash', windup: 0.32, active: 0.14, recovery: 0.52, cancel: 0.36, stamina: 20, damage: 52, poise: 14,
+             hitbox: ['arc', 170, 62], motion: ['swing', 75, -75], reach: 50, heft: 0.6, sfx: ['whoosh_heavy', 0.7],
+             haptic: ['medium', 0.7], shake: 9, sparks: 20, flash: 150, hitstop: 0.09 }),
+      move({ anim: 'gs_l2', dtype: 'slash', windup: 0.28, active: 0.14, recovery: 0.54, cancel: 0.38, stamina: 20, damage: 54, poise: 14,
+             hitbox: ['arc', 172, 64], motion: ['swing', -80, 80], reach: 50, heft: 0.6, sfx: ['whoosh_heavy', 0.7],
+             haptic: ['medium', 0.7], shake: 9, sparks: 20, flash: 150, hitstop: 0.09 }),
+      move({ anim: 'gs_l3', dtype: 'slash', windup: 0.40, active: 0.14, recovery: 0.66, cancel: 0.46, stamina: 24, damage: 66, poise: 20,
+             hitbox: ['thrust', 175, 60], motion: ['overhead'], reach: 60, heft: 0.8, sfx: ['whoosh_heavy', 0.85],
+             haptic: ['medium', 0.8], shake: 11, sparks: 24, flash: 160, hitstop: 0.11 }),
     ],
-    heavy: move({ windup: 0.40, active: 0.14, recovery: 0.46, cancel: 0.20, stamina: 32, damage: 92, poise: 34,
-                  lunge: 540, hitbox: ['arc', 215, 70], motion: ['swing', 100, -100], reach: 54, heft: 1.0,
-                  slash: ['arc', 'crimson'], sfx: ['whoosh_heavy', 1.0], haptic: ['medium', 0.9], shake: 14,
-                  sparks: 30, flash: 200, thud: true }),
-    charged: move({ windup: 0.16, active: 0.16, recovery: 0.50, cancel: 0.24, stamina: 40, damage: 135, poise: 52,
-                    lunge: 620, hitbox: ['arc', 240, 90], motion: ['swing', 120, -120], reach: 60, heft: 1.0,
-                    hyper: true, slash: ['arc', 'white'], sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
-                    shake: 18, sparks: 40, flash: 240, hitstop: 0.08, thud: true }),
-    dodge: move({ windup: 0.06, active: 0.14, recovery: 0.26, cancel: 0.10, stamina: 16, damage: 34, poise: 8,
-                  lunge: 220, hitbox: ['ring', 125], motion: ['swing', 170, -170], reach: 50, sparks: 16 }),
+    heavy: move({ anim: 'gs_heavy', dtype: 'slash', windup: 0.62, active: 0.16, recovery: 0.78, cancel: 0.55, stamina: 34, damage: 100, poise: 36,
+                  hitbox: ['thrust', 190, 70], motion: ['overhead'], reach: 60, heft: 1.0, hyper: true,
+                  sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 0.9], shake: 16, sparks: 30, flash: 200, hitstop: 0.13, thud: true }),
+    charged: move({ anim: 'gs_charged', dtype: 'slash', windup: 0.18, active: 0.22, recovery: 0.8, cancel: 0.56, stamina: 42, damage: 140, poise: 54,
+                    hitbox: ['arc', 230, 95], motion: ['swing', 120, -120], reach: 60, heft: 1.0,
+                    hyper: true, sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
+                    shake: 18, sparks: 40, flash: 240, hitstop: 0.15, thud: true }),
+    dodge: move({ anim: 'gs_dodge', dtype: 'slash', windup: 0.12, active: 0.14, recovery: 0.55, cancel: 0.40, stamina: 18, damage: 56, poise: 14,
+                  hitbox: ['arc', 165, 50], motion: ['swing', 20, -20], reach: 50, heft: 0.6, sparks: 16, hitstop: 0.09, shake: 9 }),
   },
   spear: {
-    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, handGap: 22, glow: [70, 110, 12], speed: 1.05,
+    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, handGap: 22, glow: [70, 110, 12], speed: 1.0,
     stance: { hands: 2, rest: { off: -0.35, r: 14, elev: 42, point: -0.05, up: -0.05, sway: 1.5 },   // couched at the chest, point forward
               move: { off: -0.8, r: 12, elev: 46, point: -0.6, up: 0.7 },                              // shaft high and diagonal
               dash: { off: -0.2, r: 16, elev: 38, point: 0, up: -0.12 } },                             // point leads the dash
+    // reach and the point: fast, narrow, piercing; one sweeping cut with the shaft
     light: [
-      move({ windup: 0.09, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 11, damage: 30, poise: 5,
-             lunge: 380, hitbox: ['thrust', 190, 34], motion: ['thrust'], reach: 78, slash: ['thrust', 'gold'],
-             shake: 5, sparks: 10, flash: 100 }),
-      move({ windup: 0.08, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 11, damage: 31, poise: 5,
-             lunge: 400, hitbox: ['thrust', 200, 34], motion: ['thrust'], reach: 82, slash: ['thrust', 'gold'],
-             shake: 5, sparks: 10, flash: 100 }),
-      move({ windup: 0.12, active: 0.12, recovery: 0.30, cancel: 0.12, stamina: 15, damage: 36, poise: 9,
-             lunge: 260, hitbox: ['arc', 175, 60], motion: ['swing', -70, 70], reach: 64 }),
+      move({ anim: 'sp_l1', dtype: 'stab', windup: 0.13, active: 0.08, recovery: 0.32, cancel: 0.20, stamina: 12, damage: 28, poise: 6,
+             hitbox: ['thrust', 190, 30], motion: ['thrust'], reach: 78, shake: 5, sparks: 10, flash: 100, hitstop: 0.05 }),
+      move({ anim: 'sp_l2', dtype: 'stab', windup: 0.12, active: 0.08, recovery: 0.34, cancel: 0.22, stamina: 12, damage: 30, poise: 6,
+             hitbox: ['thrust', 205, 30], motion: ['thrust'], reach: 82, shake: 5, sparks: 10, flash: 100, hitstop: 0.05 }),
+      move({ anim: 'sp_l3', dtype: 'slash', windup: 0.20, active: 0.14, recovery: 0.40, cancel: 0.28, stamina: 15, damage: 34, poise: 10,
+             hitbox: ['arc', 180, 62], motion: ['swing', -70, 70], reach: 64, hitstop: 0.06, shake: 6 }),
     ],
-    heavy: move({ windup: 0.32, active: 0.16, recovery: 0.42, cancel: 0.18, stamina: 28, damage: 72, poise: 22,
-                  lunge: 900, hitbox: ['thrust', 260, 40], motion: ['thrust'], reach: 96, heft: 0.7,
-                  slash: ['thrust', 'crimson'], sfx: ['whoosh_heavy', 1.0], haptic: ['medium', 0.9], shake: 11,
-                  sparks: 24, flash: 170 }),
-    charged: move({ windup: 0.12, active: 0.18, recovery: 0.46, cancel: 0.22, stamina: 36, damage: 108, poise: 36,
-                    lunge: 1150, hitbox: ['thrust', 310, 46], motion: ['thrust'], reach: 104, heft: 0.8,
-                    hyper: true, slash: ['thrust', 'white'], sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
-                    shake: 16, sparks: 34, flash: 220, hitstop: 0.08, thud: true }),
-    dodge: move({ windup: 0.05, active: 0.10, recovery: 0.22, cancel: 0.08, stamina: 13, damage: 33, poise: 6,
-                  lunge: 760, hitbox: ['thrust', 210, 36], motion: ['thrust'], reach: 84,
-                  slash: ['thrust', 'gold'], sparks: 12 }),
+    heavy: move({ anim: 'sp_heavy', dtype: 'stab', windup: 0.42, active: 0.14, recovery: 0.56, cancel: 0.38, stamina: 26, damage: 70, poise: 24,
+                  hitbox: ['thrust', 265, 36], motion: ['thrust'], reach: 96, heft: 0.7,
+                  sfx: ['whoosh_heavy', 1.0], haptic: ['medium', 0.9], shake: 11, sparks: 24, flash: 170, hitstop: 0.08 }),
+    charged: move({ anim: 'sp_charged', dtype: 'stab', windup: 0.20, active: 0.16, recovery: 0.62, cancel: 0.44, stamina: 34, damage: 96, poise: 36,
+                    hitbox: ['thrust', 220, 44], motion: ['thrust'], reach: 104, heft: 0.8,
+                    hyper: true, sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
+                    shake: 15, sparks: 34, flash: 220, hitstop: 0.1, thud: true }),
+    dodge: move({ anim: 'sp_dodge', dtype: 'stab', windup: 0.08, active: 0.10, recovery: 0.42, cancel: 0.28, stamina: 13, damage: 33, poise: 7,
+                  hitbox: ['thrust', 215, 32], motion: ['thrust'], reach: 84, sparks: 12, hitstop: 0.05 }),
   },
 };
 const WEAPON_ORDER = ['oathsword', 'greatsword', 'spear'];
@@ -175,12 +178,14 @@ const RESPAWN_AT = 3.4;                                    // seconds after YOU 
 const RAD = Math.PI / 180;
 const BOSS_ATTACKS = {
   sweep: { windup: 0.85, track: 0.4, active: 0.22, recovery: 0.9, range: 250, half: 80 * RAD,
-           damage: 28, knock: 260, want: 205, parry: true, impact: 18 },
+           damage: 28, knock: 260, want: 205, parry: true, impact: 18, dtype: 'slash' },
   slam:  { windup: 1.05, crouch: 0.3, active: 0.12, recovery: 1.1, radius: 230, hop: 170,
-           damage: 36, knock: 360, want: 330, parry: false, impact: 32 },
+           damage: 36, knock: 360, want: 330, parry: false, impact: 32, dtype: 'crush' },
   lance: { windup: 1.12, lock: 0.8, recovery: 1.0, speed: 1500, max_dist: 680,
-           damage: 32, knock: 320, want: 9999, parry: true, impact: 24 },
+           damage: 32, knock: 320, want: 9999, parry: true, impact: 24, dtype: 'stab' },
 };
+// the Sentinel: plate over stone. Blades skate off it, a point finds the gaps, weight breaks it.
+const BOSS_RESIST = { slash: 0.85, stab: 1.2, crush: 1.15, ranged: 0.8, magic: 1.1 };
 // Phase 2 (below half HP): lance chains straight into a quicker sweep; slam sends out radial waves
 BOSS_ATTACKS.sweep_follow = Object.assign({}, BOSS_ATTACKS.sweep, { windup: 0.52, track: 0.26, recovery: 1.05 });
 const PHASE2_AT = 0.5;                       // fraction of boss HP

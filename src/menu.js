@@ -197,11 +197,17 @@ class EquipMenu {
     const num = (label, v, cv, better) => rows.push([label, v, worn || cv === null || cv === undefined ? null : v - cv, better]);
     if (d.cat === 'weapon' && d.weapon) {
       const W = WEAPONS[d.weapon], cw = cur && cur.weapon && WEAPONS[cur.weapon];
-      num('Attack', W.light[0].damage, cw ? cw.light[0].damage : null, 1);
-      num('Heavy', W.heavy.damage, cw ? cw.heavy.damage : null, 1);
-      num('Charged', W.charged.damage, cw ? cw.charged.damage : null, 1);
+      const ty = (m) => ' · ' + DTYPE_NAME[m.dtype];
+      num('Attack' + ty(W.light[0]), W.light[0].damage, cw ? cw.light[0].damage : null, 1);
+      num('Heavy' + ty(W.heavy), W.heavy.damage, cw ? cw.heavy.damage : null, 1);
+      num('Charged' + ty(W.charged), W.charged.damage, cw ? cw.charged.damage : null, 1);
     } else if (id === 'pistol') { num('Shot damage', BULLET_DAMAGE, null, 1); num('Ammunition', BULLETS_MAX, null, 1); }
-    else if (d.cat === 'armor') { num('Defence', d.defense, cur ? cur.defense : 0, 1); num('Poise', d.poise, cur ? cur.poise : 0, 1); }
+    else if (d.cat === 'armor') {
+      num('Defence', d.defense, cur ? cur.defense : 0, 1); num('Poise', d.poise, cur ? cur.poise : 0, 1);
+      const R = ARMOR_RESIST[d.mat] || {}, good = DAMAGE_TYPES.filter(t => R[t] >= 1.1), bad = DAMAGE_TYPES.filter(t => R[t] <= 0.8);
+      if (good.length) rows.push(['Stops ' + good.map(t => DTYPE_NAME[t]).join(', '), null, null, 0]);
+      if (bad.length) rows.push(['Weak to ' + bad.map(t => DTYPE_NAME[t]).join(', '), null, null, 0]);
+    }
     if (d.cat === 'talisman') rows.push([d.effect, null, null, 0]);
     num('Weight', d.weight, cur ? cur.weight : (d.cat === 'armor' || d.cat === 'talisman' ? 0 : null), -1);
     let ry = y + 40;

@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = 'de2d17';
+const BUILD = 'acaa4c';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -64,8 +64,11 @@ const MOVE_DEFAULTS = {
   windup: 0.12, active: 0.10, recovery: 0.25, cancel: 0.08, stamina: 14, damage: 35, poise: 7,
   lunge: 300, hitbox: ['arc', 140, 55], motion: ['swing', 75, -75], reach: 46, heft: 0, hyper: false,
   slash: ['arc', 'gold'], sfx: ['whoosh', 0.85], haptic: ['light', 0.6], shake: 6, sparks: 14,
-  flash: 120, hitstop: HITSTOP, thud: false,
+  flash: 120, hitstop: HITSTOP, thud: false, anim: null, dtype: 'slash',
 };
+// damage types: what an attack does, what armour stops and what an enemy is weak to
+const DAMAGE_TYPES = ['slash', 'stab', 'crush', 'ranged', 'magic'];
+const DTYPE_NAME = { slash: 'SLASH', stab: 'STAB', crush: 'CRUSH', ranged: 'RANGED', magic: 'MAGIC' };
 function move(kw) { return Object.assign({}, MOVE_DEFAULTS, kw); }
 
 const SLASH_COLORS = { gold: '#ffe2b0', crimson: '#ff3048', white: '#fff4f0' };
@@ -73,8 +76,10 @@ const COMBO_WINDOW = 0.35;
 const DODGE_ATTACK_WINDOW = 0.30;
 const CHARGE_START = 0.20, CHARGE_FULL = 0.65, CHARGE_WALK = 0.45;
 
+// Each weapon: its own clips (anim.js), its own speed, damage and damage type. Light chains are committed: long
+// recoveries, late cancels. dtype: 'slash' | 'stab' | 'crush' | 'ranged' | 'magic' (see DAMAGE_TYPES).
 const WEAPONS = {
-  // one-handed: quick cuts, the left hand free (pistol on the hip) and swung out for balance
+  // one-handed: quick, a mix of cuts and thrusts; the left hand free (pistol at low ready) and swung for balance
   oathsword: {
     name: 'OATHBOUND SWORD', tex: 'oathsword', size: [70, 16], grip: 8, handGap: 0, glow: [30, 62, 10], speed: 1.06,
     stance: { hands: 1, offhand: { s: -14.5, f: 4, z: 41 },
@@ -82,77 +87,75 @@ const WEAPONS = {
               move: { off: -1.3, r: 13, elev: 30, point: -0.85, up: -0.5 },                    // low at his side, tip forward-down
               dash: { off: -(Math.PI - 0.9), r: 16, elev: 28, point: -(Math.PI - 0.35), up: -0.3 } },   // trailing behind
     light: [
-      move({ windup: 0.08, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 10, damage: 26, poise: 5, lunge: 300,
-             hitbox: ['arc', 122, 50], motion: ['swing', 70, -62], reach: 40 }),
-      move({ windup: 0.07, active: 0.08, recovery: 0.21, cancel: 0.07, stamina: 10, damage: 27, poise: 5, lunge: 300,
-             hitbox: ['arc', 124, 52], motion: ['swing', -72, 64], reach: 42 }),
-      move({ windup: 0.10, active: 0.08, recovery: 0.26, cancel: 0.10, stamina: 12, damage: 33, poise: 8, lunge: 380,
-             hitbox: ['thrust', 150, 32], motion: ['thrust'], reach: 62, slash: ['thrust', 'gold'], shake: 6, sparks: 12, flash: 110 }),
+      move({ anim: 'os_l1', dtype: 'slash', windup: 0.14, active: 0.10, recovery: 0.34, cancel: 0.22, stamina: 11, damage: 26, poise: 6,
+             hitbox: ['arc', 120, 55], motion: ['swing', 70, -62], reach: 40, hitstop: 0.045, shake: 5 }),
+      move({ anim: 'os_l2', dtype: 'slash', windup: 0.13, active: 0.10, recovery: 0.34, cancel: 0.22, stamina: 11, damage: 27, poise: 6,
+             hitbox: ['arc', 122, 55], motion: ['swing', -72, 64], reach: 42, hitstop: 0.045, shake: 5 }),
+      move({ anim: 'os_l3', dtype: 'stab', windup: 0.18, active: 0.10, recovery: 0.40, cancel: 0.28, stamina: 13, damage: 31, poise: 9,
+             hitbox: ['thrust', 150, 30], motion: ['thrust'], reach: 62, hitstop: 0.05, shake: 6 }),
     ],
-    heavy: move({ windup: 0.30, active: 0.12, recovery: 0.40, cancel: 0.18, stamina: 24, damage: 62, poise: 22,
-                  lunge: 420, hitbox: ['thrust', 150, 62], motion: ['overhead'], reach: 52, heft: 0.6,
-                  slash: ['slam', 'crimson'], sfx: ['whoosh_heavy', 0.85], haptic: ['medium', 0.8], shake: 10, sparks: 22, flash: 150 }),
-    charged: move({ windup: 0.12, active: 0.15, recovery: 0.44, cancel: 0.22, stamina: 34, damage: 92, poise: 34,
-                    lunge: 520, hitbox: ['arc', 168, 80], motion: ['swing', 150, -150], reach: 50, heft: 0.8,
-                    hyper: true, slash: ['arc', 'white'], sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
-                    shake: 15, sparks: 32, flash: 210, hitstop: 0.08, thud: true }),
-    dodge: move({ windup: 0.05, active: 0.10, recovery: 0.22, cancel: 0.08, stamina: 12, damage: 29, poise: 6,
-                  lunge: 720, hitbox: ['thrust', 170, 34], motion: ['thrust'], reach: 64, slash: ['thrust', 'gold'], sparks: 12 }),
+    heavy: move({ anim: 'os_heavy', dtype: 'stab', windup: 0.42, active: 0.12, recovery: 0.55, cancel: 0.36, stamina: 22, damage: 58, poise: 22,
+                  hitbox: ['thrust', 175, 34], motion: ['thrust'], reach: 64, heft: 0.6,
+                  sfx: ['whoosh_heavy', 0.85], haptic: ['medium', 0.8], shake: 10, sparks: 22, flash: 150, hitstop: 0.07 }),
+    charged: move({ anim: 'os_charged', dtype: 'slash', windup: 0.14, active: 0.18, recovery: 0.6, cancel: 0.4, stamina: 30, damage: 84, poise: 34,
+                    hitbox: ['arc', 160, 85], motion: ['swing', 150, -150], reach: 50, heft: 0.8,
+                    hyper: true, sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
+                    shake: 14, sparks: 32, flash: 210, hitstop: 0.09, thud: true }),
+    dodge: move({ anim: 'os_dodge', dtype: 'slash', windup: 0.08, active: 0.12, recovery: 0.40, cancel: 0.26, stamina: 12, damage: 29, poise: 7,
+                  hitbox: ['arc', 135, 70], motion: ['swing', 80, -80], reach: 48, sparks: 12, hitstop: 0.05 }),
   },
   greatsword: {
-    name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, handGap: 8, glow: [50, 96, 16], speed: 0.95,
+    name: 'OBSIDIAN GREATSWORD', tex: 'sword', size: [112, 28], grip: 12, handGap: 8, glow: [50, 96, 16], speed: 0.92,
     // stance: how this weapon is carried (angle offset from facing, distance, height, blade tilt: 1 upright, <0 tip down)
     // off = where the hands are (angle from facing), point = where the blade points (angle from facing)
     stance: { hands: 2, rest: { off: -0.55, r: 15, elev: 32, point: -0.35, up: -0.35, sway: 2.5 },  // low guard, tip forward-down
               move: { off: -0.9, r: 13, elev: 36, point: -1.2, up: 0.55 },                            // carried angled up across the body
               dash: { off: -(Math.PI - 0.6), r: 18, elev: 26, point: -(Math.PI - 0.25), up: -0.35 } },   // dragged low behind, right side
+    // slow and heavy: big wind-ups, long follow-through; every hit lands like it means it
     light: [
-      move({ windup: 0.11, active: 0.10, recovery: 0.24, damage: 38, poise: 7, lunge: 340,
-             hitbox: ['arc', 140, 55], motion: ['swing', 75, -75] }),
-      move({ windup: 0.10, active: 0.10, recovery: 0.26, damage: 40, poise: 8, lunge: 320,
-             hitbox: ['arc', 145, 58], motion: ['swing', -80, 80], reach: 48 }),
-      move({ windup: 0.20, active: 0.12, recovery: 0.38, cancel: 0.16, stamina: 18, damage: 58, poise: 16,
-             lunge: 420, hitbox: ['thrust', 175, 74], motion: ['overhead'], reach: 60, heft: 0.6,
-             slash: ['slam', 'gold'], sfx: ['whoosh_heavy', 0.8], haptic: ['medium', 0.8], shake: 9,
-             sparks: 20, flash: 150 }),
+      move({ anim: 'gs_l1', dtype: 'slash', windup: 0.32, active: 0.14, recovery: 0.52, cancel: 0.36, stamina: 20, damage: 52, poise: 14,
+             hitbox: ['arc', 170, 62], motion: ['swing', 75, -75], reach: 50, heft: 0.6, sfx: ['whoosh_heavy', 0.7],
+             haptic: ['medium', 0.7], shake: 9, sparks: 20, flash: 150, hitstop: 0.09 }),
+      move({ anim: 'gs_l2', dtype: 'slash', windup: 0.28, active: 0.14, recovery: 0.54, cancel: 0.38, stamina: 20, damage: 54, poise: 14,
+             hitbox: ['arc', 172, 64], motion: ['swing', -80, 80], reach: 50, heft: 0.6, sfx: ['whoosh_heavy', 0.7],
+             haptic: ['medium', 0.7], shake: 9, sparks: 20, flash: 150, hitstop: 0.09 }),
+      move({ anim: 'gs_l3', dtype: 'slash', windup: 0.40, active: 0.14, recovery: 0.66, cancel: 0.46, stamina: 24, damage: 66, poise: 20,
+             hitbox: ['thrust', 175, 60], motion: ['overhead'], reach: 60, heft: 0.8, sfx: ['whoosh_heavy', 0.85],
+             haptic: ['medium', 0.8], shake: 11, sparks: 24, flash: 160, hitstop: 0.11 }),
     ],
-    heavy: move({ windup: 0.40, active: 0.14, recovery: 0.46, cancel: 0.20, stamina: 32, damage: 92, poise: 34,
-                  lunge: 540, hitbox: ['arc', 215, 70], motion: ['swing', 100, -100], reach: 54, heft: 1.0,
-                  slash: ['arc', 'crimson'], sfx: ['whoosh_heavy', 1.0], haptic: ['medium', 0.9], shake: 14,
-                  sparks: 30, flash: 200, thud: true }),
-    charged: move({ windup: 0.16, active: 0.16, recovery: 0.50, cancel: 0.24, stamina: 40, damage: 135, poise: 52,
-                    lunge: 620, hitbox: ['arc', 240, 90], motion: ['swing', 120, -120], reach: 60, heft: 1.0,
-                    hyper: true, slash: ['arc', 'white'], sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
-                    shake: 18, sparks: 40, flash: 240, hitstop: 0.08, thud: true }),
-    dodge: move({ windup: 0.06, active: 0.14, recovery: 0.26, cancel: 0.10, stamina: 16, damage: 34, poise: 8,
-                  lunge: 220, hitbox: ['ring', 125], motion: ['swing', 170, -170], reach: 50, sparks: 16 }),
+    heavy: move({ anim: 'gs_heavy', dtype: 'slash', windup: 0.62, active: 0.16, recovery: 0.78, cancel: 0.55, stamina: 34, damage: 100, poise: 36,
+                  hitbox: ['thrust', 190, 70], motion: ['overhead'], reach: 60, heft: 1.0, hyper: true,
+                  sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 0.9], shake: 16, sparks: 30, flash: 200, hitstop: 0.13, thud: true }),
+    charged: move({ anim: 'gs_charged', dtype: 'slash', windup: 0.18, active: 0.22, recovery: 0.8, cancel: 0.56, stamina: 42, damage: 140, poise: 54,
+                    hitbox: ['arc', 230, 95], motion: ['swing', 120, -120], reach: 60, heft: 1.0,
+                    hyper: true, sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
+                    shake: 18, sparks: 40, flash: 240, hitstop: 0.15, thud: true }),
+    dodge: move({ anim: 'gs_dodge', dtype: 'slash', windup: 0.12, active: 0.14, recovery: 0.55, cancel: 0.40, stamina: 18, damage: 56, poise: 14,
+                  hitbox: ['arc', 165, 50], motion: ['swing', 20, -20], reach: 50, heft: 0.6, sparks: 16, hitstop: 0.09, shake: 9 }),
   },
   spear: {
-    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, handGap: 22, glow: [70, 110, 12], speed: 1.05,
+    name: 'HOLLOW SPEAR', tex: 'spear', size: [150, 18], grip: 44, handGap: 22, glow: [70, 110, 12], speed: 1.0,
     stance: { hands: 2, rest: { off: -0.35, r: 14, elev: 42, point: -0.05, up: -0.05, sway: 1.5 },   // couched at the chest, point forward
               move: { off: -0.8, r: 12, elev: 46, point: -0.6, up: 0.7 },                              // shaft high and diagonal
               dash: { off: -0.2, r: 16, elev: 38, point: 0, up: -0.12 } },                             // point leads the dash
+    // reach and the point: fast, narrow, piercing; one sweeping cut with the shaft
     light: [
-      move({ windup: 0.09, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 11, damage: 30, poise: 5,
-             lunge: 380, hitbox: ['thrust', 190, 34], motion: ['thrust'], reach: 78, slash: ['thrust', 'gold'],
-             shake: 5, sparks: 10, flash: 100 }),
-      move({ windup: 0.08, active: 0.08, recovery: 0.20, cancel: 0.07, stamina: 11, damage: 31, poise: 5,
-             lunge: 400, hitbox: ['thrust', 200, 34], motion: ['thrust'], reach: 82, slash: ['thrust', 'gold'],
-             shake: 5, sparks: 10, flash: 100 }),
-      move({ windup: 0.12, active: 0.12, recovery: 0.30, cancel: 0.12, stamina: 15, damage: 36, poise: 9,
-             lunge: 260, hitbox: ['arc', 175, 60], motion: ['swing', -70, 70], reach: 64 }),
+      move({ anim: 'sp_l1', dtype: 'stab', windup: 0.13, active: 0.08, recovery: 0.32, cancel: 0.20, stamina: 12, damage: 28, poise: 6,
+             hitbox: ['thrust', 190, 30], motion: ['thrust'], reach: 78, shake: 5, sparks: 10, flash: 100, hitstop: 0.05 }),
+      move({ anim: 'sp_l2', dtype: 'stab', windup: 0.12, active: 0.08, recovery: 0.34, cancel: 0.22, stamina: 12, damage: 30, poise: 6,
+             hitbox: ['thrust', 205, 30], motion: ['thrust'], reach: 82, shake: 5, sparks: 10, flash: 100, hitstop: 0.05 }),
+      move({ anim: 'sp_l3', dtype: 'slash', windup: 0.20, active: 0.14, recovery: 0.40, cancel: 0.28, stamina: 15, damage: 34, poise: 10,
+             hitbox: ['arc', 180, 62], motion: ['swing', -70, 70], reach: 64, hitstop: 0.06, shake: 6 }),
     ],
-    heavy: move({ windup: 0.32, active: 0.16, recovery: 0.42, cancel: 0.18, stamina: 28, damage: 72, poise: 22,
-                  lunge: 900, hitbox: ['thrust', 260, 40], motion: ['thrust'], reach: 96, heft: 0.7,
-                  slash: ['thrust', 'crimson'], sfx: ['whoosh_heavy', 1.0], haptic: ['medium', 0.9], shake: 11,
-                  sparks: 24, flash: 170 }),
-    charged: move({ windup: 0.12, active: 0.18, recovery: 0.46, cancel: 0.22, stamina: 36, damage: 108, poise: 36,
-                    lunge: 1150, hitbox: ['thrust', 310, 46], motion: ['thrust'], reach: 104, heft: 0.8,
-                    hyper: true, slash: ['thrust', 'white'], sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
-                    shake: 16, sparks: 34, flash: 220, hitstop: 0.08, thud: true }),
-    dodge: move({ windup: 0.05, active: 0.10, recovery: 0.22, cancel: 0.08, stamina: 13, damage: 33, poise: 6,
-                  lunge: 760, hitbox: ['thrust', 210, 36], motion: ['thrust'], reach: 84,
-                  slash: ['thrust', 'gold'], sparks: 12 }),
+    heavy: move({ anim: 'sp_heavy', dtype: 'stab', windup: 0.42, active: 0.14, recovery: 0.56, cancel: 0.38, stamina: 26, damage: 70, poise: 24,
+                  hitbox: ['thrust', 265, 36], motion: ['thrust'], reach: 96, heft: 0.7,
+                  sfx: ['whoosh_heavy', 1.0], haptic: ['medium', 0.9], shake: 11, sparks: 24, flash: 170, hitstop: 0.08 }),
+    charged: move({ anim: 'sp_charged', dtype: 'stab', windup: 0.20, active: 0.16, recovery: 0.62, cancel: 0.44, stamina: 34, damage: 96, poise: 36,
+                    hitbox: ['thrust', 220, 44], motion: ['thrust'], reach: 104, heft: 0.8,
+                    hyper: true, sfx: ['whoosh_heavy', 1.0], haptic: ['heavy', 1.0],
+                    shake: 15, sparks: 34, flash: 220, hitstop: 0.1, thud: true }),
+    dodge: move({ anim: 'sp_dodge', dtype: 'stab', windup: 0.08, active: 0.10, recovery: 0.42, cancel: 0.28, stamina: 13, damage: 33, poise: 7,
+                  hitbox: ['thrust', 215, 32], motion: ['thrust'], reach: 84, sparks: 12, hitstop: 0.05 }),
   },
 };
 const WEAPON_ORDER = ['oathsword', 'greatsword', 'spear'];
@@ -208,12 +211,14 @@ const RESPAWN_AT = 3.4;                                    // seconds after YOU 
 const RAD = Math.PI / 180;
 const BOSS_ATTACKS = {
   sweep: { windup: 0.85, track: 0.4, active: 0.22, recovery: 0.9, range: 250, half: 80 * RAD,
-           damage: 28, knock: 260, want: 205, parry: true, impact: 18 },
+           damage: 28, knock: 260, want: 205, parry: true, impact: 18, dtype: 'slash' },
   slam:  { windup: 1.05, crouch: 0.3, active: 0.12, recovery: 1.1, radius: 230, hop: 170,
-           damage: 36, knock: 360, want: 330, parry: false, impact: 32 },
+           damage: 36, knock: 360, want: 330, parry: false, impact: 32, dtype: 'crush' },
   lance: { windup: 1.12, lock: 0.8, recovery: 1.0, speed: 1500, max_dist: 680,
-           damage: 32, knock: 320, want: 9999, parry: true, impact: 24 },
+           damage: 32, knock: 320, want: 9999, parry: true, impact: 24, dtype: 'stab' },
 };
+// the Sentinel: plate over stone. Blades skate off it, a point finds the gaps, weight breaks it.
+const BOSS_RESIST = { slash: 0.85, stab: 1.2, crush: 1.15, ranged: 0.8, magic: 1.1 };
 // Phase 2 (below half HP): lance chains straight into a quicker sweep; slam sends out radial waves
 BOSS_ATTACKS.sweep_follow = Object.assign({}, BOSS_ATTACKS.sweep, { windup: 0.52, track: 0.26, recovery: 1.05 });
 const PHASE2_AT = 0.5;                       // fraction of boss HP
@@ -309,20 +314,28 @@ function hasSaveGame() { try { return typeof localStorage !== 'undefined' && !!l
 // their pictures are baked in gearart.js. Stats are used by the gear system (later step).
 const GEAR_SLOTS = ['legs', 'feet', 'chest', 'hands', 'head', 'back'];      // also the draw order on a shared part
 
+// how well each kind of armour stops each kind of blow (multiplies its defense):
+// leather and quilting turn a blade poorly but soak a blunt blow; plate turns blades, a point finds its gaps
+// and a heavy blow still rings through it. Nothing worn does much against magic.
+const ARMOR_RESIST = {
+  leather: { slash: 0.9, stab: 0.8, crush: 1.15, ranged: 0.9, magic: 0.7 },
+  plate:   { slash: 1.35, stab: 1.0, crush: 0.75, ranged: 1.3, magic: 0.5 },
+  cloth:   { slash: 0.8, stab: 0.7, crush: 1.0, ranged: 0.8, magic: 1.2 },
+};
 const GEAR = {
-  hunter_hood:      { slot: 'head',  name: 'HUNTER HOOD',      defense: 3, poise: 1, weight: 1.5, parts: ['head'], visor: true },
-  hunter_coat:      { slot: 'chest', name: 'HUNTER COAT',      defense: 9, poise: 5, weight: 6.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'],
+  hunter_hood:      { slot: 'head',  name: 'HUNTER HOOD',      mat: 'cloth', defense: 3, poise: 1, weight: 1.5, parts: ['head'], visor: true },
+  hunter_coat:      { slot: 'chest', name: 'HUNTER COAT',      mat: 'leather', defense: 9, poise: 5, weight: 6.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'],
     cloths: { tabard: { kind: 'front', cols: 4, rows: 6, top: 5.5, length: 27, topA: 3.4, botA: 4.3, topB: 6.4, botB: 7.2,
               outer: '#3d0f18', outerL: '#7a2232', lining: '#12060a', hem: 'rgba(176,138,62,1)', tatter: [1.6, 0, 1.0], weight: 1.1, stiff: 0.02 } } },
-  hunter_cloak:     { slot: 'back',  name: 'TATTERED CLOAK',   defense: 1, poise: 0, weight: 1.0, parts: ['cape'],
+  hunter_cloak:     { slot: 'back',  name: 'TATTERED CLOAK',   mat: 'cloth', defense: 1, poise: 0, weight: 1.0, parts: ['cape'],
     cloths: { cape: { kind: 'back', length: 47, topA: 12.8, topB: 6.2, botA: 16, botB: 9, outer: '#0b0a0f', outerL: '#26222f', lining: '#2a0d14',
              hem: '#8A2432', tatter: [3.5, 0, 1.8], weight: 1.0 } } },
-  hunter_gauntlets: { slot: 'hands', name: 'HUNTER GAUNTLETS', defense: 3, poise: 1, weight: 1.5, parts: ['foreL', 'foreR', 'handL', 'handR'] },
-  hunter_greaves:   { slot: 'legs',  name: 'HUNTER GREAVES',   defense: 5, poise: 3, weight: 3.5, parts: ['thighL', 'thighR', 'shinL', 'shinR'] },
-  hunter_boots:     { slot: 'feet',  name: 'HUNTER BOOTS',     defense: 2, poise: 1, weight: 1.5, parts: ['footL', 'footR', 'shinL', 'shinR'] },
+  hunter_gauntlets: { slot: 'hands', name: 'HUNTER GAUNTLETS', mat: 'leather', defense: 3, poise: 1, weight: 1.5, parts: ['foreL', 'foreR', 'handL', 'handR'] },
+  hunter_greaves:   { slot: 'legs',  name: 'HUNTER GREAVES',   mat: 'leather', defense: 5, poise: 3, weight: 3.5, parts: ['thighL', 'thighR', 'shinL', 'shinR'] },
+  hunter_boots:     { slot: 'feet',  name: 'HUNTER BOOTS',     mat: 'leather', defense: 2, poise: 1, weight: 1.5, parts: ['footL', 'footR', 'shinL', 'shinR'] },
   // dropped by the Obsidian Sentinel
-  sentinel_helm:    { slot: 'head',  name: 'SENTINEL HELM',    defense: 8, poise: 5, weight: 7.0, parts: ['head'], visor: true },
-  sentinel_plate:   { slot: 'chest', name: 'SENTINEL PLATE',   defense: 17, poise: 14, weight: 18.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'] },
+  sentinel_helm:    { slot: 'head',  name: 'SENTINEL HELM',    mat: 'plate', defense: 8, poise: 5, weight: 7.0, parts: ['head'], visor: true },
+  sentinel_plate:   { slot: 'chest', name: 'SENTINEL PLATE',   mat: 'plate', defense: 17, poise: 14, weight: 18.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'] },
 };
 const GEAR_LORE = {
   hunter_hood: 'A hood of waxed cloth over a mask of black iron. The slit lets through only what must be seen.',
@@ -389,18 +402,24 @@ const DEF_REF = 23, DEF_K = 60;          // damage taken x1 at the hunter set's 
 /** Stats from an equipment map (slot -> id). */
 function deriveStats(eq) {
   let defense = 0, poise = 0, weight = 0;
-  const mods = { regen: 0, load: 0, hp: 0, poise: 0 };
+  const mods = { regen: 0, load: 0, hp: 0, poise: 0 }, def = {};
+  for (const ty of DAMAGE_TYPES) def[ty] = 0;
   for (const slot of EQUIP_SLOTS) {
     const d = eq[slot] && ITEM_DB[eq[slot]];
     if (!d) continue;
     weight += d.weight || 0;
-    if (d.cat === 'armor') { defense += d.defense; poise += d.poise; }
+    if (d.cat === 'armor') {
+      defense += d.defense; poise += d.poise;
+      const R = ARMOR_RESIST[d.mat] || {};
+      for (const ty of DAMAGE_TYPES) def[ty] += d.defense * (R[ty] === undefined ? 1 : R[ty]);
+    }
     if (d.mods) for (const k in d.mods) mods[k] += d.mods[k];
   }
   poise += mods.poise;
   const maxLoad = LOAD_BASE + mods.load, ratio = weight / maxLoad;
   const tier = LOAD_TIERS.find(t => ratio <= t.max);
-  return { defense, poise, weight, maxLoad, ratio, tier, dmgTaken: (DEF_REF + DEF_K) / (defense + DEF_K),
+  const taken = {}; for (const ty of DAMAGE_TYPES) taken[ty] = (DEF_REF + DEF_K) / (def[ty] + DEF_K);
+  return { defense, def, taken, poise, weight, maxLoad, ratio, tier, dmgTaken: (DEF_REF + DEF_K) / (defense + DEF_K),
     maxHp: PLAYER_MAX_HP + mods.hp, regen: tier.regen * (1 + mods.regen) };
 }
 
@@ -454,6 +473,269 @@ class Inventory {
   }
 }
 
+// ============================================================ ANIM (keyed full-body attack clips)
+// Every player attack is a clip of key poses for the whole body, so each weapon and each attack moves differently.
+// The clip runs on one clock x: 0..1 = wind-up (anticipation), 1..2 = strike (the hit frames), 2..3 = recovery
+// (follow-through, a held pose, then back to guard). The move's windup / active / recovery times stretch each part.
+//
+// Key fields (any can be left out; a channel is interpolated across keys that don't set it):
+//   g  [s, f, z]  right-hand grip, relative to the waist, in his own frame (s = his right, f = forward, z = up)
+//   b  [s, f, z]  blade direction (from the grip toward the tip): where the weapon aims in his frame
+//   l  [s, f, z]  left hand (one-handed weapons only), relative to the waist
+//   tw   chest turn, degrees (+ = toward his left). The hips follow on their own, leading it a little in time
+//        ("the hips lead the chest, the chest leads the arms").
+//   ln   lean forward from the waist, degrees     cr  crouch (hip drop)      rm  forward travel since the start
+//   L, R [s, f]   left / right foot, relative to where his root is at that key. A foot stays planted on the
+//        ground until a key moves it; between two keys with different targets it takes a step.
+//   e    how the motion eases into this key: 'io' (default, slow-fast-slow), 'out' (explodes from the last key:
+//        a strike), 'in' (slow start: the moment the weight turns over), 'lin' (keeps the momentum through).
+// Events: [x, kind, power] fired when the clock passes x: 'ground' = the weapon hits the floor at the blade tip.
+
+const ANIM_CH = ['g', 'b', 'l', 'tw', 'ln', 'cr', 'rm'];
+const EASE = {
+  io: (u) => u * u * (3 - 2 * u), out: (u) => 1 - Math.pow(1 - u, 2.6), in: (u) => u * u * (1.6 - 0.6 * u), lin: (u) => u,
+};
+
+/** Precompute per-channel key lists (and per-foot step lists) for a clip. */
+function compileClip(c) {
+  if (c._ch) return c;
+  c._ch = {};
+  for (const n of ANIM_CH) {
+    const ks = c.keys.filter((k) => k[n] !== undefined).map((k) => ({ x: k.x, v: Array.isArray(k[n]) ? k[n].slice() : [k[n]], e: EASE[k.e || 'io'] }));
+    if (ks.length) c._ch[n] = ks;
+  }
+  c._feet = {};
+  for (const side of ['L', 'R']) c._feet[side] = c.keys.filter((k) => k[side]).map((k) => ({ x: k.x, s: k[side][0], f: k[side][1], e: EASE[k.e || 'io'] }));
+  c.ev = c.ev || [];
+  return c;
+}
+
+/** Catmull-Rom through the channel's keys, with the segment's own easing on the local time. */
+function sampleChannel(ks, x, out) {
+  const n = ks.length, dim = ks[0].v.length;
+  if (n === 1 || x <= ks[0].x) { for (let d = 0; d < dim; d++) out[d] = ks[0].v[d]; return out; }
+  if (x >= ks[n - 1].x) { for (let d = 0; d < dim; d++) out[d] = ks[n - 1].v[d]; return out; }
+  let i = 0; while (i < n - 2 && x >= ks[i + 1].x) i++;
+  const a = ks[i], b = ks[i + 1], p0 = ks[Math.max(0, i - 1)], p3 = ks[Math.min(n - 1, i + 2)];
+  const u = b.e((x - a.x) / (b.x - a.x)), u2 = u * u, u3 = u2 * u;
+  for (let d = 0; d < dim; d++) {
+    // tangents scaled for uneven key spacing so fast segments don't overshoot their neighbours
+    const h = b.x - a.x;
+    const m1 = i > 0 ? (b.v[d] - p0.v[d]) / (b.x - p0.x) * h : (b.v[d] - a.v[d]);
+    const m2 = i + 2 < n ? (p3.v[d] - a.v[d]) / (p3.x - a.x) * h : (b.v[d] - a.v[d]);
+    out[d] = (2 * u3 - 3 * u2 + 1) * a.v[d] + (u3 - 2 * u2 + u) * m1 + (-2 * u3 + 3 * u2) * b.v[d] + (u3 - u2) * m2;
+  }
+  return out;
+}
+
+/** The whole pose at clock x into `o` ({g, b, l, tw, ln, cr, rm, hp}). */
+function sampleClip(c, x, o) {
+  compileClip(c);
+  for (const n of ANIM_CH) {
+    const ks = c._ch[n];
+    if (!ks) { o[n] = null; continue; }
+    if (ks[0].v.length === 1) { sampleChannel(ks, x, _sc1); o[n] = _sc1[0]; }
+    else { o[n] = o[n] && o[n].length ? o[n] : [0, 0, 0]; sampleChannel(ks, x, o[n]); }
+  }
+  // hips: about 55% of the chest turn, a little ahead of it in time
+  if (c._ch.tw) { sampleChannel(c._ch.tw, Math.min(3, x + 0.1), _sc1); o.hp = _sc1[0] * 0.55; } else o.hp = 0;
+  return o;
+}
+const _sc1 = [0];
+
+/** Forward travel (root motion) of a clip at clock x. */
+function clipRoot(c, x) { compileClip(c); const ks = c._ch.rm; if (!ks) return 0; sampleChannel(ks, x, _sc1); return _sc1[0]; }
+
+/** Where a move's clock is: 0..1 wind-up, 1..2 strike, 2..3 recovery. */
+function moveClock(st, t, mv) {
+  if (st === S_WINDUP) return clamp(t / Math.max(0.01, mv.windup), 0, 1);
+  if (st === S_ACTIVE) return 1 + clamp(t / Math.max(0.01, mv.active), 0, 1);
+  if (st === S_RECOVERY) return 2 + clamp(t / Math.max(0.01, mv.recovery), 0, 1);
+  return 3;
+}
+
+// ---------------------------------------------------------------- the clips
+// Shared guard poses (chest frame). Feet: left foot a little forward, right foot back.
+const GUARD_1H = { g: [8, 12, 0], b: [0.2, 0.7, 0.6], l: [-13, 6, -4] };
+const GUARD_2H = { g: [5, 11, -1], b: [0.15, 0.85, 0.5] };
+const GUARD_SP = { g: [5, 12, 2], b: [-0.06, 1, 0.06] };
+const ST = { L: [-5, 1], R: [5, -3] };
+const k = (x, o, base) => Object.assign({ x }, base || {}, o);
+
+const ANIMS = {
+  // ======== one-handed sword: quick, a mix of cuts and thrusts; the free arm swings out for balance
+  os_l1: { keys: [            // forehand diagonal: cocked over the right shoulder, cuts down through to low left
+    k(0, { tw: -10, ln: 0, cr: 1, rm: 0, L: ST.L, R: ST.R }, GUARD_1H),
+    k(0.85, { g: [13, 0, 16], b: [0.55, -0.45, 0.7], l: [-14, 10, -2], tw: -38, ln: -5, cr: 2.5, rm: 1, L: ST.L }),
+    k(1.0, { g: [12, 4, 15], b: [0.35, 0.15, 0.92], tw: -32, ln: -3, cr: 3, rm: 2, e: 'in' }),
+    k(1.35, { g: [5, 23, 6], b: [-0.45, 0.85, 0.2], l: [-13, -2, -2], tw: 6, ln: 8, cr: 4.5, rm: 8, L: [-5.5, 8], e: 'lin' }),
+    k(1.75, { g: [-6, 18, -3], b: [-0.95, 0.2, -0.25], tw: 32, ln: 12, cr: 5, rm: 11, e: 'out' }),
+    k(2.0, { g: [-7, 15, -5], b: [-0.9, -0.2, -0.4], l: [-12, -8, 0], tw: 36, ln: 12, cr: 5, rm: 12 }),
+    k(2.5, { g: [-6, 15, -4], b: [-0.85, 0, -0.5], tw: 33, ln: 10, cr: 4.5, rm: 12.5, R: ST.R }),
+    k(3.0, { tw: 0, ln: 2, cr: 1, rm: 13, R: [5, -2] }, GUARD_1H),
+  ] },
+  os_l2: { keys: [            // backhand rising cut, the right foot passing forward
+    k(0, { g: [-6, 14, -3], b: [-0.85, 0.1, -0.5], l: [-12, -6, 0], tw: 30, ln: 8, cr: 3, rm: 0, L: ST.L, R: ST.R }),
+    k(0.8, { g: [-8, 10, -6], b: [-0.8, -0.35, -0.45], tw: 42, ln: 6, cr: 4, rm: 1, R: ST.R }),
+    k(1.0, { g: [-5, 15, -5], b: [-0.6, 0.5, -0.6], tw: 30, ln: 6, cr: 4, rm: 2, e: 'in' }),
+    k(1.4, { g: [6, 22, 7], b: [0.5, 0.75, 0.45], l: [-14, 8, -3], tw: -4, ln: 2, cr: 3, rm: 8, R: [6, 7], e: 'lin' }),
+    k(1.8, { g: [12, 12, 17], b: [0.6, -0.1, 0.8], tw: -30, ln: -4, cr: 2, rm: 11, e: 'out' }),
+    k(2.1, { g: [13, 8, 19], b: [0.5, -0.4, 0.77], l: [-14, 12, -2], tw: -34, ln: -5, cr: 2, rm: 12 }),
+    k(2.5, { g: [12, 9, 18], b: [0.5, -0.3, 0.8], tw: -32, ln: -4, cr: 2, rm: 12, L: ST.L }),
+    k(3.0, { tw: 0, ln: 1, cr: 1, rm: 12, L: [-5, 1] }, GUARD_1H),
+  ] },
+  os_l3: { keys: [            // drawn back to the hip, then a stepping thrust
+    k(0, { tw: -5, cr: 1.5, rm: 0, L: ST.L, R: ST.R }, GUARD_1H),
+    k(0.85, { g: [9, -2, 5], b: [0.05, 1, 0.05], l: [-13, 12, 0], tw: -35, ln: -4, cr: 5, rm: -2, L: ST.L, R: ST.R }),
+    k(1.0, { g: [9, 2, 5], b: [0, 1, 0], tw: -30, ln: -1, cr: 5, rm: -1, e: 'in' }),
+    k(1.45, { g: [4, 29, 7], b: [-0.05, 1, -0.05], l: [-12, -10, -2], tw: 12, ln: 14, cr: 7, rm: 9, L: [-6, 13], R: [5, -9], e: 'out' }),
+    k(2.0, { g: [4, 29, 6], b: [0, 1, -0.08], tw: 14, ln: 14, cr: 7, rm: 10 }),
+    k(2.4, { g: [6, 23, 4], b: [0.05, 1, 0.1], tw: 8, ln: 10, cr: 6, rm: 10 }),
+    k(3.0, { tw: 0, ln: 2, cr: 1, rm: 8, L: [-5, 2], R: [5, -3] }, GUARD_1H),
+  ] },
+  os_heavy: { keys: [         // a deep coil, then an explosive lunging thrust; the left arm flung back for balance
+    k(0, { tw: -5, cr: 1.5, rm: 0, L: ST.L, R: ST.R }, GUARD_1H),
+    k(0.9, { g: [10, -6, 2], b: [0.05, 0.97, 0.2], l: [-12, 16, 4], tw: -50, ln: -4, cr: 10, rm: -3, L: ST.L, R: ST.R }),
+    k(1.0, { g: [10, -3, 2], b: [0.03, 0.97, 0.22], tw: -46, ln: -3, cr: 10, rm: -2, e: 'in' }),
+    k(1.5, { g: [3, 29, 9], b: [-0.05, 0.94, 0.33], l: [-12, -12, -2], tw: 22, ln: 16, cr: 12, rm: 14, L: [-7, 20], R: [5, -11], e: 'out' }),
+    k(2.1, { g: [3, 29, 10], b: [-0.03, 0.93, 0.36], tw: 22, ln: 16, cr: 12, rm: 15 }),
+    k(2.6, { g: [6, 24, 3], b: [0.05, 1, 0], l: [-13, -4, -3], tw: 10, ln: 12, cr: 8, rm: 15 }),
+    k(3.0, { tw: 0, ln: 2, cr: 1, rm: 11, L: [-5, 3], R: [5, -3] }, GUARD_1H),
+  ] },
+  os_charged: { keys: [       // released from a deep wind: a wide horizontal cleave, the whole body turning through
+    k(0, { g: [13, -4, 8], b: [0.3, -0.92, 0.1], l: [-13, 14, 2], tw: -62, ln: -2, cr: 6, rm: 0, L: [-6, 4], R: [6, -6] }),
+    k(1.0, { g: [14, 4, 7], b: [0.75, 0.65, 0.05], tw: -46, ln: 2, cr: 6, rm: 2, e: 'in' }),
+    k(1.3, { g: [6, 24, 6], b: [-0.2, 1, 0], l: [-13, 2, 0], tw: 0, ln: 8, cr: 7, rm: 9, R: [6, 8], e: 'lin' }),
+    k(1.65, { g: [-12, 14, 6], b: [-1, 0.1, 0], tw: 50, ln: 8, cr: 7, rm: 13, e: 'lin' }),
+    k(2.0, { g: [-12, 4, 4], b: [-0.8, -0.6, -0.1], l: [-10, -10, 2], tw: 75, ln: 6, cr: 7, rm: 15, e: 'out' }),
+    k(2.5, { g: [-12, 5, 4], b: [-0.8, -0.55, -0.15], tw: 72, ln: 6, cr: 6.5, rm: 15, L: [-6, 4] }),
+    k(3.0, { tw: 0, ln: 2, cr: 1, rm: 15, L: [-5, 1] }, GUARD_1H),
+  ] },
+  os_dodge: { keys: [         // out of a dash or a sprint: a low sweeping cut from the right, carried by the run
+    k(0, { g: [12, 2, 2], b: [0.6, -0.7, -0.3], l: [-13, 12, 2], tw: -40, ln: 10, cr: 7, rm: 0, L: ST.L, R: ST.R }),
+    k(1.0, { g: [13, 8, 0], b: [0.85, 0.4, -0.3], tw: -34, ln: 12, cr: 8, rm: 6, e: 'in' }),
+    k(1.35, { g: [4, 24, -2], b: [-0.2, 0.95, -0.2], l: [-13, -4, 0], tw: 8, ln: 14, cr: 9, rm: 18, L: [-6, 13], e: 'lin' }),
+    k(1.8, { g: [-9, 14, -4], b: [-0.95, 0.15, -0.25], tw: 42, ln: 12, cr: 8, rm: 24, e: 'out' }),
+    k(2.4, { g: [-9, 12, -3], b: [-0.9, -0.2, -0.3], l: [-11, -10, 2], tw: 40, ln: 10, cr: 7, rm: 26, R: ST.R }),
+    k(3.0, { tw: 0, ln: 2, cr: 1, rm: 27, R: [5, -2] }, GUARD_1H),
+  ] },
+
+  // ======== greatsword: slow, huge wind-ups, the blade's momentum dragging the body through and past the cut
+  gs_l1: { keys: [            // diagonal cleave from over the right shoulder down to low left
+    k(0, { tw: -10, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_2H),
+    k(0.9, { g: [10, -2, 18], b: [0.25, -0.75, 0.6], tw: -55, ln: -8, cr: 4, rm: -1, L: ST.L, R: ST.R }),
+    k(1.0, { g: [10, 0, 18], b: [0.2, -0.5, 0.85], tw: -52, ln: -7, cr: 4, rm: 0, e: 'in' }),
+    k(1.35, { g: [4, 22, 8], b: [-0.35, 0.93, 0.05], tw: -5, ln: 10, cr: 7, rm: 8, L: [-6, 11], e: 'lin' }),
+    k(1.75, { g: [-8, 16, -6], b: [-0.92, 0.2, -0.3], tw: 40, ln: 16, cr: 9, rm: 12, e: 'out' }),
+    k(2.1, { g: [-10, 10, -8], b: [-0.8, -0.45, -0.38], tw: 56, ln: 16, cr: 9, rm: 14 }),
+    k(2.6, { g: [-9, 11, -7], b: [-0.8, -0.4, -0.4], tw: 50, ln: 14, cr: 8, rm: 14.5, R: ST.R }),
+    k(3.0, { tw: -5, ln: 2, cr: 2, rm: 15, R: [5, -1] }, GUARD_2H),
+  ] },
+  gs_l2: { keys: [            // reverse rising cut, left-low to right-high; the right foot passes through with it
+    k(0, { g: [-9, 11, -7], b: [-0.75, -0.3, -0.55], tw: 50, ln: 12, cr: 7, rm: 0, L: ST.L, R: ST.R }),
+    k(0.85, { g: [-11, 4, -8], b: [-0.6, -0.7, -0.35], tw: 62, ln: 10, cr: 8, rm: 1, R: ST.R }),
+    k(1.0, { g: [-10, 8, -8], b: [-0.6, -0.55, -0.55], tw: 58, ln: 10, cr: 8, rm: 2, e: 'in' }),
+    k(1.4, { g: [2, 22, 2], b: [0.3, 0.9, 0.3], tw: 10, ln: 6, cr: 6, rm: 9, R: [6, 8], e: 'lin' }),
+    k(1.8, { g: [10, 12, 16], b: [0.6, 0.1, 0.8], tw: -35, ln: -2, cr: 4, rm: 13, e: 'out' }),
+    k(2.1, { g: [11, 6, 19], b: [0.4, -0.4, 0.82], tw: -48, ln: -5, cr: 4, rm: 14 }),
+    k(2.6, { g: [11, 7, 18], b: [0.4, -0.35, 0.85], tw: -45, ln: -4, cr: 4, rm: 14, L: ST.L }),
+    k(3.0, { tw: -5, ln: 2, cr: 2, rm: 14, L: [-5, 1] }, GUARD_2H),
+  ] },
+  gs_l3: { keys: [            // overhead vertical chop, driven down into the floor
+    k(0, { tw: -8, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_2H),
+    k(0.9, { g: [3, 2, 26], b: [0.05, -0.6, 0.8], tw: -15, ln: -10, cr: 2, rm: -1, L: ST.L, R: ST.R }),
+    k(1.0, { g: [3, 4, 26], b: [0.05, -0.3, 0.95], tw: -12, ln: -9, cr: 2, rm: 0, e: 'in' }),
+    k(1.3, { g: [2, 24, 14], b: [0, 0.95, 0.3], tw: 0, ln: 8, cr: 6, rm: 7, L: [-6, 11], e: 'lin' }),
+    k(1.6, { g: [1, 24, -10], b: [0, 0.88, -0.48], tw: 4, ln: 24, cr: 12, rm: 10, e: 'out' }),
+    k(2.15, { g: [1, 24, -11], b: [0, 0.88, -0.48], tw: 4, ln: 25, cr: 12, rm: 10 }),
+    k(2.6, { g: [3, 20, -5], b: [0.05, 0.9, -0.2], tw: 2, ln: 16, cr: 10, rm: 10, R: ST.R }),
+    k(3.0, { tw: -5, ln: 2, cr: 2, rm: 10, R: [5, -1] }, GUARD_2H),
+  ], ev: [[1.6, 'ground', 0.7]] },
+  gs_heavy: { keys: [         // the big one: wound back and down, rises and steps in, then slams the floor
+    k(0, { tw: -8, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_2H),
+    k(0.55, { g: [8, -6, 20], b: [0.3, -0.85, 0.42], tw: -42, ln: -12, cr: 6, rm: -2, L: ST.L, R: ST.R }),
+    k(0.9, { g: [4, -4, 29], b: [0.1, -0.7, 0.7], tw: -25, ln: -14, cr: 3, rm: 5, L: [-6, 8], e: 'io' }),
+    k(1.0, { g: [3, 0, 29], b: [0.05, -0.3, 0.95], tw: -18, ln: -12, cr: 2, rm: 8, e: 'in' }),
+    k(1.35, { g: [2, 26, 12], b: [0, 0.95, 0.2], tw: -2, ln: 10, cr: 8, rm: 15, R: [6, 5], e: 'lin' }),
+    k(1.6, { g: [1, 25, -12], b: [0, 0.86, -0.5], tw: 2, ln: 28, cr: 14, rm: 18, e: 'out' }),
+    k(2.3, { g: [1, 25, -13], b: [0, 0.86, -0.5], tw: 2, ln: 28, cr: 14, rm: 18 }),
+    k(2.75, { g: [3, 20, -6], b: [0.05, 0.92, -0.2], tw: 0, ln: 18, cr: 10, rm: 18, L: [-6, 8] }),
+    k(3.0, { tw: -5, ln: 3, cr: 2, rm: 18, L: [-5, 2] }, GUARD_2H),
+  ], ev: [[1.6, 'ground', 1.0]] },
+  gs_charged: { keys: [       // let go from the full wind: a sweeping cleave that turns his whole body round
+    k(0, { g: [10, -6, 6], b: [0.4, -0.9, 0.05], tw: -70, ln: -2, cr: 8, rm: 0, L: [-6, 5], R: [6, -7] }),
+    k(1.0, { g: [11, 2, 6], b: [0.8, 0.55, 0], tw: -55, ln: 2, cr: 8, rm: 3, e: 'in' }),
+    k(1.3, { g: [4, 24, 4], b: [-0.1, 1, -0.05], tw: -5, ln: 10, cr: 9, rm: 11, R: [6, 9], e: 'lin' }),
+    k(1.65, { g: [-10, 14, 2], b: [-1, 0.05, -0.05], tw: 50, ln: 12, cr: 9, rm: 16, e: 'lin' }),
+    k(2.0, { g: [-10, 2, 0], b: [-0.75, -0.65, -0.1], tw: 85, ln: 10, cr: 9, rm: 18, e: 'out' }),
+    k(2.55, { g: [-10, 3, 0], b: [-0.75, -0.62, -0.12], tw: 82, ln: 9, cr: 8.5, rm: 18, L: [-6, 4] }),
+    k(3.0, { tw: -5, ln: 2, cr: 2, rm: 19, L: [-5, 1] }, GUARD_2H),
+  ] },
+  gs_dodge: { keys: [         // from a run: blade dragged low, then a rising cleave
+    k(0, { g: [6, 6, -6], b: [0.3, 0.6, -0.7], tw: -20, ln: 10, cr: 7, rm: 0, L: ST.L, R: ST.R }),
+    k(1.0, { g: [5, 12, -8], b: [0.15, 0.7, -0.7], tw: -15, ln: 12, cr: 8, rm: 6, e: 'in' }),
+    k(1.45, { g: [2, 22, 8], b: [0, 0.8, 0.6], tw: 0, ln: 2, cr: 4, rm: 17, L: [-6, 11], e: 'out' }),
+    k(2.0, { g: [3, 10, 24], b: [0.05, -0.3, 0.95], tw: 5, ln: -8, cr: 2, rm: 21 }),
+    k(2.5, { g: [3, 10, 23], b: [0.05, -0.3, 0.95], tw: 4, ln: -7, cr: 2, rm: 21, R: ST.R }),
+    k(3.0, { tw: -5, ln: 2, cr: 2, rm: 22, R: [5, -1] }, GUARD_2H),
+  ] },
+
+  // ======== spear: the point does the work. Front hand guides, the rear hand drives the shaft through it.
+  sp_l1: { keys: [            // quick jab
+    k(0, { tw: -15, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
+    k(0.85, { g: [6, 6, 3], b: [-0.05, 1, 0.06], tw: -25, ln: -3, cr: 3, rm: -1, L: ST.L, R: ST.R }),
+    k(1.0, { g: [6, 7, 3], tw: -24, ln: -2, cr: 3, rm: -0.5, e: 'in' }),
+    k(1.35, { g: [2, 27, 4], b: [-0.03, 1, 0], tw: 5, ln: 9, cr: 4.5, rm: 6, L: [-5, 8], e: 'out' }),
+    k(2.0, { g: [2, 27, 4], tw: 6, ln: 9, cr: 4.5, rm: 7 }),
+    k(2.4, { g: [4, 18, 3], b: [-0.05, 1, 0.05], tw: -6, ln: 5, cr: 3, rm: 6 }),
+    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 4, L: [-5, 2] }, GUARD_SP),
+  ] },
+  sp_l2: { keys: [            // stepping second jab, aimed higher
+    k(0, { tw: -15, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
+    k(0.8, { g: [6, 5, 6], b: [-0.05, 1, 0.12], tw: -28, ln: -3, cr: 3, rm: -1, L: ST.L, R: ST.R }),
+    k(1.0, { g: [6, 6, 6], tw: -27, ln: -2, cr: 3, rm: 0, e: 'in' }),
+    k(1.35, { g: [2, 28, 9], b: [-0.05, 1, 0.12], tw: 8, ln: 10, cr: 5, rm: 9, L: [-5, 11], R: [5, -7], e: 'out' }),
+    k(2.0, { g: [2, 28, 9], tw: 9, ln: 10, cr: 5, rm: 10 }),
+    k(2.4, { g: [4, 18, 4], b: [-0.05, 1, 0.06], tw: -6, ln: 5, cr: 3, rm: 9 }),
+    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 7, R: [5, -2], L: [-5, 2] }, GUARD_SP),
+  ] },
+  sp_l3: { keys: [            // the shaft swung round: the spear's one cut
+    k(0, { tw: -15, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
+    k(0.85, { g: [12, 6, 4], b: [0.75, 0.65, 0.05], tw: -50, ln: -2, cr: 4, rm: 0, L: ST.L, R: ST.R }),
+    k(1.0, { g: [12, 8, 4], b: [0.65, 0.75, 0.03], tw: -46, ln: 0, cr: 4, rm: 1, e: 'in' }),
+    k(1.45, { g: [2, 20, 4], b: [-0.55, 0.83, 0], tw: 5, ln: 6, cr: 5, rm: 7, R: [6, 6], e: 'lin' }),
+    k(1.9, { g: [-8, 12, 3], b: [-1, 0.05, 0.05], tw: 45, ln: 6, cr: 5, rm: 9, e: 'out' }),
+    k(2.5, { g: [-8, 12, 3], b: [-1, 0.08, 0.05], tw: 43, ln: 5, cr: 5, rm: 9, L: ST.L }),
+    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 9, L: [-5, 1] }, GUARD_SP),
+  ] },
+  sp_heavy: { keys: [         // coiled far back over the rear leg, then the full lunge, shaft driven all the way through
+    k(0, { tw: -15, cr: 2, rm: 0, L: ST.L, R: ST.R }, GUARD_SP),
+    k(0.9, { g: [8, -2, 4], b: [-0.04, 1, 0.06], tw: -45, ln: -8, cr: 7, rm: -3, L: ST.L, R: ST.R }),
+    k(1.0, { g: [8, 0, 4], tw: -43, ln: -7, cr: 7, rm: -2, e: 'in' }),
+    k(1.45, { g: [1, 33, 5], b: [0, 1, -0.04], tw: 15, ln: 16, cr: 10, rm: 14, L: [-7, 20], R: [5, -11], e: 'out' }),
+    k(2.1, { g: [1, 33, 5], tw: 15, ln: 16, cr: 10, rm: 15 }),
+    k(2.6, { g: [4, 18, 3], b: [-0.04, 1, 0.05], tw: -8, ln: 8, cr: 7, rm: 13 }),
+    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 10, L: [-5, 3], R: [5, -3] }, GUARD_SP),
+  ] },
+  sp_charged: { keys: [       // raised high, then a downward stab driven into the ground ahead
+    k(0, { g: [4, 6, 16], b: [0, 0.9, 0.42], tw: -10, ln: -10, cr: 3, rm: 0, L: ST.L, R: ST.R }),
+    k(1.0, { g: [4, 6, 18], b: [0, 0.85, 0.52], tw: -8, ln: -12, cr: 3, rm: 2, e: 'in' }),
+    k(1.35, { g: [2, 20, 4], b: [0, 0.97, -0.22], tw: 5, ln: 16, cr: 10, rm: 12, L: [-6, 14], e: 'out' }),
+    k(1.55, { g: [1, 22, -4], b: [0, 0.93, -0.36], tw: 6, ln: 20, cr: 12, rm: 14 }),
+    k(2.3, { g: [1, 22, -5], b: [0, 0.93, -0.36], tw: 6, ln: 20, cr: 12, rm: 14 }),
+    k(2.8, { g: [3, 16, 2], b: [-0.03, 0.9, -0.3], tw: -6, ln: 10, cr: 6, rm: 14, R: ST.R }),
+    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 14, R: [5, -1] }, GUARD_SP),
+  ], ev: [[1.5, 'ground', 0.6]] },
+  sp_dodge: { keys: [         // running thrust
+    k(0, { g: [6, 8, 4], b: [-0.03, 1, 0.04], tw: -25, ln: 6, cr: 5, rm: 0, L: ST.L, R: ST.R }),
+    k(1.0, { g: [6, 10, 4], tw: -22, ln: 8, cr: 5, rm: 5, e: 'in' }),
+    k(1.4, { g: [1, 32, 5], b: [0, 1, -0.03], tw: 14, ln: 16, cr: 8, rm: 22, L: [-6, 14], R: [5, -6], e: 'out' }),
+    k(2.2, { g: [1, 31, 5], tw: 13, ln: 14, cr: 8, rm: 26 }),
+    k(3.0, { tw: -15, ln: 0, cr: 2, rm: 27, L: [-5, 2], R: [5, -3] }, GUARD_SP),
+  ] },
+};
+for (const n in ANIMS) { ANIMS[n].name = n; compileClip(ANIMS[n]); }
+
 // ============================================================ RIG (jointed player body)
 // The body is a small 3D skeleton in the character's own frame (s = to his right, f = forward, z = up),
 // turned to the facing direction and projected with the same 2.5D rule as the world:
@@ -473,6 +755,8 @@ function V3() { return { s: 0, f: 0, z: 0, x: 0, y: 0, d: 0 }; }   // char frame
 
 /** How far forward (+) or back (-) a char-frame point must move to sit outside his torso (coat + an arm's thickness). */
 function torsoPush(J, s, f, z, margin) {
+  if (J._cy) { const c = Math.cos(J._cy), sn = Math.sin(J._cy), ds = s - J.waist.s, df = f - J.waist.f;   // into the twisted chest
+    s = J.waist.s + ds * c + df * sn; f = J.waist.f - ds * sn + df * c; }
   const zr = z - J.pelvis.z;
   if (zr < -12 || zr > 25) return 0;
   // coat profile: skirt / hips / belly / chest / shoulders (half width a, half depth b)
@@ -499,24 +783,57 @@ function ik2(ax, ay, tx, ty, L1, L2, bend, mid, end) {
 
 /**
  * Gait: where one foot is in its cycle. phase (radians, 2 pi = one full cycle = two steps), duty = share of the cycle
- * the foot is planted. Planted, it sweeps back from +amp to -amp at exactly ground speed (no sliding); in the air it
- * swings forward with the knee driven up. duty < 0.5 = running (both feet off the ground between steps).
- * Returns [stride, lift] into the scratch array.
+ * the foot is planted. Planted, it sweeps back from +amp to -amp at exactly ground speed (no sliding): heel strike
+ * with the toe up, foot flat, then the heel rises while the toe stays down. In the air it follows the human swing
+ * path: it lifts BEHIND him first (knee folding, heel up), passes low under the hip, and the leg reaches forward
+ * almost straight to land on the heel. A run folds the knee much more (the heel kicks back) and floats between steps.
+ * duty < 0.5 = running. Writes [stride, lift, toe] (toe: how far the toe sits above its flat-foot height).
  */
+const _gk = [0, 0.27, 0.52, 0.8, 1];
+function _herm(k, ys) {                              // smooth curve through 5 knots (Catmull-Rom on uneven spacing)
+  const X = _gk; let i = 0; while (i < 3 && k > X[i + 1]) i++;
+  const h = X[i + 1] - X[i], u = (k - X[i]) / h;
+  const m = (j) => j <= 0 ? (ys[1] - ys[0]) / (X[1] - X[0]) : j >= 4 ? (ys[4] - ys[3]) / (X[4] - X[3]) : (ys[j + 1] - ys[j - 1]) / (X[j + 1] - X[j - 1]);
+  const u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * ys[i] + (u3 - 2 * u2 + u) * h * m(i) + (-2 * u3 + 3 * u2) * ys[i + 1] + (u3 - u2) * h * m(i + 1);
+}
+const _gf_s = [0, 0, 0, 0, 0], _gf_l = [0, 0, 0, 0, 0], _gf_t = [0, 0, 0, 0, 0];
 function gaitFoot(phase, amp, duty, out) {
   const u = ((phase / TAU) % 1 + 1) % 1;
-  if (!duty) { out[0] = Math.sin(phase) * amp; out[1] = Math.max(0, Math.cos(phase)) * (2 + amp * 0.45); return out; }
-  if (u < duty) { out[0] = amp * (1 - 2 * u / duty); out[1] = 0; }
-  else { const k = (u - duty) / (1 - duty), e = 0.5 - 0.5 * Math.cos(Math.PI * k); out[0] = amp * (2 * e - 1); out[1] = Math.sin(Math.PI * k) * (2.5 + amp * (0.35 + 0.5 * (0.6 - duty))); }
+  if (!duty) { out[0] = Math.sin(phase) * amp; out[1] = Math.max(0, Math.cos(phase)) * (2 + amp * 0.45); out[2] = 0; return out; }
+  const r = clamp((0.5 - duty) / 0.33, 0, 1), heel = 1.0 + 2.0 * r;
+  if (u < duty) {
+    const s = u / duty;
+    out[0] = amp * (1 - 2 * s);
+    out[1] = heel * Math.max(0, (s - 0.55) / 0.45) ** 2;                            // heel rises late in the stance
+    out[2] = s < 0.18 ? (1 - s / 0.18) * 2.4 * (1 - 0.6 * r) : -out[1];             // toe up at the strike, then on the floor
+    return out;
+  }
+  const k = (u - duty) / (1 - duty), H = (3.0 + 0.05 * amp) * (1 - r) + 0.66 * amp * r;
+  // f (in units of amp) and lift along the swing; walk and run paths blended
+  _gf_s[0] = -1; _gf_s[1] = -0.72 - 0.18 * r; _gf_s[2] = 0.02 + 0.04 * r; _gf_s[3] = 0.82 + 0.08 * r; _gf_s[4] = 1;
+  _gf_l[0] = heel; _gf_l[1] = H; _gf_l[2] = 1.5 * (1 - r) + 0.72 * H * r; _gf_l[3] = 0.8 * (1 - r) + 0.28 * H * r; _gf_l[4] = 0;
+  _gf_t[0] = -heel; _gf_t[1] = -1.8; _gf_t[2] = -0.4; _gf_t[3] = 1.0; _gf_t[4] = 2.4 * (1 - 0.6 * r);
+  out[0] = amp * _herm(k, _gf_s); out[1] = Math.max(0, _herm(k, _gf_l)); out[2] = _herm(k, _gf_t);
   return out;
 }
-const _gf = [0, 0];
+/** Vertical bob of the hips for a gait (left foot at `phase`): a walk is lowest just after each heel strike and
+ *  highest as he passes over the planted leg; a run sinks into each landing and rises in the float. */
+function gaitBob(phase, amp, duty) {
+  const u = ((phase / TAU) % 1 + 1) % 1, r = clamp((0.5 - duty) / 0.33, 0, 1), h = (u % 0.5) / 0.5;   // half-cycle = one step
+  const walk = -1.25 * amp / 15 * 0.5 * (1 + Math.cos(TAU * (h - 0.12)));
+  const st = duty / 0.5;                                                                             // share of the step on the ground
+  const run = h < st ? -2.2 * amp / 17 * Math.sin(Math.PI * h / st) : 1.4 * amp / 17 * Math.sin(Math.PI * (h - st) / (1 - st));
+  return walk * (1 - r) + run * r;
+}
+const _gf = [0, 0, 0];
 
 class Rig {
   constructor() {
     const J = this.j = {};
     for (const n of ['pelvis', 'waist', 'neck', 'head', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'toeL', 'toeR',
       'shL', 'shR', 'elL', 'elR', 'wrL', 'wrR', 'handL', 'handR', 'holster', 'flaskProp']) J[n] = V3();
+    Object.defineProperty(J, '_cy', { value: 0, writable: true, enumerable: false });   // chest twist, for torsoPush
     // parts: what to draw. kind 'seg' = limb between two joints, 'view' = per-view picture at a joint.
     const P = (name, kind, a, b, bias) => ({ name, kind, a, b, bias, key: 0, x: 0, y: 0, rot: 0, len: 0, side: 0 });
     this.parts = [
@@ -550,14 +867,17 @@ class Rig {
     J.x = X; J.y = Y * K + J.z; J.d = Y;
   }
 
-  /** Leg IK in the char frame: hip -> knee -> ankle, knee folds forward along `kf` (forward-ish unit vector). */
-  leg(hip, knee, ankle, tS, tF, tZ) {
+  /** Leg IK in the char frame: hip -> knee -> ankle; the knee is a hinge that folds toward (ks, kf) (where the
+   *  kneecap points: forward, turned with the hips and the foot). */
+  leg(hip, knee, ankle, tS, tF, tZ, ks, kf) {
     const L1 = RIG.THIGH, L2 = RIG.SHIN;
     let ds = tS - hip.s, df = tF - hip.f, dz = tZ - hip.z, d = Math.hypot(ds, df, dz);
     const dd = clamp(d, 1, L1 + L2 - 0.05);
     const us = ds / d, uf = df / d, uz = dz / d;
-    // forward vector made perpendicular to the leg line: that is where the knee goes
-    let ps = -us * uf, pf = 1 - uf * uf, pz = -uz * uf;
+    // knee direction made perpendicular to the leg line: that is where the knee goes
+    if (ks === undefined) { ks = 0; kf = 1; }
+    const kd = ks * us + kf * uf;
+    let ps = ks - us * kd, pf = kf - uf * kd, pz = -uz * kd;
     const pl = Math.hypot(ps, pf, pz) || 1; ps /= pl; pf /= pl; pz /= pl;
     const a = (L1 * L1 - L2 * L2 + dd * dd) / (2 * dd), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
     knee.s = hip.s + us * a + ps * h; knee.f = hip.f + uf * a + pf * h; knee.z = hip.z + uz * a + pz * h;
@@ -575,25 +895,42 @@ class Rig {
     this.yaw = o.yaw; this.dir = ((Math.round(o.yaw / (TAU / RIG_DIRS)) % RIG_DIRS) + RIG_DIRS) % RIG_DIRS;
     this._c = Math.cos(o.yaw); this._s = Math.sin(o.yaw);
     const w = o.walk, cr = o.crouch;
-    // ---- legs + pelvis (3D)
-    // the body dips as each foot takes the weight (mid-stance) and rises between steps
-    const bob = w.duty ? -(0.6 + 0.16 * w.amp * (0.65 - w.duty)) * w.amp / 8 * (0.5 + 0.5 * Math.cos(2 * (w.phase - Math.PI * w.duty))) : -1.6 * w.amp / 11 * Math.pow(Math.sin(w.phase), 2);
-    J.pelvis.s = o.sway || 0; J.pelvis.f = 0; J.pelvis.z = RIG.HIP_Z - cr + bob;
-    J.hipL.s = J.pelvis.s - RIG.HIP_W; J.hipR.s = J.pelvis.s + RIG.HIP_W;
-    for (const h of [J.hipL, J.hipR]) { h.f = 0; h.z = J.pelvis.z; }
-    const feet = o.feet;
+    // ---- legs + pelvis (3D). pelvisYaw turns the hips (+ = toward his left), chestYaw turns the ribcage and
+    // shoulders on top of that, pitch leans the upper body forward from the waist.
+    const py = o.pelvisYaw || 0, cyaw = o.chestYaw || 0, pitch = o.pitch || 0, pc = Math.cos(py), pyS = Math.sin(py);
+    const bob = w.duty ? gaitBob(w.phase, w.amp, w.duty) : -1.6 * w.amp / 11 * Math.pow(Math.sin(w.phase), 2);
+    let pz = RIG.HIP_Z - cr + bob;
+    J.pelvis.s = o.sway || 0; J.pelvis.f = o.pelvisF || 0;
+    J.hipL.s = J.pelvis.s - RIG.HIP_W * pc; J.hipL.f = J.pelvis.f - RIG.HIP_W * pyS;
+    J.hipR.s = J.pelvis.s + RIG.HIP_W * pc; J.hipR.f = J.pelvis.f + RIG.HIP_W * pyS;
+    const feet = o.feet, FL = o.feetLock, ft = this._ft;
     for (const side of [-1, 1]) {
       const ph = w.phase + (side < 0 ? 0 : Math.PI); gaitFoot(ph, w.amp, w.duty, _gf);
       const stride = _gf[0], lift = _gf[1];
-      let tS = side * RIG.FOOT_W + w.ms * stride, tF = w.mf * stride, tZ = 3.5 + lift;
+      let tS = side * RIG.FOOT_W + w.ms * stride, tF = w.mf * stride, tZ = 3.5 + lift, toeOff = _gf[2], yawF = py * 0.5;
       if (feet) { tS += side * feet.spread; tF += feet.f * side + feet.fwd; tZ += feet.z; }
+      if (FL && FL.w > 0) {                     // attack footwork: feet planted in the world or stepping (see poseRig)
+        const L = side < 0 ? FL.L : FL.R, k = FL.w;
+        tS += (L.s - tS) * k; tF += (L.f - tF) * k; tZ += (L.z - tZ) * k; toeOff += (L.toe - toeOff) * k; yawF += (L.yaw - yawF) * k;
+      }
+      const q = side < 0 ? ft.L : ft.R; q.s = tS; q.f = tF; q.z = tZ; q.toe = toeOff; q.yaw = yawF;
+    }
+    // the hips come down when a foot is planted further out than the straight leg reaches (long strides, lunges)
+    for (const side of [-1, 1]) {
+      const q = side < 0 ? ft.L : ft.R, hip = side < 0 ? J.hipL : J.hipR, dh = Math.hypot(q.s - hip.s, q.f - hip.f), LM = RIG.THIGH + RIG.SHIN - 0.6;
+      pz = Math.min(pz, Math.max(q.z + Math.sqrt(Math.max(0, LM * LM - dh * dh)), RIG.HIP_Z - cr - 8));
+    }
+    J.pelvis.z = pz; J.hipL.z = J.hipR.z = pz;
+    for (const side of [-1, 1]) {
+      const q = side < 0 ? ft.L : ft.R;
       const hip = side < 0 ? J.hipL : J.hipR, knee = side < 0 ? J.kneeL : J.kneeR, ank = side < 0 ? J.ankleL : J.ankleR;
-      this.leg(hip, knee, ank, tS, tF, tZ);
+      const fy = q.yaw, ks = -Math.sin(fy), kf = Math.cos(fy);              // the knee tracks over the foot
+      this.leg(hip, knee, ank, q.s, q.f, q.z, ks, kf);
       const toe = side < 0 ? J.toeL : J.toeR;
-      toe.s = ank.s + side * 1.2; toe.f = ank.f + RIG.FOOT; toe.z = Math.max(0.5, ank.z - 2.5);
+      toe.s = ank.s + side * 1.2 * kf + ks * RIG.FOOT; toe.f = ank.f + kf * RIG.FOOT - side * 1.2 * ks; toe.z = Math.max(0.5, ank.z - 2.5 + q.toe);
     }
     // ---- spine, all in the char frame; a little roll into the direction he is moving
-    J.waist.s = 0; J.waist.f = 0.5; J.waist.z = J.pelvis.z + (RIG.WAIST_Z - RIG.HIP_Z);
+    J.waist.s = 0; J.waist.f = 0.5 + (o.pelvisF || 0); J.waist.z = J.pelvis.z + (RIG.WAIST_Z - RIG.HIP_Z);
     J.neck.s = 0; J.neck.f = 1.0 + o.hunch; J.neck.z = J.pelvis.z + (RIG.NECK_Z - RIG.HIP_Z);
     J.head.s = 0; J.head.f = 1.5 + o.hunch; J.head.z = J.neck.z + 9;
     const br = o.breath || 0, sw = (o.sway || 0) * 0.55;                  // breathing lifts the chest; the torso rides the hip shift
@@ -605,6 +942,13 @@ class Rig {
     if (o.roll) {
       const rc = Math.cos(o.roll), rs = Math.sin(o.roll), wz = J.waist.z;
       for (const q of [J.neck, J.head, J.shL, J.shR]) { const ds = q.s, dz = q.z - wz; q.s = ds * rc + dz * rs; q.z = wz - ds * rs + dz * rc; }
+    }
+    // lean and twist the upper body around the waist (the chest frame)
+    J._cy = cyaw; this._cyc = Math.cos(cyaw); this._cys = Math.sin(cyaw); this._pc = Math.cos(pitch); this._ps = Math.sin(pitch);
+    if (pitch || cyaw) for (const q of [J.neck, J.head, J.shL, J.shR]) this.chestToChar(q, q, true);
+    if (o.chestGrip) {                         // clip hand targets are given relative to the waist (char frame)
+      const Wt = J.waist; o.grip.s += Wt.s; o.grip.f += Wt.f; o.grip.z += Wt.z;
+      if (o.leftTarget) { o.leftTarget.s += Wt.s; o.leftTarget.f += Wt.f; o.leftTarget.z += Wt.z; }
     }
     // ---- arms: anatomical IK (see arm3). The fist sits on the grip with the handle across the palm.
     const G = o.grip, HG = RIG.HAND * 0.5, Bd = this.blade;
@@ -620,6 +964,10 @@ class Rig {
         const k = c - Math.sign(c) * lim; Bd.s -= fR.s * k; Bd.f -= fR.f * k; Bd.z -= fR.z * k;
         const l = Math.hypot(Bd.s, Bd.f, Bd.z) || 1; Bd.s /= l; Bd.f /= l; Bd.z /= l;
       } }
+    // the blade stops at the floor: a strike that reaches it lands on it instead of going through
+    if (o.bladeLen) { const L = o.bladeLen, tz = this.grip.z + Bd.z * L;
+      if (tz < 0.8) { const z1 = (0.8 - this.grip.z) / L, h = Math.hypot(Bd.s, Bd.f) || 1, hh = Math.sqrt(Math.max(0, 1 - z1 * z1));
+        Bd.s = Bd.s / h * hh; Bd.f = Bd.f / h * hh; Bd.z = z1; } }
     if (o.twoHand) {
       const gap = o.twoHand.gap, fL = this._fore.L;
       this._w.s = this.grip.s - Bd.s * gap - fL.s * HG; this._w.f = this.grip.f - Bd.f * gap - fL.f * HG; this._w.z = this.grip.z - Bd.z * gap - fL.z * HG;
@@ -643,6 +991,26 @@ class Rig {
     this.place(o);
   }
 
+  /** Inverse of chestToChar, with this frame's (or the last frame's) chest rotation. */
+  charToChest(q, out, pos) {
+    const W = this.j.waist;
+    let s = q.s, f = q.f, z = q.z;
+    if (pos) { s -= W.s; f -= W.f; z -= W.z; }
+    const s1 = s * this._cyc + f * this._cys, f1 = -s * this._cys + f * this._cyc, pc = pos ? this._pc : 1, ps = pos ? this._ps : 0;
+    out.s = s1; out.f = f1 * pc - z * ps; out.z = f1 * ps + z * pc;
+  }
+  /** A point or a direction in the chest frame -> the char frame. pos: true = a char-frame point turned with the
+   *  chest around the waist, 2 = a point given relative to the waist, false = a direction. In place is fine. */
+  chestToChar(q, out, pos) {
+    const W = this.j.waist;
+    let s = q.s, f = q.f, z = q.z;
+    if (pos === true) { s -= W.s; f -= W.f; z -= W.z; }
+    const pc = pos ? this._pc : 1, ps = pos ? this._ps : 0;                              // blades aim in the world: no lean
+    const f1 = f * pc + z * ps, z1 = -f * ps + z * pc;                                   // lean forward
+    const s2 = s * this._cyc - f1 * this._cys, f2 = s * this._cys + f1 * this._cyc;     // turn
+    out.s = s2 + (pos ? W.s : 0); out.f = f2 + (pos ? W.f : 0); out.z = z1 + (pos ? W.z : 0);
+  }
+
   /**
    * Anatomical two-bone arm IK in the char frame.
    * - elbow is a hinge: straight at full reach, folds one way only, at most ~145 degrees
@@ -655,7 +1023,7 @@ class Rig {
   arm3(sh, el, wr, hand, t0, side, blade, key) {
     const L1 = RIG.UPPER, L2 = RIG.FORE, J = this.j;
     const t = this._t3; t.s = t0.s; t.f = t0.f; t.z = t0.z;
-    t.f += torsoPush(J, t.s, t.f, t.z, 3.6);                        // the hand can't be inside him
+    { const pu = torsoPush(J, t.s, t.f, t.z, 3.6); t.s -= pu * Math.sin(J._cy || 0); t.f += pu * Math.cos(J._cy || 0); }   // the hand can't be inside him
     let ds = t.s - sh.s, df = t.f - sh.f, dz = t.z - sh.z, d = Math.hypot(ds, df, dz) || 1e-4;
     const us = ds / d, uf = df / d, uz = dz / d;
     const dmin = Math.sqrt(L1 * L1 + L2 * L2 - 2 * L1 * L2 * Math.cos(35 * RAD));   // fullest fold
@@ -733,6 +1101,8 @@ class Rig {
 }
 // scratch objects (allocated once)
 Rig.prototype._tmp = V3(); Rig.prototype._w = V3(); Rig.prototype._t3 = V3();
+Rig.prototype._ft = { L: { s: 0, f: 0, z: 0, toe: 0, yaw: 0 }, R: { s: 0, f: 0, z: 0, toe: 0, yaw: 0 } };
+Rig.prototype._cyc = 1; Rig.prototype._cys = 0; Rig.prototype._pc = 1; Rig.prototype._ps = 0;
 Rig.prototype._m1 = { x: 0, y: 0 }; Rig.prototype._m2 = { x: 0, y: 0 }; Rig.prototype._e1 = { x: 0, y: 0 }; Rig.prototype._e2 = { x: 0, y: 0 };
 Object.defineProperty(Rig.prototype, '_all', { get() { if (!this.__all) this.__all = Object.values(this.j); return this.__all; } });
 Rig.prototype.weaponRot0 = 0;
@@ -779,6 +1149,15 @@ function poseRig(p, dt, t) {
   o.breath = Math.sin(t * 2.0) * 0.55 * (0.4 + 0.6 * idle) + (p.sprinting ? Math.sin(t * 5.5) * 0.4 : 0);
   p.swayAmt = dt > 0 ? smooth(p.swayAmt || 0, idle, 2, dt) : idle;
   o.sway = Math.sin(t * 0.55) * 1.2 * p.swayAmt;
+  // walking hips: they turn forward with the swinging leg and shift over the planted foot; the chest counter-turns
+  o.pelvisYaw = 0; o.chestYaw = 0; o.pitch = 0; o.pelvisF = 0; o.feetLock = null; o.chestGrip = false;
+  if (loco && _walk.duty && p.walkAmp > 1) {
+    const gr = clamp((0.5 - _walk.duty) / 0.33, 0, 1), sL = gaitFoot(p.walkPhase, p.walkAmp, _walk.duty, _gf)[0] / Math.max(1, p.walkAmp);
+    const k = Math.min(1, p.walkAmp / 12);
+    o.pelvisYaw = -(0.12 + 0.06 * gr) * sL * k; o.chestYaw = -(0.45 + 0.25 * gr) * o.pelvisYaw;
+    o.sway += -1.1 * (1 - gr) * k * Math.cos(p.walkPhase - Math.PI * _walk.duty);
+    o.pitch = (0.03 + 0.09 * gr + 0.05 * clamp((ratio - 1.1) / 0.5, 0, 1)) * k;          // a run leans into it
+  }
   if (p._lastSt === S_DODGE && st !== S_DODGE) p.landT = 0;
   p._lastSt = st; p.landT = (p.landT === undefined ? 9 : p.landT) + dt;
   if (p.landT < 0.3 && st !== S_DODGE) { const k = Math.sin(Math.PI * p.landT / 0.3); crouch += 4.5 * k; hunch += 2 * k; }
@@ -812,7 +1191,16 @@ function poseRig(p, dt, t) {
     _lr.s += (ts - _lr.s) * k; _lr.f += (tf - _lr.f) * k; _lr.z += (tz - _lr.z) * k;
   }
   if (bothHands && gp < 0.05 && !(tool && attacking)) { o.twoHand = _two; _two.gap = W.handGap || 8; }  // 2h: both hands unless the left is busy
-  if (attacking && !tool && p.kind !== 'visceral') {
+  // keyed full-body clips (anim.js): the attack itself, or holding a charged heavy (the clip's first pose)
+  let clip = null, clipX = 0, clipKey = null, clipW = 1;
+  if (attacking && !tool && mv.anim) { clip = ANIMS[mv.anim]; clipX = moveClock(st, p.state_t, mv); clipKey = 'm' + p.moveSerial; }
+  else if (p.charging > 0 && loco && W.charged && W.charged.anim) {
+    clip = ANIMS[W.charged.anim]; clipX = 0; clipKey = 'c' + (p.moveSerial || 0);
+    clipW = clamp((p.charging - CHARGE_START) / (CHARGE_FULL - CHARGE_START), 0, 1) * 0.85 + 0.15;
+  }
+  if (clip && bothHands) { o.twoHand = _two; _two.gap = W.handGap || 8; }
+  if (clip) { /* the clip block below poses the whole body */ }
+  else if (attacking && !tool && p.kind !== 'visceral') {
     const ph = st === S_WINDUP ? clamp(p.state_t / mv.windup, 0, 1) : st === S_ACTIVE ? 1 : 1 - clamp(p.state_t / Math.max(0.01, mv.recovery), 0, 1);
     crouch += (2 + 5 * heft) * ph; hunch = 1.5 + 2.5 * heft * ph;
     _feet.f = -(3 + 3 * heft) * ph - 1.5; _feet.spread = 1.5 + 2 * ph;          // left foot forward, wider base
@@ -870,6 +1258,8 @@ function poseRig(p, dt, t) {
   look = clamp(look, -1.05, 1.05);
   p.headYaw = dt > 0 ? smooth(p.headYaw || 0, look, 7, dt) : look;
   o.headYaw = st === S_DEAD ? 0 : p.headYaw;
+  const CP = clipBody(p, R, o, clip, clipX, clipKey, clipW, mv, dt, yaw, bothHands);
+  if (CP) { crouch += CP.cr; hunch = 0; }
   o.crouch = crouch; o.hunch = hunch; o.roll = roll - o.sway * 0.012; o.tilt = st === S_DEAD ? Math.abs(tilt) : 0; o.spin = 0; o.lean = 0;
   void lean; void spin;
   // ---- the weapon in 3D: grip position and blade direction from the weapon animation, in the char frame
@@ -883,11 +1273,22 @@ function poseRig(p, dt, t) {
   } else if (p.charging > 0) _grip.f += 6;
   const bh = p.bladeH, be = p.bladeE, bX = Math.cos(be) * Math.cos(bh), bY = Math.cos(be) * Math.sin(bh);
   _blade.s = bX * sy - bY * cy; _blade.f = bX * cy + bY * sy; _blade.z = Math.sin(be);
+  if (CP) clipArms(p, R, o, CP, bothHands);
+  else if (p._outT > 0) clipOut(p, o, dt);
   o.grip = _grip; o.blade = _blade;
   o.capeLow = p.cloths.cape && p.cloths.cape.live ? p.cloths.cape.lowDepth() : undefined;
   o.tabardDepth = p.cloths.tabard && p.cloths.tabard.live ? p.cloths.tabard.lowDepth() : undefined;
+  o.bladeLen = (W === WEAPONS.spear ? 150 : W === WEAPONS.greatsword ? 100 : 56) * (p.sword_scale || 1);
   R.pose(o);
   for (const name in p.cloths) p.cloths[name].step(p, dt);
+  // the blade tip in the world (floor strikes) and the blade's trail through the strike
+  { const G = R.grip, Bd = R.blade, L = o.bladeLen, ts = G.s + Bd.s * L, tf = G.f + Bd.f * L, tz = G.z + Bd.z * L;
+    p.tipX = p.gx + ts * sy + tf * cy; p.tipY = p.gy - ts * cy + tf * sy; p.tipZ = tz;
+    if (CP && clipKey[0] === 'm' && clipX >= 0.92 && clipX <= 2.3 && dt > 0) {
+      const ms = G.s + Bd.s * L * 0.35, mf = G.f + Bd.f * L * 0.35, mz = G.z + Bd.z * L * 0.35;
+      p.trail.push({ t: p.g.t, x0: p.gx + ms * sy + mf * cy, y0: p.gy - ms * cy + mf * sy, z0: mz, x1: p.tipX, y1: p.tipY, z1: tz, heavy: mv.heft });
+      if (p.trail.length > 16) p.trail.shift();
+    } }
   // pistol muzzle (world) for the flash and the tracer: from the left fist along the forearm, tipped by recoil
   { const J = R.j; let fs = J.wrL.s - J.elL.s, ff = J.wrL.f - J.elL.f, fz = J.wrL.z - J.elL.z; const l = Math.hypot(fs, ff, fz) || 1;
     fs /= l; ff /= l; fz = fz / l + Math.tan(p.gunPitch); const ms = J.handL.s + fs * 19.6, mf = J.handL.f + ff * 19.6, mz = J.handL.z + fz * 19.6 + 1.8;
@@ -896,6 +1297,113 @@ function poseRig(p, dt, t) {
   const H = R.j.head, hy = yaw + (o.headYaw || 0), hc = Math.cos(hy), hs = Math.sin(hy), fwd = -hs;
   p.visorX = H.x + hc * 5.6; p.visorY = H.y + hs * 5.6 * K - 0.5;
   p.visorSX = Math.max(0.25, Math.abs(fwd)); p.visorAlpha = st === S_DEAD ? 0 : clamp((fwd + 0.25) * 1.8, 0, 1);
+}
+
+// ---------------------------------------------------------------- clip posing
+const _A = { g: [0, 0, 0], b: [0, 0, 0], l: [0, 0, 0] }, _CP = { cr: 0, g: [0, 0, 0], b: [0, 0, 0], l: [0, 0, 0], hasL: false };
+const _lt3 = { s: 0, f: 0, z: 0 }, _feetLock = { w: 1, L: { s: 0, f: 0, z: 3.5, toe: 0, yaw: 0 }, R: { s: 0, f: 0, z: 3.5, toe: 0, yaw: 0 } };
+const _lerp = (a, b, k) => a + (b - a) * k;
+/**
+ * Pose the body from a clip: chest turn, hips, lean, crouch, the feet (planted in the world or stepping), and the
+ * hands' targets in the chest frame. The first moments blend from wherever the body was (a combo flows straight
+ * out of the last swing's follow-through). Returns the crouch to add (and the hand targets), or null.
+ */
+function clipBody(p, R, o, clip, x, key, wgt, mv, dt, yaw, bothHands) {
+  if (!clip) { if (p._clipKey) { p._clipKey = null; p._outT = 0.22; } return null; }
+  const J = R.j, cy = Math.cos(yaw), sy = Math.sin(yaw);
+  if (p._clipKey !== key) {                     // a new clip: remember where the body is, in the chest frame
+    const F = p._from || (p._from = { g: [0, 0, 0], b: [0, 0, 0], tw: 0, hp: 0, ln: 0, cr: 0 }), c = p._cur || { tw: 0, hp: 0, ln: 0, cr: 0 };
+    F.g[0] = R.grip.s - J.waist.s; F.g[1] = R.grip.f - J.waist.f; F.g[2] = R.grip.z - J.waist.z;
+    F.b[0] = R.blade.s; F.b[1] = R.blade.f; F.b[2] = R.blade.z;
+    F.tw = c.tw; F.hp = c.hp; F.ln = c.ln; F.cr = c.cr;
+    // the feet, where they stand now (world)
+    const fw = p._fw || (p._fw = { L: { x: 0, y: 0, seg: -9, fx: 0, fy: 0 }, R: { x: 0, y: 0, seg: -9, fx: 0, fy: 0 } });
+    for (const side of ['L', 'R']) {
+      const A = side === 'L' ? J.ankleL : J.ankleR, q = fw[side], ryc = Math.cos(R.yaw), rys = Math.sin(R.yaw);
+      q.x = p.gx + A.s * rys + A.f * ryc; q.y = p.gy - A.s * ryc + A.f * rys; q.seg = -9;
+    }
+    p._clipKey = key; p._clipT = 0;
+  }
+  p._clipT += dt;
+  sampleClip(clip, x, _A);
+  const F = p._from, bl = (key[0] === 'm' ? Math.min(0.14, mv.windup * 0.6) : 0.16), w = EASE.io(clamp(p._clipT / bl, 0, 1)) * wgt;
+  const cur = p._cur || (p._cur = { tw: 0, hp: 0, ln: 0, cr: 0 });
+  cur.tw = _lerp(F.tw, _A.tw || 0, w); cur.hp = _lerp(F.hp, _A.hp || 0, w); cur.ln = _lerp(F.ln, _A.ln || 0, w); cur.cr = _lerp(F.cr, _A.cr || 0, w);
+  const C = _CP;
+  for (let d = 0; d < 3; d++) { C.g[d] = _lerp(F.g[d], _A.g[d], w); C.b[d] = _lerp(F.b[d], _A.b[d], w); }
+  C.hasL = !bothHands && !!_A.l && !(p.gunReady > 0.5); if (C.hasL) for (let d = 0; d < 3; d++) C.l[d] = _A.l[d];
+  C.lw = w; C.cr = cur.cr;
+  o.chestYaw = cur.tw * RAD; o.pelvisYaw = cur.hp * RAD; o.pitch = cur.ln * RAD;
+  o.headYaw = o.chestYaw * 0.25;                     // the head turns a little with the chest; the eyes stay on the target
+  // ---- footwork (attacks only: a charge keeps walking)
+  if (key[0] === 'm') {
+    o.feetLock = _feetLock; _feetLock.w = 1;
+    const rm = clipRoot(clip, x);
+    for (const side of ['L', 'R']) clipFoot(p, clip, side, x, rm, cy, sy, _feetLock[side]);
+  }
+  return C;
+}
+/** One foot during a clip: planted where it is in the world, or stepping to where the clip puts it. */
+function clipFoot(p, clip, side, x, rmNow, cy, sy, out) {
+  const ks = clip._feet[side], q = p._fw[side];
+  let i = -1; for (let j = 0; j < ks.length; j++) if (ks[j].x <= x) i = j;
+  // world position of a key's target: relative to where the root will be at that key
+  const tgt = (kk) => { const ahead = clipRoot(clip, kk.x) - rmNow, rx = p.gx + Math.cos(p.attack_dir) * ahead, ry = p.gy + Math.sin(p.attack_dir) * ahead;
+    return [rx + kk.s * sy + kk.f * cy, ry - kk.s * cy + kk.f * sy]; };
+  let lift = 0, toe = 0;
+  // settle into the clip's first stance in the opening moments if the foot was caught mid-stride
+  const seg = i;
+  if (seg !== q.seg) {
+    if (q.stepping && q.seg !== -9 && p.g && p.g.onAttackStep) p.g.onAttackStep(p, q.x, q.y);   // the foot comes down
+    q.fx = q.x; q.fy = q.y; q.seg = seg; q.stepping = false;
+  }
+  if (i >= 0 && i < ks.length - 1) {
+    const a = ks[i], b = ks[i + 1];
+    if (Math.hypot(b.s - a.s, b.f - a.f) > 0.8) {                       // a step
+      q.stepping = true;
+      const [tx, ty] = tgt(b), u = b.e(clamp((x - a.x) / (b.x - a.x), 0, 1)), dist = Math.hypot(tx - q.fx, ty - q.fy);
+      q.x = q.fx + (tx - q.fx) * u; q.y = q.fy + (ty - q.fy) * u;
+      lift = Math.sin(Math.PI * u) * Math.min(7, 1.2 + 0.22 * dist);
+      toe = u > 0.65 ? 2.2 * (u - 0.65) / 0.35 * (1 - u) * 3 : -lift * 0.4;
+    } else if (i === 0 && x < Math.min(0.5, b.x)) {                     // settle into the first stance
+      const [tx, ty] = tgt(a), d0 = Math.hypot(tx - q.fx, ty - q.fy);
+      if (d0 > 3) { const u = EASE.io(x / Math.min(0.5, b.x)); q.x = q.fx + (tx - q.fx) * u; q.y = q.fy + (ty - q.fy) * u; lift = Math.sin(Math.PI * u) * Math.min(5, 1 + 0.2 * d0); }
+    }
+  }
+  // a planted foot can't be left further behind than the leg reaches: it gets dragged
+  const dx = q.x - p.gx, dy = q.y - p.gy, d = Math.hypot(dx, dy), lim = 24;
+  if (d > lim) { q.x = p.gx + dx / d * lim; q.y = p.gy + dy / d * lim; q.fx = q.x; q.fy = q.y; }
+  const X = q.x - p.gx, Y = q.y - p.gy;
+  out.s = X * sy - Y * cy; out.f = X * cy + Y * sy; out.z = 3.5 + lift; out.toe = toe;
+  out.yaw = side === 'R' ? -0.45 : 0.12;               // rear foot turned out, front foot pointing at the target
+}
+/** Hands for a clip pose: the grip and the blade (and a free left hand) in the chest frame. */
+function clipArms(p, R, o, C, bothHands) {
+  _grip.s = C.g[0]; _grip.f = C.g[1]; _grip.z = C.g[2];
+  _blade.s = C.b[0]; _blade.f = C.b[1]; _blade.z = C.b[2];
+  o.chestGrip = true;
+  if (C.hasL) { _lt3.s = C.l[0]; _lt3.f = C.l[1]; _lt3.z = C.l[2]; o.leftTarget = _lt3; }
+  // remember the finished pose for the blend back out of the clip
+  const Lp = p._last || (p._last = { g: [0, 0, 0], b: [0, 0, 0], tw: 0, hp: 0, ln: 0, cr: 0 });
+  Lp.tw = p._cur.tw; Lp.hp = p._cur.hp; Lp.ln = p._cur.ln; Lp.cr = p._cur.cr;
+}
+/** Just out of a clip: ease the body from its last clip pose back to the normal carry. */
+function clipOut(p, o, dt) {
+  p._outT = Math.max(0, p._outT - dt);
+  const w = EASE.io(p._outT / 0.22), Lp = p._last, R = p.rig;
+  if (!Lp) return;
+  if (!p._outInit) { p._outInit = true; }
+  // grip and blade: from where the rig drew them last (char frame) toward the carry
+  _grip.s = _lerp(_grip.s, R.grip.s, w); _grip.f = _lerp(_grip.f, R.grip.f, w); _grip.z = _lerp(_grip.z, R.grip.z, w);
+  _blade.s = _lerp(_blade.s, R.blade.s, w); _blade.f = _lerp(_blade.f, R.blade.f, w); _blade.z = _lerp(_blade.z, R.blade.z, w);
+  o.chestYaw += Lp.tw * RAD * w; o.pelvisYaw += Lp.hp * RAD * w; o.pitch += Lp.ln * RAD * w; o.crouch += Lp.cr * w;
+  if (p._fw && o.feetLock === null) {
+    o.feetLock = _feetLock; _feetLock.w = w;
+    const cy = Math.cos(p.facing), sy = Math.sin(p.facing);
+    for (const side of ['L', 'R']) { const q = p._fw[side], X = q.x - p.gx, Y = q.y - p.gy, out = _feetLock[side];
+      out.s = X * sy - Y * cy; out.f = X * cy + Y * sy; out.z = 3.5; out.toe = 0; out.yaw = side === 'R' ? -0.45 : 0.12; }
+  }
+  if (p._outT <= 0) { p._last.tw = p._last.hp = p._last.ln = p._last.cr = 0; if (p._cur) p._cur.tw = p._cur.hp = p._cur.ln = p._cur.cr = 0; }
 }
 
 // ---------------------------------------------------------------- cloth (cloak, tabard, sashes)
@@ -1642,7 +2150,7 @@ class FX {
   }          // the renderer snapshots the body as an afterimage
   slash(p) {
     const m = p.move, sl = m.slash;
-    if (!sl) return;
+    if (!sl || m.anim) return;
     const style = sl[0], col = SLASH_COLORS[sl[1]], heavy = m.heft >= 0.6, life = heavy ? 0.28 : 0.2;
     const a = p.attack_dir, shape = m.hitbox;
     if (style === 'arc') {
@@ -1858,7 +2366,7 @@ class Player {
     this.items = {}; for (const k in ITEMS) this.items[k] = 0;
     this.kind = null; this.move = null; this.attack_dir = this.facing; this.combo = -1; this.combo_expire_t = -1;
     this.dodge_end_t = -10; this.hit_done = false; this.dodge_dir = 0; this.ghost_t = 0; this.invuln = false;
-    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0; this.running = false;
+    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0; this.running = false; this.trail = []; this.animX = 0;
     this.charging = 0; this.sprint_req = false; this.sprinting = false; this.sprint_block = false; this.sprint_t = -10;
     this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = this.dodgeBase;
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
@@ -1937,6 +2445,7 @@ class Player {
     else if (kind === 'heavy' || kind === 'charged') this.combo = -1;
     if (kind !== 'flask') { this.attack_dir = d; this.turnTo(d); }
     this.hit_done = false; this.charging = 0; this.enter(S_WINDUP);
+    this.moveSerial = (this.moveSerial || 0) + 1; this.animX = 0; this.trail.length = 0;
   }
   startDodge(d) {
     const prof = this.dodge_prof = this.dodgeBase;
@@ -1949,6 +2458,16 @@ class Player {
     const stand = b.RADIUS + PLAYER_RADIUS + 10;
     this.visc_from = [this.gx, this.gy];
     this.visc_to = [b.gx - Math.cos(a) * stand, b.gy - Math.sin(a) * stand];
+  }
+  /** Clip-driven moves: the body travels exactly as far as the clip's root motion says (the feet are planted
+   *  against it), and the clip's events fire as the clock passes them. */
+  clipMotion(dt) {
+    const mv = this.move, clip = ANIMS[mv.anim], x = moveClock(this.state, this.state_t, mv), x0 = this.animX;
+    if (x < x0) { this.animX = x; return; }
+    const d = clipRoot(clip, x) - clipRoot(clip, x0), v = dt > 0 ? d / dt : 0;
+    this.vx = Math.cos(this.attack_dir) * v; this.vy = Math.sin(this.attack_dir) * v;
+    for (const e of clip.ev) if (x0 < e[0] && x >= e[0]) this.g.onWeaponEvent(this, e[1], e[2]);
+    this.animX = x;
   }
   regain(amount) {
     const g = Math.min(this.rally, amount, this.maxHp - this.hp);
@@ -2025,17 +2544,22 @@ class Player {
         this.vx = this.vy = 0;
         this.gx = this.visc_from[0] + (this.visc_to[0] - this.visc_from[0]) * e;
         this.gy = this.visc_from[1] + (this.visc_to[1] - this.visc_from[1]) * e;
-      } else { this.vx = smooth(this.vx, 0, 20, dt); this.vy = smooth(this.vy, 0, 20, dt); }
+      } else if (mv.anim) this.clipMotion(dt);
+      else { this.vx = smooth(this.vx, 0, 20, dt); this.vy = smooth(this.vy, 0, 20, dt); }
       if (this.state_t >= mv.windup) { this.enter(S_ACTIVE); this.g.onSwing(this); }
     } else if (st === S_ACTIVE) {
-      const p = clamp(this.state_t / mv.active, 0, 1), spd = mv.lunge * (1 - p);
-      this.vx = Math.cos(this.attack_dir) * spd; this.vy = Math.sin(this.attack_dir) * spd;
+      if (mv.anim) this.clipMotion(dt);
+      else {
+        const p = clamp(this.state_t / mv.active, 0, 1), spd = mv.lunge * (1 - p);
+        this.vx = Math.cos(this.attack_dir) * spd; this.vy = Math.sin(this.attack_dir) * spd;
+      }
       if (this.state_t >= mv.active) {
         this.enter(S_RECOVERY);
         if (this.kind === 'light' || this.kind === 'dodge') this.combo_expire_t = t + mv.recovery + COMBO_WINDOW;
       }
     } else if (st === S_RECOVERY) {
-      this.vx = smooth(this.vx, 0, 14, dt); this.vy = smooth(this.vy, 0, 14, dt);
+      if (mv.anim) this.clipMotion(dt);
+      else { this.vx = smooth(this.vx, 0, 14, dt); this.vy = smooth(this.vy, 0, 14, dt); }
       if (this.state_t >= mv.cancel && this.move_dir !== null) this.enter(S_MOVE);
       else if (this.state_t >= mv.recovery) this.enter(S_IDLE);
     } else if (st === S_DODGE) {
@@ -2308,13 +2832,13 @@ class Boss {
       }
     } else if (st === S_ACTIVE) {
       if (this.kind === 'sweep') {
-        if (!this.hit_done && g.bossSweepHits(this)) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact);
+        if (!this.hit_done && g.bossSweepHits(this)) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact, atk.dtype);
         if (T >= atk.active) this.enter(S_RECOVERY);
       } else if (this.kind === 'slam') { if (T >= atk.active) this.enter(S_RECOVERY); }
       else {
         this.vx = Math.cos(this.attack_dir) * atk.speed; this.vy = Math.sin(this.attack_dir) * atk.speed;
         g.fx.lanceTrail(this); g.fx.chargeDust(this);
-        if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact);
+        if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact, atk.dtype);
         if (T >= this.dash_time) {
           this.vx *= 0.3; this.vy *= 0.3; g.onBossLanceStop(this);
           if (this.phase === 2 && !this.followed) {          // phase 2: straight into a sweep, no pause
@@ -2652,6 +3176,23 @@ class Game {
     if (mv.haptic) this.haptic(mv.haptic[0], mv.haptic[1]);
     this.fx.slash(p);
   }
+  /** A foot planting at the end of a step inside an attack: the weight lands on it. */
+  onAttackStep(p, x, y) {
+    const h = p.move ? p.move.heft : 0;
+    this.sfx('stomp', 0.12 + 0.3 * h); this.fx.stomp(x, y, 0.25 + 0.6 * h);
+    if (h >= 0.6) this.addBump(0.8 + 1.5 * h);
+  }
+  /** A clip event: the weapon meets the floor at the blade tip. Dust and stone fly, the floor shakes. */
+  onWeaponEvent(p, kind, power) {
+    if (kind !== 'ground') return;
+    const x = p.tipX, y = p.tipY, a = p.attack_dir;
+    this.fx.stomp(x, y, 0.6 + 0.6 * power, a); this.fx.quake(x, y, 0.35 + 0.55 * power);
+    for (let i = 0; i < Math.round(5 + 8 * power); i++) this.fx.chip(x, y * K + 4, 200 + 160 * power);
+    this.fx.clank(x, y, 0.6 + 0.6 * power);
+    this.sfx('boom', 0.45 + 0.5 * power); this.sfx('clank', 0.5 + 0.3 * power);
+    this.addBump(3 + 9 * power); this.addShake(Math.PI / 2, 4 + 8 * power);
+    this.haptic(power > 0.8 ? 'heavy' : 'medium', 0.6 + 0.4 * power);
+  }
   attackHits(p, target) {
     const shape = p.move.hitbox, dx = target.gx - p.gx, dy = target.gy - p.gy, r = target.RADIUS;
     if (shape[0] === 'ring') return hypot(dx, dy) <= shape[1] + r;
@@ -2681,8 +3222,9 @@ class Game {
     this.fx.hitBurst(cx, cy * K + 80 + b.elev, sa, heavy, b.gx, b.gy, mv.sparks, mv.flash);
     this.sfx('crunch', heavy ? 1.0 : 0.8); if (heavy) this.sfx('thud', 0.9);
     this.haptic(heavy ? 'heavy' : 'rigid', heavy ? 1.0 : 0.85);
-    const crit = p.kind === 'visceral';
-    const result = this.hitBoss(mv.damage, mv.poise, a, heavy, crit);
+    const crit = p.kind === 'visceral', weak = BOSS_RESIST[mv.dtype] || 1;
+    if (weak > 1.05) { this.sfx('clank', 0.5); this.hitstop *= 1.25; }                 // finding the weak spot
+    const result = this.hitBoss(Math.round(mv.damage * weak), mv.poise, a, heavy, crit);
     if (crit) {
       this.fx.visceral(b, a); this.sfx('stagger', 0.6); this.hapticQueue.push([0.12, 'heavy', 1.0]);
       if (result === 'hit' && b.state === S_STAGGERED) {
@@ -2695,7 +3237,7 @@ class Game {
     if (b.state === S_WINDUP && atk && atk.parry && atk.windup - b.state_t <= PARRY_WINDOW) return this.onParry(b, angle);
     this.fx.hitBurst(gx, gy * K + this.proj.SHOT_H, groundToScreenAngle(angle), false, b.gx, b.gy, 6, 60);
     this.sfx('crunch', 0.4); this.haptic('light', 0.5);
-    this.hitBoss(BULLET_DAMAGE, BULLET_POISE, angle, false, false);
+    this.hitBoss(Math.round(BULLET_DAMAGE * (BOSS_RESIST.ranged || 1)), BULLET_POISE, angle, false, false);
   }
   onParry(b, angle) {
     b.poise = 0; b.elev = 0; b.vx = b.vy = 0; b.enter(S_STAGGERED); b.flash_t = 0.22;
@@ -2720,7 +3262,7 @@ class Game {
     this.sfx('thud', 0.9); this.sfx('crunch', 0.7); this.addShake(Math.PI / 2, 7); this.haptic('medium', 0.8);
     const b = this.boss;
     if (b.alive && hypot(b.gx - gx, b.gy - gy) <= R + b.RADIUS && b.elev < 60)
-      this.hitBoss(item.damage, item.poise, Math.atan2(b.gy - gy, b.gx - gx), true, false);
+      this.hitBoss(Math.round(item.damage * (BOSS_RESIST.magic || 1)), item.poise, Math.atan2(b.gy - gy, b.gx - gx), true, false);
   }
   /** Chests: who is close enough to open one, lids opening, loot handed over once the lid is up. */
   updateChests(dt) {
@@ -2773,7 +3315,7 @@ class Game {
     const c = Math.cos(b.facing), s = Math.sin(b.facing);
     this.fx.quake(b.gx, b.gy, 1.4); this.fx.quake(b.gx + c * 160, b.gy + s * 160, 1.0); this.fx.clank(b.gx + c * 160, b.gy + s * 160, 1.6);
     const p = this.player, dx = p.gx - b.gx, dy = p.gy - b.gy;
-    if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock, b.atk.impact);
+    if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock, b.atk.impact, b.atk.dtype);
     if (b.phase === 2) {
       let n = 0;
       for (const w of this.waves) {
@@ -2802,7 +3344,7 @@ class Game {
       if (w.r >= S.max_r) { w.live = false; continue; }
       if (!w.hit && p.alive && this.outcome === null) {
         const dx = p.gx - w.x, dy = p.gy - w.y, d = hypot(dx, dy);
-        if (Math.abs(d - w.r) <= S.hit + PLAYER_RADIUS * 0.5) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock, 14);
+        if (Math.abs(d - w.r) <= S.hit + PLAYER_RADIUS * 0.5) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock, 14, 'crush');
       }
     }
   }
@@ -2869,11 +3411,12 @@ class Game {
     const slack = Math.asin(Math.min(1, PLAYER_RADIUS / dist));
     return Math.abs(wrap(Math.atan2(dy, dx) - b.attack_dir)) <= b.atk.half + slack;
   }
-  damagePlayer(dmg, angle, knock, impact) {
+  damagePlayer(dmg, angle, knock, impact, dtype) {
     const p = this.player;
     if (p.invulnerable || this.outcome !== null) return false;
     const poised = impact !== undefined && p.stats.poise >= impact;                // heavy armour shrugs off lighter blows
-    p.takeHit(Math.max(1, Math.round(dmg * p.stats.dmgTaken)), angle, knock, poised);
+    const taken = (p.stats.taken && p.stats.taken[dtype]) || p.stats.dmgTaken;      // armour stops some kinds of blow better
+    p.takeHit(Math.max(1, Math.round(dmg * taken)), angle, knock, poised);
     this.fx.hurtBurst(p, angle); this.hitstop = 0.06; this.addShake(groundToScreenAngle(angle), 9);
     this.sfx('hurt', 0.9); this.haptic('heavy', 1.0);
     if (!p.alive) { this.sfx('thud', 0.8); this.setOutcome('death'); }
@@ -4140,7 +4683,8 @@ function boneFrames(J, out, headYaw) {
   const hy = headYaw || 0, headFwd = [-Math.sin(hy), Math.cos(hy), 0], neckFwd = [-Math.sin(hy * 0.45), Math.cos(hy * 0.45), 0];
   const g = (n) => { const q = J[n]; return Array.isArray(q) ? q : [q.s, q.f, q.z]; };
   const F = (i, o, a, ref) => frameFrom(out[i], g(o), v3.sub(g(a), g(o)), ref);
-  F(B.pelvis, 'pelvis', 'waist', FWD); F(B.spine, 'waist', 'neck', FWD);
+  const across = (a, b) => { const A = g(a), Bq = g(b); return [-(Bq[1] - A[1]), Bq[0] - A[0], 0]; };   // forward from a left->right pair
+  F(B.pelvis, 'pelvis', 'waist', across('hipL', 'hipR')); F(B.spine, 'waist', 'neck', across('shL', 'shR'));
   frameFrom(out[B.neck], g('neck'), v3.sub(g('head'), g('neck')), neckFwd);
   frameFrom(out[B.head], g('head'), v3.sub(g('head'), g('neck')), headFwd);
   for (const [sd, S] of [['R', 1], ['L', -1]]) {
@@ -5619,6 +6163,23 @@ class Renderer {
   }
 
   draw(g, ui, t) { this.drawScene(g, t); this.drawHUD(g, ui, t); this.drawOverlay(g, ui); }
+  /** The blade's own path through a strike: a thin ribbon swept by the outer part of the blade, fading fast. */
+  drawTrail(g) {
+    const p = g.player, tr = p.trail, now = g.t, LIFE = 0.13;
+    while (tr.length && now - tr[0].t > LIFE) tr.shift();
+    if (tr.length < 2) return;
+    const c = this.ctx; c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.globalCompositeOperation = 'lighter';
+    for (let i = 1; i < tr.length; i++) {
+      const a = tr[i - 1], b = tr[i], age = (now - b.t) / LIFE, al = (1 - age) * (0.22 + 0.25 * b.heavy) * (i / tr.length);
+      if (al <= 0.01) continue;
+      c.globalAlpha = al; c.fillStyle = b.heavy >= 0.6 ? '#ff6a7a' : '#ffd9c8';
+      c.beginPath();
+      c.moveTo(this.sx(a.x0), this.sy(a.y0 * K + a.z0)); c.lineTo(this.sx(a.x1), this.sy(a.y1 * K + a.z1));
+      c.lineTo(this.sx(b.x1), this.sy(b.y1 * K + b.z1)); c.lineTo(this.sx(b.x0), this.sy(b.y0 * K + b.z0));
+      c.closePath(); c.fill();
+    }
+    c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+  }
   /** The world without any HUD: floor, entities, particles, tracers. */
   drawScene(g, t) {
     this.g = g;
@@ -5627,6 +6188,7 @@ class Renderer {
     this.drawFloor(g, t);
     for (const p of g.fx.rings.active) this.ground(ART.ring, p.x, p.y, p.w, p.h, { color: p.color, alpha: p.alpha, blend: 'add', scale: p.scale });
     this.drawEntities(g, t);
+    this.drawTrail(g);
     for (const p of g.fx.slashes.active) this.ground(artByKey(p.tex), p.x, p.y, p.w, p.h, { color: p.color, alpha: p.alpha, blend: 'add', scale: p.scale, rot: p.rot });
     for (const pool of [g.fx.sparks, g.fx.glows, g.fx.smoke, g.fx.embers, g.fx.rubble]) {
       const tex = ART[pool.tex], blend = pool.blend, tint = pool !== g.fx.rubble;
@@ -6376,11 +6938,17 @@ class EquipMenu {
     const num = (label, v, cv, better) => rows.push([label, v, worn || cv === null || cv === undefined ? null : v - cv, better]);
     if (d.cat === 'weapon' && d.weapon) {
       const W = WEAPONS[d.weapon], cw = cur && cur.weapon && WEAPONS[cur.weapon];
-      num('Attack', W.light[0].damage, cw ? cw.light[0].damage : null, 1);
-      num('Heavy', W.heavy.damage, cw ? cw.heavy.damage : null, 1);
-      num('Charged', W.charged.damage, cw ? cw.charged.damage : null, 1);
+      const ty = (m) => ' · ' + DTYPE_NAME[m.dtype];
+      num('Attack' + ty(W.light[0]), W.light[0].damage, cw ? cw.light[0].damage : null, 1);
+      num('Heavy' + ty(W.heavy), W.heavy.damage, cw ? cw.heavy.damage : null, 1);
+      num('Charged' + ty(W.charged), W.charged.damage, cw ? cw.charged.damage : null, 1);
     } else if (id === 'pistol') { num('Shot damage', BULLET_DAMAGE, null, 1); num('Ammunition', BULLETS_MAX, null, 1); }
-    else if (d.cat === 'armor') { num('Defence', d.defense, cur ? cur.defense : 0, 1); num('Poise', d.poise, cur ? cur.poise : 0, 1); }
+    else if (d.cat === 'armor') {
+      num('Defence', d.defense, cur ? cur.defense : 0, 1); num('Poise', d.poise, cur ? cur.poise : 0, 1);
+      const R = ARMOR_RESIST[d.mat] || {}, good = DAMAGE_TYPES.filter(t => R[t] >= 1.1), bad = DAMAGE_TYPES.filter(t => R[t] <= 0.8);
+      if (good.length) rows.push(['Stops ' + good.map(t => DTYPE_NAME[t]).join(', '), null, null, 0]);
+      if (bad.length) rows.push(['Weak to ' + bad.map(t => DTYPE_NAME[t]).join(', '), null, null, 0]);
+    }
     if (d.cat === 'talisman') rows.push([d.effect, null, null, 0]);
     num('Weight', d.weight, cur ? cur.weight : (d.cat === 'armor' || d.cat === 'talisman' ? 0 : null), -1);
     let ry = y + 40;

@@ -4,20 +4,28 @@
 // their pictures are baked in gearart.js. Stats are used by the gear system (later step).
 const GEAR_SLOTS = ['legs', 'feet', 'chest', 'hands', 'head', 'back'];      // also the draw order on a shared part
 
+// how well each kind of armour stops each kind of blow (multiplies its defense):
+// leather and quilting turn a blade poorly but soak a blunt blow; plate turns blades, a point finds its gaps
+// and a heavy blow still rings through it. Nothing worn does much against magic.
+const ARMOR_RESIST = {
+  leather: { slash: 0.9, stab: 0.8, crush: 1.15, ranged: 0.9, magic: 0.7 },
+  plate:   { slash: 1.35, stab: 1.0, crush: 0.75, ranged: 1.3, magic: 0.5 },
+  cloth:   { slash: 0.8, stab: 0.7, crush: 1.0, ranged: 0.8, magic: 1.2 },
+};
 const GEAR = {
-  hunter_hood:      { slot: 'head',  name: 'HUNTER HOOD',      defense: 3, poise: 1, weight: 1.5, parts: ['head'], visor: true },
-  hunter_coat:      { slot: 'chest', name: 'HUNTER COAT',      defense: 9, poise: 5, weight: 6.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'],
+  hunter_hood:      { slot: 'head',  name: 'HUNTER HOOD',      mat: 'cloth', defense: 3, poise: 1, weight: 1.5, parts: ['head'], visor: true },
+  hunter_coat:      { slot: 'chest', name: 'HUNTER COAT',      mat: 'leather', defense: 9, poise: 5, weight: 6.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'],
     cloths: { tabard: { kind: 'front', cols: 4, rows: 6, top: 5.5, length: 27, topA: 3.4, botA: 4.3, topB: 6.4, botB: 7.2,
               outer: '#3d0f18', outerL: '#7a2232', lining: '#12060a', hem: 'rgba(176,138,62,1)', tatter: [1.6, 0, 1.0], weight: 1.1, stiff: 0.02 } } },
-  hunter_cloak:     { slot: 'back',  name: 'TATTERED CLOAK',   defense: 1, poise: 0, weight: 1.0, parts: ['cape'],
+  hunter_cloak:     { slot: 'back',  name: 'TATTERED CLOAK',   mat: 'cloth', defense: 1, poise: 0, weight: 1.0, parts: ['cape'],
     cloths: { cape: { kind: 'back', length: 47, topA: 12.8, topB: 6.2, botA: 16, botB: 9, outer: '#0b0a0f', outerL: '#26222f', lining: '#2a0d14',
              hem: '#8A2432', tatter: [3.5, 0, 1.8], weight: 1.0 } } },
-  hunter_gauntlets: { slot: 'hands', name: 'HUNTER GAUNTLETS', defense: 3, poise: 1, weight: 1.5, parts: ['foreL', 'foreR', 'handL', 'handR'] },
-  hunter_greaves:   { slot: 'legs',  name: 'HUNTER GREAVES',   defense: 5, poise: 3, weight: 3.5, parts: ['thighL', 'thighR', 'shinL', 'shinR'] },
-  hunter_boots:     { slot: 'feet',  name: 'HUNTER BOOTS',     defense: 2, poise: 1, weight: 1.5, parts: ['footL', 'footR', 'shinL', 'shinR'] },
+  hunter_gauntlets: { slot: 'hands', name: 'HUNTER GAUNTLETS', mat: 'leather', defense: 3, poise: 1, weight: 1.5, parts: ['foreL', 'foreR', 'handL', 'handR'] },
+  hunter_greaves:   { slot: 'legs',  name: 'HUNTER GREAVES',   mat: 'leather', defense: 5, poise: 3, weight: 3.5, parts: ['thighL', 'thighR', 'shinL', 'shinR'] },
+  hunter_boots:     { slot: 'feet',  name: 'HUNTER BOOTS',     mat: 'leather', defense: 2, poise: 1, weight: 1.5, parts: ['footL', 'footR', 'shinL', 'shinR'] },
   // dropped by the Obsidian Sentinel
-  sentinel_helm:    { slot: 'head',  name: 'SENTINEL HELM',    defense: 8, poise: 5, weight: 7.0, parts: ['head'], visor: true },
-  sentinel_plate:   { slot: 'chest', name: 'SENTINEL PLATE',   defense: 17, poise: 14, weight: 18.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'] },
+  sentinel_helm:    { slot: 'head',  name: 'SENTINEL HELM',    mat: 'plate', defense: 8, poise: 5, weight: 7.0, parts: ['head'], visor: true },
+  sentinel_plate:   { slot: 'chest', name: 'SENTINEL PLATE',   mat: 'plate', defense: 17, poise: 14, weight: 18.0, parts: ['torso', 'pelvis', 'upperL', 'upperR'] },
 };
 const GEAR_LORE = {
   hunter_hood: 'A hood of waxed cloth over a mask of black iron. The slit lets through only what must be seen.',
@@ -84,18 +92,24 @@ const DEF_REF = 23, DEF_K = 60;          // damage taken x1 at the hunter set's 
 /** Stats from an equipment map (slot -> id). */
 function deriveStats(eq) {
   let defense = 0, poise = 0, weight = 0;
-  const mods = { regen: 0, load: 0, hp: 0, poise: 0 };
+  const mods = { regen: 0, load: 0, hp: 0, poise: 0 }, def = {};
+  for (const ty of DAMAGE_TYPES) def[ty] = 0;
   for (const slot of EQUIP_SLOTS) {
     const d = eq[slot] && ITEM_DB[eq[slot]];
     if (!d) continue;
     weight += d.weight || 0;
-    if (d.cat === 'armor') { defense += d.defense; poise += d.poise; }
+    if (d.cat === 'armor') {
+      defense += d.defense; poise += d.poise;
+      const R = ARMOR_RESIST[d.mat] || {};
+      for (const ty of DAMAGE_TYPES) def[ty] += d.defense * (R[ty] === undefined ? 1 : R[ty]);
+    }
     if (d.mods) for (const k in d.mods) mods[k] += d.mods[k];
   }
   poise += mods.poise;
   const maxLoad = LOAD_BASE + mods.load, ratio = weight / maxLoad;
   const tier = LOAD_TIERS.find(t => ratio <= t.max);
-  return { defense, poise, weight, maxLoad, ratio, tier, dmgTaken: (DEF_REF + DEF_K) / (defense + DEF_K),
+  const taken = {}; for (const ty of DAMAGE_TYPES) taken[ty] = (DEF_REF + DEF_K) / (def[ty] + DEF_K);
+  return { defense, def, taken, poise, weight, maxLoad, ratio, tier, dmgTaken: (DEF_REF + DEF_K) / (defense + DEF_K),
     maxHp: PLAYER_MAX_HP + mods.hp, regen: tier.regen * (1 + mods.regen) };
 }
 

@@ -115,7 +115,7 @@ class FX {
   }          // the renderer snapshots the body as an afterimage
   slash(p) {
     const m = p.move, sl = m.slash;
-    if (!sl) return;
+    if (!sl || m.anim) return;
     const style = sl[0], col = SLASH_COLORS[sl[1]], heavy = m.heft >= 0.6, life = heavy ? 0.28 : 0.2;
     const a = p.attack_dir, shape = m.hitbox;
     if (style === 'arc') {
@@ -331,7 +331,7 @@ class Player {
     this.items = {}; for (const k in ITEMS) this.items[k] = 0;
     this.kind = null; this.move = null; this.attack_dir = this.facing; this.combo = -1; this.combo_expire_t = -1;
     this.dodge_end_t = -10; this.hit_done = false; this.dodge_dir = 0; this.ghost_t = 0; this.invuln = false;
-    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0; this.running = false;
+    this.hurt_iframes = 0; this.knock_dir = 0; this.aim_dir = null; this.move_dir = null; this.move_mag = 0; this.running = false; this.trail = []; this.animX = 0;
     this.charging = 0; this.sprint_req = false; this.sprinting = false; this.sprint_block = false; this.sprint_t = -10;
     this.dust_t = 0; this.rally = 0; this.rally_hold = 0; this.dodge_prof = this.dodgeBase;
     this.visc_from = [0, 0]; this.visc_to = [0, 0];
@@ -410,6 +410,7 @@ class Player {
     else if (kind === 'heavy' || kind === 'charged') this.combo = -1;
     if (kind !== 'flask') { this.attack_dir = d; this.turnTo(d); }
     this.hit_done = false; this.charging = 0; this.enter(S_WINDUP);
+    this.moveSerial = (this.moveSerial || 0) + 1; this.animX = 0; this.trail.length = 0;
   }
   startDodge(d) {
     const prof = this.dodge_prof = this.dodgeBase;
@@ -422,6 +423,16 @@ class Player {
     const stand = b.RADIUS + PLAYER_RADIUS + 10;
     this.visc_from = [this.gx, this.gy];
     this.visc_to = [b.gx - Math.cos(a) * stand, b.gy - Math.sin(a) * stand];
+  }
+  /** Clip-driven moves: the body travels exactly as far as the clip's root motion says (the feet are planted
+   *  against it), and the clip's events fire as the clock passes them. */
+  clipMotion(dt) {
+    const mv = this.move, clip = ANIMS[mv.anim], x = moveClock(this.state, this.state_t, mv), x0 = this.animX;
+    if (x < x0) { this.animX = x; return; }
+    const d = clipRoot(clip, x) - clipRoot(clip, x0), v = dt > 0 ? d / dt : 0;
+    this.vx = Math.cos(this.attack_dir) * v; this.vy = Math.sin(this.attack_dir) * v;
+    for (const e of clip.ev) if (x0 < e[0] && x >= e[0]) this.g.onWeaponEvent(this, e[1], e[2]);
+    this.animX = x;
   }
   regain(amount) {
     const g = Math.min(this.rally, amount, this.maxHp - this.hp);
@@ -498,17 +509,22 @@ class Player {
         this.vx = this.vy = 0;
         this.gx = this.visc_from[0] + (this.visc_to[0] - this.visc_from[0]) * e;
         this.gy = this.visc_from[1] + (this.visc_to[1] - this.visc_from[1]) * e;
-      } else { this.vx = smooth(this.vx, 0, 20, dt); this.vy = smooth(this.vy, 0, 20, dt); }
+      } else if (mv.anim) this.clipMotion(dt);
+      else { this.vx = smooth(this.vx, 0, 20, dt); this.vy = smooth(this.vy, 0, 20, dt); }
       if (this.state_t >= mv.windup) { this.enter(S_ACTIVE); this.g.onSwing(this); }
     } else if (st === S_ACTIVE) {
-      const p = clamp(this.state_t / mv.active, 0, 1), spd = mv.lunge * (1 - p);
-      this.vx = Math.cos(this.attack_dir) * spd; this.vy = Math.sin(this.attack_dir) * spd;
+      if (mv.anim) this.clipMotion(dt);
+      else {
+        const p = clamp(this.state_t / mv.active, 0, 1), spd = mv.lunge * (1 - p);
+        this.vx = Math.cos(this.attack_dir) * spd; this.vy = Math.sin(this.attack_dir) * spd;
+      }
       if (this.state_t >= mv.active) {
         this.enter(S_RECOVERY);
         if (this.kind === 'light' || this.kind === 'dodge') this.combo_expire_t = t + mv.recovery + COMBO_WINDOW;
       }
     } else if (st === S_RECOVERY) {
-      this.vx = smooth(this.vx, 0, 14, dt); this.vy = smooth(this.vy, 0, 14, dt);
+      if (mv.anim) this.clipMotion(dt);
+      else { this.vx = smooth(this.vx, 0, 14, dt); this.vy = smooth(this.vy, 0, 14, dt); }
       if (this.state_t >= mv.cancel && this.move_dir !== null) this.enter(S_MOVE);
       else if (this.state_t >= mv.recovery) this.enter(S_IDLE);
     } else if (st === S_DODGE) {
@@ -781,13 +797,13 @@ class Boss {
       }
     } else if (st === S_ACTIVE) {
       if (this.kind === 'sweep') {
-        if (!this.hit_done && g.bossSweepHits(this)) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact);
+        if (!this.hit_done && g.bossSweepHits(this)) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact, atk.dtype);
         if (T >= atk.active) this.enter(S_RECOVERY);
       } else if (this.kind === 'slam') { if (T >= atk.active) this.enter(S_RECOVERY); }
       else {
         this.vx = Math.cos(this.attack_dir) * atk.speed; this.vy = Math.sin(this.attack_dir) * atk.speed;
         g.fx.lanceTrail(this); g.fx.chargeDust(this);
-        if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact);
+        if (!this.hit_done && dist <= this.RADIUS + PLAYER_RADIUS + 6) this.hit_done = g.damagePlayer(atk.damage, this.attack_dir, atk.knock, atk.impact, atk.dtype);
         if (T >= this.dash_time) {
           this.vx *= 0.3; this.vy *= 0.3; g.onBossLanceStop(this);
           if (this.phase === 2 && !this.followed) {          // phase 2: straight into a sweep, no pause
@@ -1125,6 +1141,23 @@ class Game {
     if (mv.haptic) this.haptic(mv.haptic[0], mv.haptic[1]);
     this.fx.slash(p);
   }
+  /** A foot planting at the end of a step inside an attack: the weight lands on it. */
+  onAttackStep(p, x, y) {
+    const h = p.move ? p.move.heft : 0;
+    this.sfx('stomp', 0.12 + 0.3 * h); this.fx.stomp(x, y, 0.25 + 0.6 * h);
+    if (h >= 0.6) this.addBump(0.8 + 1.5 * h);
+  }
+  /** A clip event: the weapon meets the floor at the blade tip. Dust and stone fly, the floor shakes. */
+  onWeaponEvent(p, kind, power) {
+    if (kind !== 'ground') return;
+    const x = p.tipX, y = p.tipY, a = p.attack_dir;
+    this.fx.stomp(x, y, 0.6 + 0.6 * power, a); this.fx.quake(x, y, 0.35 + 0.55 * power);
+    for (let i = 0; i < Math.round(5 + 8 * power); i++) this.fx.chip(x, y * K + 4, 200 + 160 * power);
+    this.fx.clank(x, y, 0.6 + 0.6 * power);
+    this.sfx('boom', 0.45 + 0.5 * power); this.sfx('clank', 0.5 + 0.3 * power);
+    this.addBump(3 + 9 * power); this.addShake(Math.PI / 2, 4 + 8 * power);
+    this.haptic(power > 0.8 ? 'heavy' : 'medium', 0.6 + 0.4 * power);
+  }
   attackHits(p, target) {
     const shape = p.move.hitbox, dx = target.gx - p.gx, dy = target.gy - p.gy, r = target.RADIUS;
     if (shape[0] === 'ring') return hypot(dx, dy) <= shape[1] + r;
@@ -1154,8 +1187,9 @@ class Game {
     this.fx.hitBurst(cx, cy * K + 80 + b.elev, sa, heavy, b.gx, b.gy, mv.sparks, mv.flash);
     this.sfx('crunch', heavy ? 1.0 : 0.8); if (heavy) this.sfx('thud', 0.9);
     this.haptic(heavy ? 'heavy' : 'rigid', heavy ? 1.0 : 0.85);
-    const crit = p.kind === 'visceral';
-    const result = this.hitBoss(mv.damage, mv.poise, a, heavy, crit);
+    const crit = p.kind === 'visceral', weak = BOSS_RESIST[mv.dtype] || 1;
+    if (weak > 1.05) { this.sfx('clank', 0.5); this.hitstop *= 1.25; }                 // finding the weak spot
+    const result = this.hitBoss(Math.round(mv.damage * weak), mv.poise, a, heavy, crit);
     if (crit) {
       this.fx.visceral(b, a); this.sfx('stagger', 0.6); this.hapticQueue.push([0.12, 'heavy', 1.0]);
       if (result === 'hit' && b.state === S_STAGGERED) {
@@ -1168,7 +1202,7 @@ class Game {
     if (b.state === S_WINDUP && atk && atk.parry && atk.windup - b.state_t <= PARRY_WINDOW) return this.onParry(b, angle);
     this.fx.hitBurst(gx, gy * K + this.proj.SHOT_H, groundToScreenAngle(angle), false, b.gx, b.gy, 6, 60);
     this.sfx('crunch', 0.4); this.haptic('light', 0.5);
-    this.hitBoss(BULLET_DAMAGE, BULLET_POISE, angle, false, false);
+    this.hitBoss(Math.round(BULLET_DAMAGE * (BOSS_RESIST.ranged || 1)), BULLET_POISE, angle, false, false);
   }
   onParry(b, angle) {
     b.poise = 0; b.elev = 0; b.vx = b.vy = 0; b.enter(S_STAGGERED); b.flash_t = 0.22;
@@ -1193,7 +1227,7 @@ class Game {
     this.sfx('thud', 0.9); this.sfx('crunch', 0.7); this.addShake(Math.PI / 2, 7); this.haptic('medium', 0.8);
     const b = this.boss;
     if (b.alive && hypot(b.gx - gx, b.gy - gy) <= R + b.RADIUS && b.elev < 60)
-      this.hitBoss(item.damage, item.poise, Math.atan2(b.gy - gy, b.gx - gx), true, false);
+      this.hitBoss(Math.round(item.damage * (BOSS_RESIST.magic || 1)), item.poise, Math.atan2(b.gy - gy, b.gx - gx), true, false);
   }
   /** Chests: who is close enough to open one, lids opening, loot handed over once the lid is up. */
   updateChests(dt) {
@@ -1246,7 +1280,7 @@ class Game {
     const c = Math.cos(b.facing), s = Math.sin(b.facing);
     this.fx.quake(b.gx, b.gy, 1.4); this.fx.quake(b.gx + c * 160, b.gy + s * 160, 1.0); this.fx.clank(b.gx + c * 160, b.gy + s * 160, 1.6);
     const p = this.player, dx = p.gx - b.gx, dy = p.gy - b.gy;
-    if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock, b.atk.impact);
+    if (hypot(dx, dy) <= R + PLAYER_RADIUS * 0.5) this.damagePlayer(b.atk.damage, Math.atan2(dy, dx), b.atk.knock, b.atk.impact, b.atk.dtype);
     if (b.phase === 2) {
       let n = 0;
       for (const w of this.waves) {
@@ -1275,7 +1309,7 @@ class Game {
       if (w.r >= S.max_r) { w.live = false; continue; }
       if (!w.hit && p.alive && this.outcome === null) {
         const dx = p.gx - w.x, dy = p.gy - w.y, d = hypot(dx, dy);
-        if (Math.abs(d - w.r) <= S.hit + PLAYER_RADIUS * 0.5) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock, 14);
+        if (Math.abs(d - w.r) <= S.hit + PLAYER_RADIUS * 0.5) w.hit = this.damagePlayer(S.damage, Math.atan2(dy, dx), S.knock, 14, 'crush');
       }
     }
   }
@@ -1342,11 +1376,12 @@ class Game {
     const slack = Math.asin(Math.min(1, PLAYER_RADIUS / dist));
     return Math.abs(wrap(Math.atan2(dy, dx) - b.attack_dir)) <= b.atk.half + slack;
   }
-  damagePlayer(dmg, angle, knock, impact) {
+  damagePlayer(dmg, angle, knock, impact, dtype) {
     const p = this.player;
     if (p.invulnerable || this.outcome !== null) return false;
     const poised = impact !== undefined && p.stats.poise >= impact;                // heavy armour shrugs off lighter blows
-    p.takeHit(Math.max(1, Math.round(dmg * p.stats.dmgTaken)), angle, knock, poised);
+    const taken = (p.stats.taken && p.stats.taken[dtype]) || p.stats.dmgTaken;      // armour stops some kinds of blow better
+    p.takeHit(Math.max(1, Math.round(dmg * taken)), angle, knock, poised);
     this.fx.hurtBurst(p, angle); this.hitstop = 0.06; this.addShake(groundToScreenAngle(angle), 9);
     this.sfx('hurt', 0.9); this.haptic('heavy', 1.0);
     if (!p.alive) { this.sfx('thud', 0.8); this.setOutcome('death'); }

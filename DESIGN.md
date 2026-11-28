@@ -177,12 +177,39 @@ out from emit/spec unless given: glowing 0 = none, shiny 3 = metal/obsidian, mat
 simulated cloth is 0 because it moves). Bind-space value noise gives broad tonal variation on everything, weave + sheen
 on cloth, grain on leather/skin, brushing, scratches and grime on metal. uDetail scales it (player 1, boss 0.55).
 Later: sculpted forms and a rotating close-up of the character on the equipment screen.
-Gait (DONE): gaitFoot() in rig.js. A foot is planted for `duty` of its cycle and sweeps back at exactly ground speed
-(no sliding), then swings forward with the knee driven up; duty < 0.5 = a run with a flight phase. The cadence
-comes from the stride: step length = stride / duty. Only three speeds (no analog in-between): walk = 0.28x (light push on
-the stick; also forced while aiming or charging), run = 1x (full push), sprint = 1.55x (past the ring). Walk: duty 0.5,
-~31 per step, ~2.4 steps/s. Run: duty 0.165, ~106 per step, ~2.5 steps/s. Sprint: duty 0.15, ~133 per step, ~3.2 steps/s. The body dips at each
-foot strike and rises between steps; the arms swing against the actual foot positions.
+Gait (DONE): gaitFoot() / gaitBob() in rig.js, modelled on human gait data. Stance: heel strike with the toe up, foot
+flat, the heel rising late while the toe stays down; the planted foot sweeps back at exactly ground speed. Swing: the
+foot lifts BEHIND him first (knee folding, heel up), passes low under the hip and the leg reaches forward almost straight
+(walk: ~3 units of clearance; run: the heel kicks back, ~0.66 x stride). Walk bob is lowest just after each heel strike
+and highest passing over the planted leg; a run sinks into each landing and rises in the float. The hips turn with the
+swinging leg and shift over the planted foot, the chest counter-turns, a run leans in. The hips drop automatically when
+a foot is planted further out than the straight leg reaches. Only three speeds (no analog in-between): walk = 0.28x (light
+push; also forced while aiming or charging), run = 1x, sprint = 1.55x (past the ring). ~2.4 / 2.5 / 3.2 steps per second.
+Tools: tools/gait_plot.py (side-view stick plot of a stride), tools/gait_sheet.py.
+
+Attacks (DONE): anim.js. Every player attack is a keyed full-body clip on one clock x (0-1 wind-up, 1-2 strike = hit
+frames, 2-3 recovery): grip and blade direction (body frame, relative to the waist), the left hand for 1h weapons, chest
+turn (the hips follow at 55%, leading in time), lean, crouch, forward travel (root motion: logic moves him exactly as far
+as the clip says) and footwork (each foot stays planted in the world until a key steps it; steps lift and land with a
+thud; a foot left too far behind is dragged). Catmull-Rom through the keys with per-key easing ('out' = a strike exploding
+from the wind-up, 'lin' = momentum carried through). The first ~0.14 s blend from wherever the body was, so combos flow
+out of the last follow-through; 0.22 s blend back to the carry at the end. Events: 'ground' = the blade hits the floor
+(dust ring, rubble, boom, shake). The blade can't go through the floor. A thin trail follows the blade's outer half
+through the strike. Tools: tools/attack_sheet.py <weapon> <deg>, tools/clip_check.js (what the IK could not reach),
+tools/record.py (the real game stepped at 60 fps -> mp4).
+- Short sword (1h, slash + stab): forehand diagonal, backhand rising cut with a passing step, stepping thrust; heavy =
+  deep coil into a rising lunge (stab); charged = a wide cleave turning the whole body; dash attack = low sweeping cut.
+- Greatsword (2h, slash): huge wind-ups, follow-through that drags the body past the cut; third light and the heavy are
+  overhead chops that land on the floor; charged = a sweeping cleave turning him round. Hit-stop 0.09-0.15 s.
+- Spear (2h, stab): quick jab, stepping high jab, one shaft sweep (slash); heavy = full lunge from a deep coil; charged =
+  a raised point driven down into the floor ahead. Longest reach.
+Light recoveries are long and cancels late: every swing is a commitment.
+
+Damage types (DONE): slash / stab / crush / ranged / magic. Every attack has one (WEAPONS[*].dtype). Armour has a
+material (leather / plate / cloth, ARMOR_RESIST) that scales its defense per type; stats.taken[type] = what gets through.
+The Sentinel (BOSS_RESIST): slash 0.85, stab 1.2, crush 1.15, ranged 0.8, magic 1.1 (a weak-spot hit clanks and holds the
+hit-stop longer). His attacks: sweep slash, slam and waves crush, lance stab. The inventory shows each weapon attack's
+type and what each armour piece stops / is weak to.
 Next: per-weapon unique animation sets (incl. left-hand / dual-wield movesets), shields, catalysts, enemy drops.
 Blunderbuss (spread shot) is a future off-hand weapon.
 Weapon/hand rules (agreed):

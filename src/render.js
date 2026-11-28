@@ -83,6 +83,23 @@ class Renderer {
   }
 
   draw(g, ui, t) { this.drawScene(g, t); this.drawHUD(g, ui, t); this.drawOverlay(g, ui); }
+  /** The blade's own path through a strike: a thin ribbon swept by the outer part of the blade, fading fast. */
+  drawTrail(g) {
+    const p = g.player, tr = p.trail, now = g.t, LIFE = 0.13;
+    while (tr.length && now - tr[0].t > LIFE) tr.shift();
+    if (tr.length < 2) return;
+    const c = this.ctx; c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.globalCompositeOperation = 'lighter';
+    for (let i = 1; i < tr.length; i++) {
+      const a = tr[i - 1], b = tr[i], age = (now - b.t) / LIFE, al = (1 - age) * (0.22 + 0.25 * b.heavy) * (i / tr.length);
+      if (al <= 0.01) continue;
+      c.globalAlpha = al; c.fillStyle = b.heavy >= 0.6 ? '#ff6a7a' : '#ffd9c8';
+      c.beginPath();
+      c.moveTo(this.sx(a.x0), this.sy(a.y0 * K + a.z0)); c.lineTo(this.sx(a.x1), this.sy(a.y1 * K + a.z1));
+      c.lineTo(this.sx(b.x1), this.sy(b.y1 * K + b.z1)); c.lineTo(this.sx(b.x0), this.sy(b.y0 * K + b.z0));
+      c.closePath(); c.fill();
+    }
+    c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+  }
   /** The world without any HUD: floor, entities, particles, tracers. */
   drawScene(g, t) {
     this.g = g;
@@ -91,6 +108,7 @@ class Renderer {
     this.drawFloor(g, t);
     for (const p of g.fx.rings.active) this.ground(ART.ring, p.x, p.y, p.w, p.h, { color: p.color, alpha: p.alpha, blend: 'add', scale: p.scale });
     this.drawEntities(g, t);
+    this.drawTrail(g);
     for (const p of g.fx.slashes.active) this.ground(artByKey(p.tex), p.x, p.y, p.w, p.h, { color: p.color, alpha: p.alpha, blend: 'add', scale: p.scale, rot: p.rot });
     for (const pool of [g.fx.sparks, g.fx.glows, g.fx.smoke, g.fx.embers, g.fx.rubble]) {
       const tex = ART[pool.tex], blend = pool.blend, tint = pool !== g.fx.rubble;
