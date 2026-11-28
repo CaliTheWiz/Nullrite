@@ -41,6 +41,21 @@ function ik2(ax, ay, tx, ty, L1, L2, bend, mid, end) {
   return ok;
 }
 
+/**
+ * Gait: where one foot is in its cycle. phase (radians, 2 pi = one full cycle = two steps), duty = share of the cycle
+ * the foot is planted. Planted, it sweeps back from +amp to -amp at exactly ground speed (no sliding); in the air it
+ * swings forward with the knee driven up. duty < 0.5 = running (both feet off the ground between steps).
+ * Returns [stride, lift] into the scratch array.
+ */
+function gaitFoot(phase, amp, duty, out) {
+  const u = ((phase / TAU) % 1 + 1) % 1;
+  if (!duty) { out[0] = Math.sin(phase) * amp; out[1] = Math.max(0, Math.cos(phase)) * (2 + amp * 0.45); return out; }
+  if (u < duty) { out[0] = amp * (1 - 2 * u / duty); out[1] = 0; }
+  else { const k = (u - duty) / (1 - duty), e = 0.5 - 0.5 * Math.cos(Math.PI * k); out[0] = amp * (2 * e - 1); out[1] = Math.sin(Math.PI * k) * (2.5 + amp * (0.35 + 0.5 * (0.6 - duty))); }
+  return out;
+}
+const _gf = [0, 0];
+
 class Rig {
   constructor() {
     const J = this.j = {};
@@ -105,14 +120,15 @@ class Rig {
     this._c = Math.cos(o.yaw); this._s = Math.sin(o.yaw);
     const w = o.walk, cr = o.crouch;
     // ---- legs + pelvis (3D)
-    const bob = -1.6 * w.amp / 11 * Math.pow(Math.sin(w.phase), 2);
+    // the body dips as each foot takes the weight (mid-stance) and rises between steps
+    const bob = w.duty ? -(0.6 + 0.16 * w.amp * (0.65 - w.duty)) * w.amp / 8 * (0.5 + 0.5 * Math.cos(2 * (w.phase - Math.PI * w.duty))) : -1.6 * w.amp / 11 * Math.pow(Math.sin(w.phase), 2);
     J.pelvis.s = o.sway || 0; J.pelvis.f = 0; J.pelvis.z = RIG.HIP_Z - cr + bob;
     J.hipL.s = J.pelvis.s - RIG.HIP_W; J.hipR.s = J.pelvis.s + RIG.HIP_W;
     for (const h of [J.hipL, J.hipR]) { h.f = 0; h.z = J.pelvis.z; }
     const feet = o.feet;
     for (const side of [-1, 1]) {
-      const ph = w.phase + (side < 0 ? 0 : Math.PI), stride = Math.sin(ph) * w.amp;
-      const lift = Math.max(0, Math.cos(ph)) * (2 + w.amp * 0.45);
+      const ph = w.phase + (side < 0 ? 0 : Math.PI); gaitFoot(ph, w.amp, w.duty, _gf);
+      const stride = _gf[0], lift = _gf[1];
       let tS = side * RIG.FOOT_W + w.ms * stride, tF = w.mf * stride, tZ = 3.5 + lift;
       if (feet) { tS += side * feet.spread; tF += feet.f * side + feet.fwd; tZ += feet.z; }
       const hip = side < 0 ? J.hipL : J.hipR, knee = side < 0 ? J.kneeL : J.kneeR, ank = side < 0 ? J.ankleL : J.ankleR;
@@ -284,15 +300,21 @@ function poseRig(p, dt, t) {
   o.yaw = yaw;
   // ---- walking
   const spd = hypot(p.vx, p.vy), loco = st === S_IDLE || st === S_MOVE;
-  const ampT = loco ? clamp(spd / PLAYER_SPEED, 0, 1.6) * 12 : (st === S_DODGE ? 0 : clamp(spd / PLAYER_SPEED, 0, 1) * 7);
+  // long strides: a walk at low speed (a foot always down), a run with a flight phase at speed. The cadence comes
+  // from the stride, so each step carries him as far as it looks like it should (about 3.3 steps/s at a run).
+  const ratio = spd / PLAYER_SPEED, rk = clamp((spd - 90) / 140, 0, 1), run = rk * rk * (3 - 2 * rk), sprint = clamp((ratio - 1.1) / 0.5, 0, 1);
+  const ampFull = 15 + 1.5 * run + 2.5 * sprint, duty = 0.58 - 0.39 * run - 0.03 * sprint;
+  const ampT = loco ? ampFull * clamp(spd / 40, 0, 1) : (st === S_DODGE ? 0 : clamp(ratio, 0, 1) * 7);
   p.walkAmp = dt > 0 ? smooth(p.walkAmp, ampT, 10, dt) : ampT;
+  p.walkDuty = dt > 0 ? smooth(p.walkDuty || duty, duty, 6, dt) : duty;
   if (spd > 12) {
     _walk.ms = (p.vx * sy - p.vy * cy) / spd; _walk.mf = (p.vx * cy + p.vy * sy) / spd;
-    p.walkPhase += dt * Math.PI * spd / (2 * Math.max(6, p.walkAmp + 6));
+    const stepLen = Math.max(10, p.walkAmp) / p.walkDuty;                 // distance per step = foot sweep / share planted
+    p.walkPhase += dt * Math.PI * spd / stepLen;
   } else if (dt > 0) {                                     // settle to a planted stance
     const k = Math.round(p.walkPhase / Math.PI) * Math.PI; p.walkPhase = smooth(p.walkPhase, k, 8, dt);
   }
-  _walk.amp = p.walkAmp; _walk.phase = p.walkPhase; _walk.ms = _walk.ms || 0;
+  _walk.amp = p.walkAmp; _walk.phase = p.walkPhase; _walk.ms = _walk.ms || 0; _walk.duty = loco ? p.walkDuty : 0;
   // ---- defaults: relaxed stance
   _feet.spread = 0.5; _feet.f = -1.5; _feet.fwd = 0; _feet.z = 0;
   let crouch = 0.6, hunch = 0, lean = p.bodyRot, tilt = 0, spin = 0;
@@ -304,13 +326,14 @@ function poseRig(p, dt, t) {
   if (p._lastSt === S_DODGE && st !== S_DODGE) p.landT = 0;
   p._lastSt = st; p.landT = (p.landT === undefined ? 9 : p.landT) + dt;
   if (p.landT < 0.3 && st !== S_DODGE) { const k = Math.sin(Math.PI * p.landT / 0.3); crouch += 4.5 * k; hunch += 2 * k; }
-  const swingL = -Math.sin(p.walkPhase) * p.walkAmp * 0.75;
+  const swingL = -gaitFoot(p.walkPhase, p.walkAmp, _walk.duty, _gf)[0] * 0.5;      // arms swing against the legs
   _lr.s = -9; _lr.f = swingL + 1; _lr.z = 34;
   o.leftTarget = null; o.twoHand = null;
   const attacking = mv && (st === S_WINDUP || st === S_ACTIVE || st === S_RECOVERY);
   const tool = p.kind === 'shoot' || p.kind === 'item' || p.kind === 'flask';
   const heft = attacking ? mv.heft : 0;
-  if (p.sprinting) { hunch = 3; crouch += 1.5; }
+  if (p.sprinting) { hunch = 3; crouch += 3; }
+  else if (loco && run > 0.5) crouch += 1.5 * run;                         // a running stance sits a little lower
   // ---- pistol: gp 0 = holstered, 0.5 = hand on the holster, 1 = drawn and aimed down the arm
   let gp = p.gunReady, gunDir = p.facing;
   if (p.kind === 'shoot' && attacking) {
