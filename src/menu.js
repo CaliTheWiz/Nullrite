@@ -76,6 +76,7 @@ class EquipMenu {
       }
       if (r.kind === 'slot') { this.pick(r.slot); this.g.sfx('ready', 0.2); return; }
       if (r.kind === 'reset') { this.hold = { id, t0: this.g.t }; return; }
+      if (r.kind === 'quit') { if (this.onQuit) this.onQuit(); return; }
       if (r.kind === 'item') {
         const inv = this.g.inv;
         if (this.focus !== r.id) { this.focus = r.id; this.g.sfx('ready', 0.15); return; }     // first tap: preview + compare
@@ -169,6 +170,13 @@ class EquipMenu {
     this.serif(c, this.hold ? 'KEEP HOLDING...' : 'RESET PROGRESS', bx + 14, yy + 20, 14, this.hold ? MENU_COL.crimson : MENU_COL.text, 'left');
     this.text(c, 'Hold to wipe your items and start over.', bx + 14, yy + 40, 8, MENU_COL.dim, 'left');
     this.rects.push({ kind: 'reset', x: bx, y: yy, w: bw, h: bh });
+    yy += bh + 12;
+    const qh = Math.min(bh, bot - yy - 6);
+    if (qh > 30) {
+      this.panel(c, bx, yy, bw, qh, false);
+      this.serif(c, 'QUIT TO TITLE', bx + 14, yy + qh / 2, 14, MENU_COL.text, 'left');
+      this.rects.push({ kind: 'quit', x: bx, y: yy, w: bw, h: qh });
+    }
     // stats beside it
     const st = g.player.stats, sx2 = bx + bw + 18, sw = x + w - sx2;
     if (sw > 150) this.totals(c, sx2, y + 22, sw, 74, st);

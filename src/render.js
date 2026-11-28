@@ -82,7 +82,9 @@ class Renderer {
     c.scale(CAMERA_ZOOM, CAMERA_ZOOM);
   }
 
-  draw(g, ui, t) {
+  draw(g, ui, t) { this.drawScene(g, t); this.drawHUD(g, ui, t); this.drawOverlay(g, ui); }
+  /** The world without any HUD: floor, entities, particles, tracers. */
+  drawScene(g, t) {
     this.g = g;
     const c = this.ctx;
     this.base(); c.fillStyle = '#040406'; c.fillRect(0, 0, this.W, this.H);
@@ -109,8 +111,6 @@ class Renderer {
       c.restore();
       this.img(ART.glow, x, y, 22 * Z, 22 * Z, { color: '#ffb070', blend: 'add' });
     }
-    this.drawHUD(g, ui, t);
-    this.drawOverlay(g, ui);
   }
 
   drawFloor(g, t) {
@@ -537,7 +537,7 @@ class Renderer {
     this.text('GEAR', SX + 164, cy, 8, '#ff5a6a', 'right');
     if (ui.menu && ui.menu.hasUnseen()) { this.base(); c.fillStyle = CRIMSON; c.beginPath(); c.arc(SX + 170, H - cy - 9, 3.2, 0, TAU); c.fill(); }
     ui.chip = { x: SX, y: cy, w: 172 };
-    if (SHOW_FPS) this.text('FPS ' + ui.fps, SX + 4, top - 88, 9, 'rgba(201,180,138,0.6)', 'left');
+    if (SETTINGS.fps) this.text('FPS ' + ui.fps, SX + 4, top - 88, 9, 'rgba(201,180,138,0.6)', 'left');
     // boss bar (only while the fight is on)
     const bx = W / 2, by = HUD.SAFE_BOTTOM - 6;
     if (g.fight === 'active' && b.present) {

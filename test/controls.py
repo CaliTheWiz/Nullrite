@@ -9,7 +9,7 @@ async def main():
         await page.goto(__import__('pathlib').Path(__file__).resolve().parent.parent.joinpath('index.html').as_uri()); await page.wait_for_timeout(500)
         cdp = await ctx.new_cdp_session(page); H=393
         async def touch(kind, pts): await cdp.send('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [{'x':x,'y':y,'id':i} for i,(x,y) in pts]})
-        await touch('touchStart', [(0,(426,200))]); await touch('touchEnd', [])
+        await touch('touchStart', [(0,(426,200))]); await touch('touchEnd', []); await page.evaluate('window.__nullrite.start()')
         await page.evaluate("() => { const g=window.__nullrite.game; g.boss.idle_time=999; g.player.gy=g.boss.gy-110; }")
         btn = await page.evaluate("() => { const c=window.__nullrite.controls, o={}; for (const b of c.buttons) o[b.kind]=[b.cx, H=0||b.cy]; o.stick=c.stick.home; return o; }")
         sp = lambda xy: (xy[0], H-xy[1])

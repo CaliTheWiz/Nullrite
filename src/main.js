@@ -15,6 +15,14 @@ const game = new Game({ sfx: (n, v) => sound.play(n, v), haptic: (s, i) => hapti
 const renderer = new Renderer(canvas);
 const controls = new Controls(game);
 const menu = new EquipMenu(game); controls.menu = menu; controls.ui.menu = menu;
+const title = new TitleScreen();
+menu.onQuit = () => { menu.close(); controls.releaseAll(); screen = 'title'; title.reset('menu'); };
+/** Leave the title: continue with what is saved, or start over. */
+function beginGame(action) {
+  if (action === 'new') game.inv.reset();
+  game.inv.save();                                  // from now on there is a game to continue
+  game.resetRound(); game.fade = 1; controls.releaseAll(); screen = 'play';
+}
 let screen = 'title';           // 'title' | 'play'
 let W = 0, H = 0;
 
@@ -48,7 +56,7 @@ function onStart(e) {
   e.preventDefault();
   sound.init();                                  // iOS: audio may only start from a gesture
   if (H > W) return;
-  if (screen === 'title') { screen = 'play'; game.resetRound(); controls.releaseAll(); return; }
+  if (screen === 'title') { for (const tch of e.changedTouches) title.touch(tch.clientX, tch.clientY, sound); return; }
   for (const tch of e.changedTouches) controls.touchStart(tch.identifier, tch.clientX, H - tch.clientY);
 }
 function onMove(e) { e.preventDefault(); if (screen !== 'play') return; for (const tch of e.changedTouches) controls.touchMove(tch.identifier, tch.clientX, H - tch.clientY); }
@@ -72,8 +80,8 @@ function frame(now) {
   if (fpsClock >= 0.5) { controls.ui.fps = Math.round(fpsFrames / fpsClock); adaptResolution(controls.ui.fps, fpsClock); fpsFrames = 0; fpsClock = 0; }
   if (H > W) renderer.drawRotate();
   else if (screen === 'title') {
-    game.t += raw; const p = game.player; p.facing = -1.25; p.animate(raw, game.t);
-    renderer.drawTitle(game.t, p); sound.setDrone(false, 1);
+    const act = title.update(raw); title.draw(renderer); sound.setDrone(false, 1);
+    if (act) beginGame(act);
   }
   else {
     const ctl = controls.frame(Math.min(raw, 1 / 30));
@@ -87,4 +95,4 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__nullrite = { game, controls, renderer, sound, menu, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); game.startFight(true); } };
+window.__nullrite = { game, controls, renderer, sound, menu, C: { ART, tinted, CRIMSON, RUNE_GOLD, BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); game.fade = 0; game.startFight(true); controls.releaseAll(); } };

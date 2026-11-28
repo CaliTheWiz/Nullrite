@@ -1,7 +1,7 @@
 """Inline src/*.js into one self-contained index.html (one <script>, wrapped in a block)."""
 import os, hashlib
 
-ORDER = ['config', 'mathx', 'gear', 'rig', 'bossrig', 'logic', 'art', 'gearart', 'gl3d', 'body3d', 'boss3d', 'audio', 'render', 'menu', 'input', 'main']
+ORDER = ['config', 'mathx', 'settings', 'gear', 'rig', 'bossrig', 'logic', 'art', 'gearart', 'gl3d', 'body3d', 'boss3d', 'audio', 'render', 'menu', 'title', 'input', 'main']
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 TEMPLATE = """<!DOCTYPE html>

@@ -1,37 +1,40 @@
-"""Render the home-screen icons from the game's own procedural art (no external assets)."""
-import os, base64
-from playwright.sync_api import sync_playwright
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-js = '\n'.join(open(os.path.join(ROOT, 'src', n + '.js')).read() for n in ['config', 'mathx', 'gear', 'rig', 'logic', 'art', 'gearart'])
-PAGE = """<html><body><script>
-const DPR = 3;
-%s
-buildArt(4);
-window.icon = (n) => {
+"""Render the home-screen icons (concept B, 'The Rite') from the game's own art: icon-180/192/512.png."""
+import asyncio, base64
+from pathlib import Path
+from playwright.async_api import async_playwright
+ROOT = Path(__file__).resolve().parent.parent
+JS = r"""
+(n) => {
+  const C = window.__nullrite.C, ART = C.ART, tinted = C.tinted, CRIMSON = C.CRIMSON, GOLD = C.RUNE_GOLD;
   const c = document.createElement('canvas'); c.width = c.height = n; const x = c.getContext('2d');
-  x.fillStyle = '#0D0E12'; x.fillRect(0, 0, n, n);
-  const g = x.createRadialGradient(n/2, n*0.48, n*0.05, n/2, n*0.48, n*0.62);
-  g.addColorStop(0, 'rgba(138,36,50,0.55)'); g.addColorStop(1, 'rgba(13,14,18,0)'); x.fillStyle = g; x.fillRect(0, 0, n, n);
-  x.strokeStyle = '#8A2432'; x.lineWidth = n*0.018; x.shadowColor = 'rgba(230,31,51,0.9)'; x.shadowBlur = n*0.04;
-  x.beginPath(); x.ellipse(n/2, n*0.74, n*0.30, n*0.30*0.65*0.5, 0, 0, Math.PI*2); x.stroke();
-  x.shadowBlur = 0;
-  const k = ART.knight.S, h = n*0.70, w = h * 64/96;
-  x.drawImage(k.c, n/2 - w/2, n*0.76 - h, w, h);
-  // glowing visor slit (in game it is its own layer)
-  x.shadowColor = 'rgba(255,40,64,1)'; x.shadowBlur = n*0.035; x.fillStyle = '#ff3a50';
-  x.beginPath(); x.ellipse(n/2, n*0.232, n*0.042, n*0.009, 0, 0, Math.PI*2); x.fill(); x.fill();
-  x.shadowBlur = 0;
+  x.fillStyle = '#050507'; x.fillRect(0, 0, n, n);
+  let g = x.createRadialGradient(n / 2, n / 2, n * 0.04, n / 2, n / 2, n * 0.72);
+  g.addColorStop(0, 'rgba(96,16,28,0.85)'); g.addColorStop(0.55, 'rgba(40,8,14,0.6)'); g.addColorStop(1, 'rgba(5,5,7,1)');
+  x.fillStyle = g; x.fillRect(0, 0, n, n);
+  // the sigil, drawn twice so its lines hold up at small sizes
+  x.globalCompositeOperation = 'lighter';
+  const s = n * 0.9, o = (n - s) / 2;
+  x.globalAlpha = 0.95; x.drawImage(tinted(ART.ritual, CRIMSON).c, o, o, s, s);
+  x.globalAlpha = n < 256 ? 0.7 : 0.45; x.drawImage(tinted(ART.ritual, CRIMSON).c, o, o, s, s);
+  x.globalAlpha = 0.35; x.drawImage(tinted(ART.ritual, GOLD).c, o, o, s, s);
+  g = x.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n * 0.3); g.addColorStop(0, 'rgba(255,48,72,0.55)'); g.addColorStop(1, 'rgba(255,48,72,0)');
+  x.globalAlpha = 1; x.fillStyle = g; x.fillRect(0, 0, n, n);
+  x.globalCompositeOperation = 'source-over';
+  // the oath sword, point down through the centre
+  x.save(); x.translate(n / 2, n * 0.5); x.rotate(Math.PI / 2);
+  x.shadowColor = 'rgba(255,40,64,0.9)'; x.shadowBlur = n * 0.03;
+  const sw = ART.weapon.sword; x.drawImage(sw.c, -n * 0.43, -n * 0.065, n * 0.86, n * 0.13); x.restore();
   return c.toDataURL('image/png');
-};
-</script></body></html>""" % js
-
-with sync_playwright() as p:
-    b = p.chromium.launch(executable_path='/usr/bin/google-chrome', args=['--no-sandbox'])
-    pg = b.new_page(); errs = []; pg.on('pageerror', lambda e: errs.append(str(e))); pg.set_content(PAGE)
-    if errs: print(errs)
-    for n in (180, 192, 512):
-        data = pg.evaluate('n => window.icon(n)', n)
-        open(os.path.join(ROOT, 'icon-%d.png' % n), 'wb').write(base64.b64decode(data.split(',')[1]))
-        print('icon-%d.png' % n)
-    b.close()
+}
+"""
+async def main():
+    async with async_playwright() as pw:
+        br = await pw.chromium.launch(executable_path='/usr/bin/google-chrome', args=['--no-sandbox'])
+        page = await br.new_page(); errs = []
+        page.on('pageerror', lambda e: errs.append(str(e)))
+        await page.goto((ROOT / 'index.html').as_uri()); await page.wait_for_timeout(800)
+        for n in (180, 192, 512):
+            d = await page.evaluate('(n) => (' + JS + ')(n)', n)
+            (ROOT / f'icon-{n}.png').write_bytes(base64.b64decode(d.split(',')[1])); print(f'icon-{n}.png')
+        print('\n'.join(errs) or 'no errors'); await br.close()
+asyncio.run(main())

@@ -155,6 +155,14 @@ he stays dead. Dying: YOU DIED, fade to black, wake at the shrine (RESPAWN_AT 3.
 is reset unless already beaten. No "tap to retry" any more: the menu has a SYSTEM tab with RETRY THE SENTINEL (tap
 twice; revives him and sends you to the shrine) and RESET PROGRESS (held). Boss bar only shows during the fight; the
 drone only plays during the fight. Tests call game.startFight(true) to skip the walk and the entrance.
+Title + menu (DONE): src/title.js. Ambiguous, Souls-style: nothing from the game is shown, just a dark void with
+drifting fog, rising embers, falling ash, the ritual sigil turning faintly behind the name and a thin crimson light.
+TOUCH TO BEGIN -> CONTINUE (greyed until a save exists; a save is written as soon as a game begins) / NEW GAME (asks
+first if there is a save; wipes the inventory) / OPTIONS (sound effects, ambience, vibration, FPS counter; saved in
+localStorage 'nullrite.settings.v1', src/settings.js). The in-game SYSTEM tab has QUIT TO TITLE. Both start at the
+shrine. App icon: concept B 'The Rite' (crimson sigil, the oath sword planted point-down through it):
+`python3 tools/make_icon.py`. Concept boards: `python3 tools/concepts.py`. iOS keeps the old home-screen icon until
+the shortcut is removed and added again.
 Next: per-weapon unique animation sets (incl. left-hand / dual-wield movesets), shields, catalysts, enemy drops.
 Blunderbuss (spread shot) is a future off-hand weapon.
 Weapon/hand rules (agreed):

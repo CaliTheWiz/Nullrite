@@ -254,9 +254,10 @@ class SoundBank {
   /** on: fight running. phase: 1 or 2 (2 drops the pitch, adds a tritone and a slow pulse). */
   setDrone(on, phase) {
     const D = this.drone;
-    if (!this.ready || !D || (D.on === on && D.phase === phase)) return;
+    if (!this.ready || !D || (D.on === on && D.phase === phase && D.amb === SETTINGS.ambience)) return;
     const now = this.ctx.currentTime;
-    if (D.on !== on) D.out.gain.setTargetAtTime(on ? DRONE_VOLUME : 0, now, on ? 1.2 : 0.6);
+    if (D.on !== on || D.amb !== SETTINGS.ambience) D.out.gain.setTargetAtTime(on ? DRONE_VOLUME * SETTINGS.ambience : 0, now, on ? 1.2 : 0.6);
+    D.amb = SETTINGS.ambience;
     if (D.phase !== phase) {
       const shift = phase === 2 ? Math.pow(2, -3 / 12) : 1, tau = phase === 2 ? 0.5 : 0.05;
       D.osc.forEach((v, i) => v.o.frequency.setTargetAtTime(v.f * shift, now, tau));
@@ -270,12 +271,13 @@ class SoundBank {
   play(name, vol) {
     if (!this.ready || !this.buffers[name]) return;
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
-    src.buffer = this.buffers[name]; g.gain.value = clamp(vol === undefined ? 1 : vol, 0, 1);
+    src.buffer = this.buffers[name]; g.gain.value = clamp(vol === undefined ? 1 : vol, 0, 1) * SETTINGS.sfx;
     src.connect(g); g.connect(this.master); src.start();
   }
 }
 
 const HAPTIC_MS = { light: 8, medium: 14, heavy: 24, rigid: 10, soft: 12 };
 function haptic(style, intensity) {
+  if (!SETTINGS.haptics) return;
   if (navigator.vibrate) { try { navigator.vibrate(Math.max(4, Math.round((HAPTIC_MS[style] || 10) * (intensity || 1)))); } catch (e) { /* ignore */ } }
 }
