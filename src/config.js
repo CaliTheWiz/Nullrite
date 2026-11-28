@@ -147,8 +147,8 @@ const PICKUPS = [[[-430, -150], 'firebomb', 3], [[440, 330], 'firebomb', 3]];
 const PICKUP_RADIUS = 38;
 // chests (test room) and boss drops; each gives its items once per save
 const CHESTS = [
-  { id: 'chest_west', pos: [-610, 40], items: ['greatsword', 'ember_ring'] },
-  { id: 'chest_east', pos: [610, -40], items: ['spear', 'crimson_locket'] },
+  { id: 'chest_west', pos: [-400, -1470], items: ['greatsword', 'ember_ring'] },
+  { id: 'chest_east', pos: [400, -1470], items: ['spear', 'crimson_locket'] },
 ];
 const CHEST_REACH = 82, CHEST_RADIUS = 26, CHEST_OPEN_TIME = 0.5;
 const BOSS_DROPS = { id: 'boss_sentinel', items: ['sentinel_helm', 'sentinel_plate', 'sentinel_sigil', 'oath_ring'] };
@@ -162,7 +162,16 @@ const PLAYER_MAX_HP = 100, HURT_TIME = 0.32, HURT_IFRAMES = 0.65, FLASK_CHARGES 
 // ---- boss
 const BOSS_MAX_HP = 1400, BOSS_POISE = 100, BOSS_RADIUS = 52, BOSS_SPEED = 105;
 const POISE_REGEN = 14, POISE_DELAY = 3.0, STAGGER_TIME = 2.5, STAGGER_DMG_MULT = 1.5;
-const BOSS_START = [0, 170], PLAYER_START = [0, -300];
+const BOSS_START = [0, 170], PLAYER_START = [0, -300];      // PLAYER_START: where a fight begins (tests / startFight(true))
+// ---- the world: a shrine room (spawn) south, a path north, the boss arena (centred on 0,0)
+const ROOMS = { arena: [-768, -768, 768, 768], path: [-130, -1200, 130, -720], shrine: [-576, -1920, 576, -1152] };   // walkable (x0, y0, x1, y1)
+const PATH_FLOOR = [-130, -1152, 130, -768];                // the path's visible floor
+const SPAWN = [0, -1690], SHRINE = [0, -1480];          // the shrine stands north of the sigil, between the chests
+const BOSS_LAND = [0, -300];                             // where he comes down: close enough to see from the gate
+const GATE = { x0: -130, x1: 130, y: -768, close: 0.55, open: 1.6 };
+const FIGHT_TRIGGER_Y = -630;                              // walk this far into the arena and the gate seals
+const BOSS_ENTER = { fall: 0.75, kneel: 1.6, rise: 3.0, height: 760 };
+const RESPAWN_AT = 3.4;                                    // seconds after YOU DIED
 const RAD = Math.PI / 180;
 const BOSS_ATTACKS = {
   sweep: { windup: 0.85, track: 0.4, active: 0.22, recovery: 0.9, range: 250, half: 80 * RAD,
@@ -197,7 +206,8 @@ const CRIMSON = '#ff3048', RUNE_GOLD = '#b08a3e', RUNE_CRIMSON = '#d8243a';
 const SPARK_COLORS = ['#ffffff', '#ffe7c2', '#ffb070', '#ff3048', '#ff5a6a'];
 
 const S_IDLE = 'IDLE', S_MOVE = 'MOVE', S_WINDUP = 'WINDUP', S_ACTIVE = 'ACTIVE', S_RECOVERY = 'RECOVERY',
-      S_DODGE = 'DODGE', S_HURT = 'HURT', S_DEAD = 'DEAD', S_STALK = 'STALK', S_STAGGERED = 'STAGGERED', S_PHASE = 'PHASE';
+      S_DODGE = 'DODGE', S_HURT = 'HURT', S_DEAD = 'DEAD', S_STALK = 'STALK', S_STAGGERED = 'STAGGERED', S_PHASE = 'PHASE',
+      S_ABSENT = 'ABSENT', S_ENTER = 'ENTER';
 
 // 8-direction sprite views: five drawn, three mirrored
 const VIEWS = ['S', 'SE', 'E', 'NE', 'N'];

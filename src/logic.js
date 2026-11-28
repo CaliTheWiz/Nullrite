@@ -321,7 +321,7 @@ class Player {
   constructor(game) { this.g = game; this.setWeapon('oathsword'); this.reset(); }
   setWeapon(key) { this.weaponKey = key; this.weapon = WEAPONS[key]; this.combo = -1; this.combo_expire_t = -1; }
   reset() {
-    [this.gx, this.gy] = PLAYER_START;
+    [this.gx, this.gy] = SPAWN;
     this.vx = this.vy = 0; this.facing = Math.PI / 2; this.state = S_IDLE; this.state_t = 0;
     this.applyLoadout();
     this.hp = this.maxHp; this.hp_lag = this.maxHp; this.hp_lag_hold = 0;
@@ -680,7 +680,7 @@ class Boss {
   constructor(game) { this.g = game; this.RADIUS = BOSS_RADIUS; this.rig = new BossRig(); this.reset(); }
   reset() {
     [this.gx, this.gy] = BOSS_START; this.rig.fresh = true; this.rig.resetWeight();
-    this.vx = this.vy = 0; this.facing = -Math.PI / 2; this.state = S_IDLE; this.state_t = 0; this.idle_time = 1.4;
+    this.vx = this.vy = 0; this.facing = -Math.PI / 2; this.state = S_ABSENT; this.state_t = 0; this.idle_time = 1.4;
     this.hp = BOSS_MAX_HP; this.hp_lag = BOSS_MAX_HP; this.hp_lag_hold = 0; this.poise = BOSS_POISE; this.poise_delay = 0;
     this.kind = null; this.atk = null; this.want = 0; this.attack_dir = this.facing; this.hit_done = false;
     this.phase = 1; this.followed = false;
@@ -697,7 +697,8 @@ class Boss {
     this.halX = 0; this.halY = 0; this.halZ = 5; this.halAlpha = 1;
     this.animate(0, 0);
   }
-  get alive() { return this.state !== S_DEAD; }
+  get alive() { return this.state !== S_DEAD && this.state !== S_ABSENT; }
+  get present() { return this.state !== S_ABSENT; }
   enter(s) { this.state = s; this.state_t = 0; }
   chooseAttack(dist) {
     let opts;
@@ -733,8 +734,18 @@ class Boss {
     return Math.max(0, best);
   }
   update(dt, t, player) {
+    if (this.state === S_ABSENT) return;
     this.state_t += dt;
     const dx = player.gx - this.gx, dy = player.gy - this.gy, dist = hypot(dx, dy), to_p = Math.atan2(dy, dx);
+    if (this.state === S_ENTER) {                       // crashes down from above, kneels, rises, roars
+      const T = this.state_t, E = BOSS_ENTER;
+      if (T < E.fall) this.elev = E.height * (1 - Math.pow(T / E.fall, 2));
+      else { if (this.elev > 0 || T - dt < E.fall) { this.elev = 0; this.g.onBossLand(this); } }
+      if (T > E.kneel) this.facing = approachAngle(this.facing, to_p, 2.5 * dt);
+      if (T >= E.kneel + 0.35 && T - dt < E.kneel + 0.35) { this.g.sfx('roar', 1.0); this.g.addShake(Math.PI / 2, 10); this.g.haptic('heavy', 0.8); }
+      if (T >= E.rise) { this.enter(S_IDLE); this.idle_time = 0.5; }
+      return;
+    }
     if (this.state !== S_STAGGERED && this.state !== S_DEAD && this.state !== S_PHASE) {
       if (this.poise_delay > 0) this.poise_delay -= dt; else this.poise = Math.min(BOSS_POISE, this.poise + POISE_REGEN * dt);
     }
@@ -803,7 +814,7 @@ class Boss {
     [this.hp_lag, this.hp_lag_hold] = lagBar(this.hp_lag, this.hp_lag_hold, this.hp, 260, dt);
   }
   takeHit(dmg, poiseDmg, angle, heavy, crit) {
-    if (this.state === S_PHASE) return 'immune';
+    if (this.state === S_PHASE || this.state === S_ENTER || this.state === S_ABSENT) return 'immune';
     const staggered = this.state === S_STAGGERED;
     const mult = crit ? 1 : (staggered ? STAGGER_DMG_MULT : 1);
     this.hp = Math.max(0, this.hp - dmg * mult); this.hp_lag_hold = 0.6;
@@ -989,20 +1000,57 @@ class Game {
     this.proj = new Projectiles(this);
     this.pickups = PICKUPS.map(p => new Pickup(p[0], p[1], p[2]));
     this.chests = CHESTS.map(d => new Chest(d)); this.chestNear = null; this.loot = null;
+    this.pillars.push(Object.assign(new Pillar(SHRINE[0], SHRINE[1]), { shrine: true }));
+    this.fight = 'idle'; this.gate_t = 0; this.victory_t = 0; this.fade = 0;
     this.ritualFlash = 0;
     this.waves = [];                     // phase-2 slam shockwaves (fixed pool)
     for (let i = 0; i < 6; i++) this.waves.push({ live: false, x: 0, y: 0, r: 0, delay: 0, hit: false, alpha: 0, started: false, dust_t: 0 });
     this.resetRound();
   }
-  resetRound() {
-    this.player.reset(); this.boss.reset(); this.fx.clear(); this.proj.clear();
+  /** A fresh start at the shrine with the boss waiting (title screen, retry from the menu). */
+  resetRound() { this.fight = 'idle'; this.boss.reset(); this.respawn(true); this.fade = 0; }
+  /** Back to the shrine: after a death, or when retrying. The boss stays dead if you already beat him. */
+  respawn(resetBoss) {
+    if (resetBoss || this.fight !== 'won') { this.fight = 'idle'; this.boss.reset(); }
+    this.gate_t = 0; this.victory_t = this.fight === 'won' ? 99 : 0; this.fade = 1;
+    this.player.reset(); this.fx.clear(); this.proj.clear();
     for (const pk of this.pickups) pk.reset();
     for (const ch of this.chests) ch.reset(this.inv); this.chestNear = null; this.loot = null; this.bossLoot = [];
     this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0; this.bump_y = 0; this.bump_v = 0;
     this.ox = 0; this.oy = 0; this.stamDeny = 0; this.toast_t = 0; this.toast_key = null;
     this.outcome = null; this.outcome_t = 0; this.hapticQueue = []; this.visceralReady = false;
-    this.phaseMix = 0; for (const w of this.waves) w.live = false;
+    this.phaseMix = this.fight === 'won' ? this.phaseMix : 0; for (const w of this.waves) w.live = false;
     [this.cam_x, this.cam_y] = this.cameraTarget();
+  }
+  retryBoss() { this.respawn(true); this.sfx('thud', 0.5); }
+  /** The gate seals and the Sentinel comes down. immediate: skip the entrance (tests, sheets). */
+  startFight(immediate) {
+    const b = this.boss; this.fight = 'active'; this.victory_t = 0;
+    if (immediate) {
+      [b.gx, b.gy] = BOSS_START; b.elev = 0; b.enter(S_IDLE); b.idle_time = 1.0; this.gate_t = 1;
+      [this.player.gx, this.player.gy] = PLAYER_START; [this.cam_x, this.cam_y] = this.cameraTarget(); return;
+    }
+    [b.gx, b.gy] = BOSS_LAND; b.facing = Math.atan2(this.player.gy - b.gy, this.player.gx - b.gx);
+    b.enter(S_ENTER); b.elev = BOSS_ENTER.height;
+    this.sfx('clank', 0.8); this.sfx('stomp', 0.8); this.addBump(3); this.haptic('medium', 0.6);
+  }
+  onBossLand(b) {                                     // the entrance: he hits the floor like the slam, harder
+    this.sfx('boom', 1.0); this.sfx('crunch', 0.6); this.addShake(Math.PI / 2, 18); this.addBump(16); this.ritualFlash = 1;
+    this.haptic('heavy', 1.0); this.hapticQueue.push([0.1, 'heavy', 0.9]);
+    this.fx.quake(b.gx, b.gy, 1.6); this.fx.slamImpact(b.gx, b.gy, 200); b.rig.kick(230, -240, 0.35);
+  }
+  /** Gate, fight trigger, victory and death timers. */
+  updateWorld(dt) {
+    const p = this.player, b = this.boss;
+    if (this.fight === 'idle' && b.state === S_ABSENT && p.alive && this.outcome === null && p.gy > FIGHT_TRIGGER_Y && Math.abs(p.gx) < ARENA_HALF) this.startFight(false);
+    const want = this.fight === 'active' ? 1 : (this.fight === 'won' && this.victory_t < 2.6 ? 1 : 0);
+    const prev = this.gate_t;
+    this.gate_t = want > this.gate_t ? Math.min(1, this.gate_t + dt / GATE.close) : Math.max(0, this.gate_t - dt / GATE.open);
+    if (prev >= 1 && this.gate_t < 1) { this.sfx('skid', 0.7); this.sfx('clank', 0.5); this.addBump(2); }
+    if (prev < 1 && this.gate_t >= 1 && this.fight === 'active') { this.sfx('boom', 0.6); this.addBump(5); this.addShake(Math.PI / 2, 5); }
+    if (this.fight === 'won') this.victory_t += dt;
+    if (this.fade > 0) this.fade = Math.max(0, this.fade - dt / 0.8);
+    if (this.outcome === 'death' && this.outcome_t >= RESPAWN_AT) this.respawn(false);
   }
   sfx(n, v) { this.out.sfx(n, v); }
   haptic(s, i) { this.out.haptic(s, i); }
@@ -1283,7 +1331,7 @@ class Game {
     this.bossLoot = this.inv.flags[BOSS_DROPS.id] ? [] : this.giveLoot(BOSS_DROPS.id, BOSS_DROPS.items); this.loot = null;
     this.sfx('boss_die', 1.0); this.haptic('heavy', 1.0);
     this.hapticQueue.push([0.18, 'heavy', 1.0]); this.hapticQueue.push([0.45, 'medium', 0.8]);
-    this.fx.deathBurst(b); this.addShake(Math.PI / 2, 20); this.hitstop = 0.12; this.setOutcome('victory');
+    this.fx.deathBurst(b); this.addShake(Math.PI / 2, 20); this.hitstop = 0.12; this.fight = 'won'; this.victory_t = 0;
     for (const w of this.waves) w.live = false;
   }
   bossSweepHits(b) {
@@ -1325,15 +1373,27 @@ class Game {
       this.pushOut(p, pil.gx, pil.gy, PLAYER_RADIUS + pil.RADIUS);
       if (b.elev < 30) this.pushOut(b, pil.gx, pil.gy, b.RADIUS + pil.RADIUS);
     }
-    let lim = ARENA_HALF - PLAYER_RADIUS - 6; p.gx = clamp(p.gx, -lim, lim); p.gy = clamp(p.gy, -lim, lim);
-    lim = ARENA_HALF - b.RADIUS - 4; b.gx = clamp(b.gx, -lim, lim); b.gy = clamp(b.gy, -lim, lim);
+    this.clampWalk(p, PLAYER_RADIUS + 6, this.fight === 'active' || this.gate_t > 0.5 ? [ROOMS.arena] : [ROOMS.arena, ROOMS.path, ROOMS.shrine]);   // the gate seals the arena
+    let lim = ARENA_HALF - b.RADIUS - 4; b.gx = clamp(b.gx, -lim, lim); b.gy = clamp(b.gy, -lim, lim);
+  }
+  /** Keep an entity inside the walkable rooms: the nearest point of the nearest room. */
+  clampWalk(e, r, rooms) {
+    let bx = e.gx, by = e.gy, bd = 1e18;
+    for (const R of rooms) {
+      const x = clamp(e.gx, R[0] + r, R[2] - r), y = clamp(e.gy, R[1] + r, R[3] - r), d = (x - e.gx) ** 2 + (y - e.gy) ** 2;
+      if (d < bd) { bd = d; bx = x; by = y; if (d === 0) break; }
+    }
+    e.gx = bx; e.gy = by;
   }
   cameraTarget() {
-    const p = this.player, b = this.boss, lean = 0.38, cap = 200;
+    const p = this.player, b = this.boss;
+    if (b.state === S_ENTER) return [p.gx + (b.gx - p.gx) * 0.8, b.gy - 60];      // the entrance: frame him
+    const cap = 200, lean = b.present && this.fight === 'active' ? 0.38 : 0;
     let dx = (b.gx - p.gx) * lean, dy = (b.gy - p.gy) * lean;
     const m = hypot(dx, dy); if (m > cap) { dx *= cap / m; dy *= cap / m; }
     return [p.gx + dx, p.gy + dy];
   }
+
   updateCamera(dt) {
     const [tx, ty] = this.cameraTarget(), k = Math.min(1, dt * 5);
     this.cam_x += (tx - this.cam_x) * k; this.cam_y += (ty - this.cam_y) * k;
@@ -1357,10 +1417,11 @@ class Game {
       if (h[0] <= 0) { this.haptic(h[1], h[2]); this.hapticQueue.splice(i, 1); }
     }
     p.move_dir = ctl.moveDir; p.move_mag = ctl.moveMag; p.sprint_req = ctl.sprint; p.aim_dir = ctl.aimDir;
-    p.lookX = b.gx; p.lookY = b.gy; p.lookOn = b.state !== S_DEAD && this.outcome === null;   // his eyes follow the boss
+    p.lookX = b.gx; p.lookY = b.gy; p.lookOn = b.alive && this.fight === 'active' && this.outcome === null;   // his eyes follow the boss
     p.charging = (ctl.heavyHeld >= CHARGE_START && p.alive) ? ctl.heavyHeld : 0;
     if (this.stamDeny > 0) this.stamDeny -= dt;
     if (this.outcome !== null) this.outcome_t += dt;
+    this.updateWorld(dt);
     if (this.hitstop > 0) { this.hitstop -= dt; this.updateCamera(dt); return; }   // freeze-frame
     this.updateVisceral();
     this.proj.update(dt);

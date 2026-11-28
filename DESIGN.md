@@ -145,6 +145,16 @@ Equipment screen (src/menu.js): opened from the HUD weapon chip (GEAR, red dot =
 detail (stats with +/- against what is worn, lore) + totals (HP, damage taken, poise, load bar with tier marks).
 First tap previews, second tap equips. The fight does not pause (Souls). Changing gear only when not mid-action.
 Hold "RESET PROGRESS" 1.2 s to wipe the save. `python3 tools/gear_sheet.py` renders loadouts in 3D.
+World (DONE): three rooms (config ROOMS): the shrine room south (spawn sigil, shrine obelisk, the two chests), a
+path north, the boss arena (centred on 0,0). Walking past FIGHT_TRIGGER_Y into the arena starts the fight: the gate's
+obsidian bars shoot up out of the floor and the arena becomes the only walkable room; the Sentinel crashes down from
+above (BOSS_ENTER: fall 0.75 s -> lands on one knee with a boom/shockwave dust -> rises and roars at ~1.95 s -> fights
+at 3 s; immune and framed by the camera throughout). Boss states S_ABSENT (not there: not drawn, can't be hit, `alive`
+false) and S_ENTER. Beating him: VICTORY banner + loot over the fight (nothing stops), the gate opens after ~2.6 s,
+he stays dead. Dying: YOU DIED, fade to black, wake at the shrine (RESPAWN_AT 3.4 s) with everything refilled; the boss
+is reset unless already beaten. No "tap to retry" any more: the menu has a SYSTEM tab with RETRY THE SENTINEL (tap
+twice; revives him and sends you to the shrine) and RESET PROGRESS (held). Boss bar only shows during the fight; the
+drone only plays during the fight. Tests call game.startFight(true) to skip the walk and the entrance.
 Next: per-weapon unique animation sets (incl. left-hand / dual-wield movesets), shields, catalysts, enemy drops.
 Blunderbuss (spread shot) is a future off-hand weapon.
 Weapon/hand rules (agreed):

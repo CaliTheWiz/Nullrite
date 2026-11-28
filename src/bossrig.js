@@ -317,6 +317,21 @@ function poseBoss(b, dt, t) {
   } else if (st === S_RECOVERY && b.kind === 'lance') {
     const q = Tm / atk.recovery;
     if (q < 0.35) { bossLanceAt(T, [22, 26, 24], 18 - 6 * q, 0.3 - 0.4 * q, -0.45); rate = 9; } else rate = 3;
+  } else if (st === S_ENTER) {
+    const E = BOSS_ENTER;
+    if (Tm < E.fall) { bossSlamAt(T, 105 * RAD, 2, -0.08); rate = 10; }
+    else if (Tm < E.kneel) {                                                   // landed on one knee, head bowed
+      T.crouch = 26; T.lean = 0.3; T.twist = 0.05; T.headPitch = 0.42; T.roll = 0.03;
+      setv(T.fl, -4, 28, 0); setv(T.fr, 2, -28, 1);
+      setv(T.H, -42, 34, 72); setv(T.D, 0.03, 0.12, 1); setv(T.E, 0, 1, 0); T.gu = 72;
+      T.freeR = 1; setv(T.R, 24, 22, 42); T.lift = -18; rate = Tm < E.fall + 0.1 ? 26 : 8;
+    } else {                                                                   // rises and roars
+      const k = (Tm - E.kneel) / (E.rise - E.kneel), rise = Math.sin(Math.PI * Math.min(1, k * 1.15));
+      T.crouch = 3 - 6 * rise; T.lean = 0.05 - 0.24 * rise; T.headPitch = 0.05 - 0.45 * rise; T.roll = Math.sin(Tm * 30) * 0.02 * rise;
+      setv(T.fl, -6, 8, 0); setv(T.fr, 6, -8, 0);
+      setv(T.H, -50, 12, 100 + 70 * rise); setv(T.D, -0.08, 0.05, 1); T.gu = 100;
+      T.freeR = 1; setv(T.R, 46 + 40 * rise, 7 + 8 * rise, 66 + 62 * rise); T.spread = 22 * rise; T.lift = 8 * rise; rate = 5;
+    }
   } else if (st === S_STAGGERED) {
     const k = Tm / STAGGER_TIME;
     T.crouch = 25; T.lean = 0.32; T.twist = 0.1; T.headPitch = 0.4; T.roll = Math.sin(Tm * 9) * 0.05 * (1 - k) + 0.04;
@@ -415,7 +430,7 @@ function bossContacts(R, b) {
     else if (c.up && z < 6.5) { c.up = false; R.events.push({ type: 'foot', s: A.s, f: A.f, str: clamp(0.35 + vz / 260, 0.35, 1) }); R.kick(28 * clamp(0.35 + vz / 260, 0.35, 1), -18, 0); }
     c.z = z;
   }
-  const kneelOK = b.state === S_STAGGERED || (b.state === S_DEAD && b.dead_t < 0.8);       // only when he really goes down on a knee
+  const kneelOK = b.state === S_STAGGERED || (b.state === S_DEAD && b.dead_t < 0.8) || (b.state === S_ENTER && b.state_t < BOSS_ENTER.kneel);       // only when he really goes down on a knee
   for (const [key, Kn] of [['kL', J.kneeL], ['kR', J.kneeR]]) {
     const c = Cn[key];
     if (!kneelOK) { c.up = Kn.z > 16 || c.up; continue; }

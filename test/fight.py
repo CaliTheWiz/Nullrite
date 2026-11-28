@@ -14,7 +14,7 @@ async def main():
         H=393
         async def touch(kind, pts):
             await cdp.send('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [{'x':x,'y':y,'id':i} for i,(x,y) in pts]})
-        await touch('touchStart', [(0,(426,200))]); await touch('touchEnd', [])
+        await touch('touchStart', [(0,(426,200))]); await touch('touchEnd', []); await page.evaluate('window.__nullrite.game.startFight(true)')
         await page.wait_for_timeout(300)
         btn = await page.evaluate("""() => { const c=window.__nullrite.controls; const o={}; for (const b of c.buttons) o[b.kind]=[b.cx, b.cy]; o.stick=c.stick.home; return o; }""")
         def sp(xy): return (xy[0], H-xy[1])

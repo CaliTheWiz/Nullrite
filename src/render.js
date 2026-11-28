@@ -119,13 +119,37 @@ class Renderer {
     // phase 2: runes shift from dull gold to pulsing crimson
     const goldA = (0.3 + 0.08 * Math.sin(t * 1.3)) * (1 - m), redA = (0.34 + 0.2 * Math.sin(t * 4.2)) * m;
     this.floorA = [goldA, redA, 0.25 + 0.18 * Math.sin(t * 2) + 0.5 * g.ritualFlash];
+    this.drawRoomFloor(g, ROOMS.shrine, t, true); this.drawRoomFloor(g, PATH_FLOOR, t, false);
     this.drawTiles(g, null);
-    const c = this.ctx, A = ARENA_HALF;
-    this.base(); c.globalAlpha = 0.7 + 0.3 * m * (0.5 + 0.5 * Math.sin(t * 4.2)); c.strokeStyle = m > 0.5 ? CRIMSON : '#8A2432'; c.lineWidth = 3 * Z;
-    c.beginPath();
-    c.moveTo(this.sx(-A), this.sy(-A * K)); c.lineTo(this.sx(A), this.sy(-A * K));
-    c.lineTo(this.sx(A), this.sy(A * K)); c.lineTo(this.sx(-A), this.sy(A * K)); c.closePath(); c.stroke();
+    const c = this.ctx, A = ARENA_HALF, G = GATE, S = ROOMS.shrine, P = PATH_FLOOR;
+    const line = (pts) => { c.beginPath(); c.moveTo(this.sx(pts[0][0]), this.sy(pts[0][1] * K)); for (let i = 1; i < pts.length; i++) c.lineTo(this.sx(pts[i][0]), this.sy(pts[i][1] * K)); c.stroke(); };
+    this.base(); c.lineWidth = 3 * Z; c.strokeStyle = '#5a2430'; c.globalAlpha = 0.75;
+    line([[G.x0, S[3]], [S[0], S[3]], [S[0], S[1]], [S[2], S[1]], [S[2], S[3]], [G.x1, S[3]]]);
+    line([[P[0], P[1]], [P[0], P[3]]]); line([[P[2], P[1]], [P[2], P[3]]]);
+    c.globalAlpha = 0.7 + 0.3 * m * (0.5 + 0.5 * Math.sin(t * 4.2)); c.strokeStyle = m > 0.5 ? CRIMSON : '#8A2432';
+    line([[G.x0, -A], [-A, -A], [-A, A], [A, A], [A, -A], [G.x1, -A]]);
     this.drawWaves(g);
+  }
+  /** Floor of a room outside the arena (clipped to its rectangle); the shrine room gets dim gold runes and a sigil at the spawn. */
+  drawRoomFloor(g, R, t, shrine) {
+    const c = this.ctx, Z = CAMERA_ZOOM, halfW = this.W / 2 / Z + TILE, halfH = this.H / 2 / (Z * K) + TILE;
+    if (R[2] < g.cam_x - halfW || R[0] > g.cam_x + halfW || R[3] < g.cam_y - halfH || R[1] > g.cam_y + halfH) return;
+    this.base(); c.save(); c.beginPath();
+    c.moveTo(this.sx(R[0]), this.sy(R[1] * K)); c.lineTo(this.sx(R[2]), this.sy(R[1] * K)); c.lineTo(this.sx(R[2]), this.sy(R[3] * K)); c.lineTo(this.sx(R[0]), this.sy(R[3] * K)); c.closePath(); c.clip();
+    const i0 = Math.floor((R[0] + ARENA_HALF) / TILE), i1 = Math.ceil((R[2] + ARENA_HALF) / TILE), j0 = Math.floor((R[1] + ARENA_HALF) / TILE), j1 = Math.ceil((R[3] + ARENA_HALF) / TILE);
+    const runeA = shrine ? 0.1 + 0.04 * Math.sin(t * 1.1) : 0;
+    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
+      const x = -ARENA_HALF + TILE / 2 + i * TILE, y = -ARENA_HALF + TILE / 2 + j * TILE;
+      if (Math.abs(x - g.cam_x) > halfW || Math.abs(y - g.cam_y) > halfH) continue;
+      const v = (((i * 73856093) ^ (j * 19349663)) >>> 0) % 4;
+      this.ground(ART.tiles[v], x, y, TILE + 0.8, TILE + 0.8);
+      if (runeA > 0) this.ground(ART.runes[v], x, y, TILE, TILE, { color: RUNE_GOLD, alpha: runeA, blend: 'add' });
+    }
+    c.restore();
+    if (shrine) {                                            // the sigil you wake on
+      this.ground(ART.ritual, SPAWN[0], SPAWN[1], 230, 230, { alpha: 0.7 });
+      this.ground(ART.ritual, SPAWN[0], SPAWN[1], 230, 230, { color: RUNE_GOLD, alpha: 0.18 + 0.08 * Math.sin(t * 1.6), blend: 'add' });
+    }
   }
   /** Floor tiles + runes + ritual circle. ring = [cx, cy, rIn, rOut] limits it to tiles touching that annulus. */
   drawTiles(g, ring) {
@@ -179,7 +203,8 @@ class Renderer {
     for (const pil of g.pillars) list.push([-pil.gy, () => this.drawPillar(pil, t)]);
     for (const pk of g.pickups) if (!pk.taken) list.push([-pk.gy, () => this.drawPickup(pk, t)]);
     for (const ch of g.chests) list.push([-ch.gy, () => this.drawChest(ch, t)]);
-    list.push([-g.boss.gy, () => this.drawBoss(g.boss)]);
+    if (g.boss.present) list.push([-g.boss.gy, () => this.drawBoss(g.boss)]);
+    list.push([-GATE.y - 0.1, () => this.drawGate(g, t)]);
     list.push([-g.player.gy, () => this.drawPlayer(g.player)]);
     for (const bm of g.proj.bombs) if (bm.live) list.push([-bm.gy + 0.5, () => this.drawBomb(bm, t)]);
     for (const q of this.ghosts) if (q.live) list.push([-q.gy - 0.5, () => this.drawGhost(q, g.t)]);
@@ -190,7 +215,22 @@ class Renderer {
     this.entityFrame(pil.gx, pil.gy);
     this.local(ART.shadow, 0, 0, 110, 66);
     this.local(ART.obelisk, 0, 0, 70, 157, { ax: 0.5, ay: 0.03 });
-    this.local(ART.glow, 0, 95, 56, 56, { color: CRIMSON, alpha: 0.45 + 0.2 * Math.sin(t * 2.2 + pil.phase), blend: 'add' });
+    const col = pil.shrine ? RUNE_GOLD : CRIMSON;
+    this.local(ART.glow, 0, 95, pil.shrine ? 80 : 56, pil.shrine ? 80 : 56, { color: col, alpha: 0.45 + 0.2 * Math.sin(t * 2.2 + pil.phase), blend: 'add' });
+  }
+  /** The arena gate: obsidian bars that shoot up out of the floor when the fight starts, a crimson haze between them. */
+  drawGate(g, t) {
+    const k = g.gate_t; if (k <= 0.001) return;
+    const c = this.ctx, e = 1 - Math.pow(1 - k, 3), Hb = 118, n = 7, G = GATE, w = G.x1 - G.x0;
+    this.entityFrame(0, G.y);
+    c.save(); c.beginPath(); c.rect(-400, -400, 800, 400); c.clip();            // only what is above the floor shows
+    this.local(ART.glow, 0, 40, w * 1.5, 120, { color: CRIMSON, alpha: 0.4 * e * (0.8 + 0.2 * Math.sin(t * 3)), blend: 'add' });
+    for (let i = 0; i < n; i++) {
+      const x = G.x0 + w * (i + 0.5) / n, stagger = 1 - 0.18 * Math.abs(i - (n - 1) / 2) / ((n - 1) / 2);
+      this.local(ART.gateBar, x, -(1 - e) * Hb * stagger - 4, 18, Hb * stagger + 6, { ax: 0.5, ay: 0 });
+    }
+    c.restore();
+    if (k < 1) this.local(ART.shadow, 0, 0, w * 1.1, 30, { alpha: 0.5 * e });
   }
   /** Chest: body, then the lid swinging up on its back hinge (top face while closed, inner face once past upright). */
   drawChest(ch, t) {
@@ -498,14 +538,16 @@ class Renderer {
     if (ui.menu && ui.menu.hasUnseen()) { this.base(); c.fillStyle = CRIMSON; c.beginPath(); c.arc(SX + 170, H - cy - 9, 3.2, 0, TAU); c.fill(); }
     ui.chip = { x: SX, y: cy, w: 172 };
     if (SHOW_FPS) this.text('FPS ' + ui.fps, SX + 4, top - 88, 9, 'rgba(201,180,138,0.6)', 'left');
-    // boss bar
+    // boss bar (only while the fight is on)
     const bx = W / 2, by = HUD.SAFE_BOTTOM - 6;
+    if (g.fight === 'active' && b.present) {
     this.serif('THE OBSIDIAN SENTINEL', bx, by + 17, 11, '#d9c9a0');
     this.bar(bx - 156, by, 304, 8, b.hp / BOSS_MAX_HP, b.hp_lag / BOSS_MAX_HP, '#b3202f', 'rgba(242,230,208,0.55)');
     this.base(); c.fillStyle = '#1a1712'; c.fillRect(bx - 152, H - by + 9, 304, 3);
     const stag = b.state === S_STAGGERED;
     c.fillStyle = stag ? (((t * 10) | 0) % 2 === 0 ? '#ffffff' : '#d8a640') : '#d8a640';
     c.fillRect(bx - 152, H - by + 9, 304 * (stag ? 1 : clamp(b.poise / BOSS_POISE, 0, 1)), 3);
+    }
     // controls
     const st = ui.stick;
     this.hudImg(ART.stickBase, st.cx_vis, st.cy_vis, 132, 132, { alpha: st.baseAlpha });
@@ -534,6 +576,16 @@ class Renderer {
       ui.prompt = { x: px - pw / 2, y: py - ph / 2, w: pw, h: ph };
     }
     if (g.loot) this.drawLoot(g.loot.items, W / 2, H / 2 + 70, clamp(g.loot.t / 0.5, 0, 1) * clamp((3.4 - g.loot.t) / 0.25, 0, 1));
+    // victory: a banner over the fight, then you carry on (the gate opens behind it)
+    if (g.fight === 'won' && g.victory_t < 7) {
+      const vt = g.victory_t, a = clamp((vt - 1.2) / 0.7, 0, 1) * clamp((7 - vt) / 0.8, 0, 1);
+      if (a > 0) {
+        this.base(); c.globalAlpha = 0.6 * a; c.fillStyle = '#000'; c.fillRect(0, H / 2 - 75, W, 110); c.globalAlpha = 1;
+        const loot = g.bossLoot && g.bossLoot.length, vx = loot ? W * 0.31 : W / 2;
+        this.serif('VICTORY', vx, H / 2 + 30, 50, '#d9b45c', a); this.serif('THE OBSIDIAN SENTINEL HAS FALLEN', vx, H / 2 - 12, 13, '#d9c9a0', a, false);
+        if (loot) this.drawLoot(g.bossLoot, W * 0.73, H / 2 + 58, a);
+      }
+    }
   }
 
   /** 'Obtained' banner with each item's icon and name (y-up centre). */
@@ -552,27 +604,16 @@ class Renderer {
     c.globalAlpha = 1;
   }
   drawOverlay(g, ui) {
-    const lvl = g.overlayLevel();
-    if (lvl <= 0) return;
-    const c = this.ctx, W = this.W, H = this.H, died = g.outcome === 'death';
-    this.base(); c.globalAlpha = 0.45 * lvl; c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
-    c.globalAlpha = 0.7 * lvl; c.fillRect(0, H / 2 - 20 - 55, W, 110);
-    if (died) this.serif('YOU DIED', W / 2, H / 2 + 26, 50, '#b3202f', lvl);
-    else {
-      const loot = g.bossLoot && g.bossLoot.length, vx = loot ? W * 0.31 : W / 2;
-      this.serif('VICTORY', vx, H / 2 + 30, 50, '#d9b45c', lvl); this.serif('THE OBSIDIAN SENTINEL HAS FALLEN', vx, H / 2 - 12, 13, '#d9c9a0', lvl, false);
-      if (loot) this.drawLoot(g.bossLoot, W * 0.73, H / 2 + 58, lvl);
+    const c = this.ctx, W = this.W, H = this.H, lvl = g.outcome === 'death' ? g.overlayLevel() : 0;
+    if (lvl > 0) {
+      this.base(); c.globalAlpha = 0.45 * lvl; c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+      c.globalAlpha = 0.7 * lvl; c.fillRect(0, H / 2 - 20 - 55, W, 110);
+      this.serif('YOU DIED', W / 2, H / 2 + 26, 50, '#b3202f', lvl);
+      const k = clamp((g.outcome_t - (RESPAWN_AT - 0.7)) / 0.7, 0, 1);            // fade out before waking at the shrine
+      if (k > 0) { this.base(); c.globalAlpha = k; c.fillStyle = '#000'; c.fillRect(0, 0, W, H); }
     }
-    const ra = clamp((lvl - 0.5) * 2, 0, 1);
-    if (ra > 0) {
-      const rx = W / 2, ry = H / 2 - 78;
-      this.base(); c.globalAlpha = ra;
-      c.fillStyle = 'rgba(8,8,11,0.9)'; rrectPath(c, rx - 93, H - ry - 21, 186, 42, 8); c.fill();
-      c.save(); c.shadowColor = 'rgba(230,31,51,0.8)'; c.shadowBlur = 8; c.strokeStyle = '#8A2432'; c.lineWidth = 2;
-      rrectPath(c, rx - 92, H - ry - 20, 184, 40, 8); c.stroke(); c.restore();
-      this.text('TAP TO RETRY', rx, ry, 13, '#f2e6d0', 'center', 'bold', ra);
-      ui.retry = { x: rx, y: ry };
-    }
+    if (g.fade > 0) { this.base(); c.globalAlpha = g.fade; c.fillStyle = '#000'; c.fillRect(0, 0, W, H); }
+    this.base();
   }
 
   drawTitle(t, player) {

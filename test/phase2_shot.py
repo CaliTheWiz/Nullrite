@@ -11,7 +11,7 @@ async def main():
         page.on('console', lambda m: errs.append(f'{m.type}: {m.text}') if m.type in ('error', 'warning') else None)
         page.on('pageerror', lambda e: errs.append(f'PAGEERROR: {e}'))
         await page.goto(URL); await page.wait_for_timeout(800)
-        await page.touchscreen.tap(426, 200); await page.wait_for_timeout(1200)
+        await page.touchscreen.tap(426, 200); await page.evaluate('window.__nullrite.game.startFight(true)'); await page.wait_for_timeout(1200)
         await page.evaluate("""() => { const g = window.__nullrite.game, B = g.boss, P = g.player, {BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP} = window.__nullrite.C;
             B.idle_time = 999; P.gx = 0; P.gy = B.gy - 160; B.hp = BOSS_MAX_HP * 0.5 + 5;
             g.hitBoss(30, 5, -Math.PI / 2, false, false); }""")

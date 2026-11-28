@@ -44,9 +44,9 @@ function drawItemIcon(c, name, cx, cy, size, col, alpha) {
 }
 
 class EquipMenu {
-  constructor(game) { this.g = game; this.open = false; this.slot = 'right'; this.focus = null; this.msg = ''; this.msg_t = 0; this.hold = null; this.rects = []; }
+  constructor(game) { this.g = game; this.open = false; this.tab = 'equip'; this.slot = 'right'; this.focus = null; this.msg = ''; this.msg_t = 0; this.hold = null; this.rects = []; this.confirm = 0; }
   toggle() { if (this.open) this.close(); else this.show(); }
-  show() { this.open = true; this.pick(this.slot); }
+  show() { this.open = true; this.confirm = 0; this.pick(this.slot); }
   close() { this.open = false; this.hold = null; }
   pick(slot) {
     const inv = this.g.inv; this.slot = slot; this.focus = inv.eq[slot] || null;
@@ -58,6 +58,7 @@ class EquipMenu {
   say(m) { this.msg = m; this.msg_t = 1.6; }
   update(dt) {
     if (this.msg_t > 0) this.msg_t -= dt;
+    if (this.confirm > 0) this.confirm -= dt;
     if (this.hold && this.g.t - this.hold.t0 >= 1.2) {                  // reset progress (held)
       const inv = this.g.inv; inv.reset(); inv.flags = {}; inv.save(); this.g.player.applyLoadout(); this.hold = null; this.pick('right');
       this.say('PROGRESS RESET'); this.g.sfx('thud', 0.6);
@@ -68,6 +69,11 @@ class EquipMenu {
     for (const r of this.rects) {
       if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h) continue;
       if (r.kind === 'close') { this.close(); this.g.sfx('ready', 0.25); return; }
+      if (r.kind === 'tab') { this.tab = r.tab; this.confirm = 0; this.g.sfx('ready', 0.2); return; }
+      if (r.kind === 'retry') {
+        if (this.confirm <= 0) { this.confirm = 3; this.g.sfx('ready', 0.2); return; }      // tap twice: it ends the current fight
+        this.confirm = 0; this.close(); this.g.retryBoss(); return;
+      }
       if (r.kind === 'slot') { this.pick(r.slot); this.g.sfx('ready', 0.2); return; }
       if (r.kind === 'reset') { this.hold = { id, t0: this.g.t }; return; }
       if (r.kind === 'item') {
@@ -88,13 +94,21 @@ class EquipMenu {
     R.base(); this.rects = [];
     c.fillStyle = 'rgba(3,3,5,0.9)'; c.fillRect(0, 0, W, H);
     const sx = HUD.SAFE_X, top = HUD.TOP + 10, bot = H - 12;
-    // header + close
-    this.serif(c, 'EQUIPMENT', sx, top + 14, 17, MENU_COL.gold, 'left');
+    // header: tabs + close
+    let tx = sx;
+    for (const [tab, label] of [['equip', 'EQUIPMENT'], ['system', 'SYSTEM']]) {
+      const on = this.tab === tab; c.font = `bold ${on ? 17 : 13}px Georgia, serif`; const tw = c.measureText(label).width;
+      this.serif(c, label, tx, top + 14, on ? 17 : 13, on ? MENU_COL.gold : MENU_COL.dim, 'left');
+      if (on) { c.fillStyle = MENU_COL.goldD; c.fillRect(tx, top + 26, tw, 1.2); }
+      this.rects.push({ kind: 'tab', tab, x: tx - 6, y: top - 6, w: tw + 12, h: 36 }); tx += tw + 26;
+    }
     const cx = W - sx - 18, cy = top + 14;
     c.strokeStyle = MENU_COL.goldD; c.lineWidth = 1; c.beginPath(); c.arc(cx, cy, 15, 0, TAU); c.stroke();
     c.strokeStyle = MENU_COL.text; c.lineWidth = 1.6; c.beginPath(); c.moveTo(cx - 5, cy - 5); c.lineTo(cx + 5, cy + 5); c.moveTo(cx + 5, cy - 5); c.lineTo(cx - 5, cy + 5); c.stroke();
     this.rects.push({ kind: 'close', x: cx - 24, y: cy - 22, w: 48, h: 44 });
-    const y0 = top + 34, ts = Math.min(52, Math.floor((bot - y0 - 26 - 4 * 5) / 5)), gap = 5;
+    const y0 = top + 34;
+    if (this.tab === 'system') { this.drawSystem(c, sx, y0, W - 2 * sx, bot); return; }
+    const ts = Math.min(52, Math.floor((bot - y0 - 4 * 5) / 5)), gap = 5;
     // ---- column A: slots (2 x 5)
     MENU_SLOTS.forEach(([slot, label, glyph], i) => {
       const col = i % 2, row = (i / 2) | 0, x = sx + col * (ts + gap), y = y0 + row * (ts + gap), sel = slot === this.slot;
@@ -107,12 +121,6 @@ class EquipMenu {
       if (this.unseenIn(slot)) { c.fillStyle = MENU_COL.crimson; c.beginPath(); c.arc(x + ts - 6, y + 6, 3, 0, TAU); c.fill(); }
       this.rects.push({ kind: 'slot', slot, x, y, w: ts, h: ts });
     });
-    // reset (hold)
-    const ry = y0 + 5 * (ts + gap) + 4, rw = 2 * ts + gap;
-    const hk = this.hold ? clamp((this.g.t - this.hold.t0) / 1.2, 0, 1) : 0;
-    c.fillStyle = 'rgba(60,20,26,0.5)'; c.fillRect(sx, ry, rw * hk, 16);
-    this.text(c, this.hold ? 'KEEP HOLDING...' : 'HOLD: RESET PROGRESS', sx + rw / 2, ry + 9, 7, this.hold ? MENU_COL.crimson : '#5d564c', 'center');
-    this.rects.push({ kind: 'reset', x: sx, y: ry - 4, w: rw, h: 24 });
     // ---- column B: items for this slot
     const bx = sx + 2 * ts + gap + 14, bw = Math.min(230, (W - 2 * sx) * 0.32), by = y0;
     this.text(c, SLOT_TITLE[this.slot], bx, by + 6, 9, MENU_COL.gold, 'left');
@@ -142,6 +150,29 @@ class EquipMenu {
       c.globalAlpha = clamp(this.msg_t / 0.3, 0, 1);
       this.serif(c, this.msg, W / 2, bot - totH - 16, 12, '#ffb070', 'center'); c.globalAlpha = 1;
     }
+  }
+  /** SYSTEM tab: retry the boss (back to the shrine, boss revived), reset progress (held). */
+  drawSystem(c, x, y, w, bot) {
+    const g = this.g, bw = Math.min(380, w * 0.55), bh = 58, bx = x;
+    const state = g.fight === 'won' ? 'DEFEATED' : g.fight === 'active' ? 'FIGHTING' : 'AWAITS YOU';
+    this.text(c, 'THE OBSIDIAN SENTINEL', bx, y + 8, 9, MENU_COL.dim, 'left');
+    this.text(c, state, bx + bw, y + 8, 9, g.fight === 'won' ? MENU_COL.up : MENU_COL.gold, 'right');
+    let yy = y + 22;
+    this.panel(c, bx, yy, bw, bh, this.confirm > 0);
+    this.serif(c, this.confirm > 0 ? 'TAP AGAIN TO RETRY' : 'RETRY THE SENTINEL', bx + 14, yy + 20, 14, this.confirm > 0 ? MENU_COL.gold : MENU_COL.text, 'left');
+    this.text(c, 'Revive the boss and wake at the shrine.', bx + 14, yy + 40, 8, MENU_COL.dim, 'left');
+    this.rects.push({ kind: 'retry', x: bx, y: yy, w: bw, h: bh });
+    yy += bh + 12;
+    const hk = this.hold ? clamp((g.t - this.hold.t0) / 1.2, 0, 1) : 0;
+    this.panel(c, bx, yy, bw, bh, false);
+    c.fillStyle = 'rgba(90,24,34,0.55)'; c.fillRect(bx + 1, yy + 1, (bw - 2) * hk, bh - 2);
+    this.serif(c, this.hold ? 'KEEP HOLDING...' : 'RESET PROGRESS', bx + 14, yy + 20, 14, this.hold ? MENU_COL.crimson : MENU_COL.text, 'left');
+    this.text(c, 'Hold to wipe your items and start over.', bx + 14, yy + 40, 8, MENU_COL.dim, 'left');
+    this.rects.push({ kind: 'reset', x: bx, y: yy, w: bw, h: bh });
+    // stats beside it
+    const st = g.player.stats, sx2 = bx + bw + 18, sw = x + w - sx2;
+    if (sw > 150) this.totals(c, sx2, y + 22, sw, 74, st);
+    if (this.msg_t > 0) { c.globalAlpha = clamp(this.msg_t / 0.3, 0, 1); this.serif(c, this.msg, x + w / 2, bot - 10, 12, '#ffb070', 'center'); c.globalAlpha = 1; }
   }
   detail(c, x, y, w, h) {
     const id = this.focus, inv = this.g.inv, d = id && ITEM_DB[id];

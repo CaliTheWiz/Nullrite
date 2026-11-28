@@ -605,6 +605,13 @@ function buildArt(scale) {
     withGlow(x, HOT_RED, 8, () => fillP(x, [[12, 14], [48, 14], [44, 6], [16, 6]], 'rgba(255,90,60,0.55)'));
     withGlow(x, GLOW_RED, 6, () => fillOval(x, 22, 6, 16, 7, 'rgba(255,210,150,0.55)'));
   });
+  A.gateBar = makeTex(18, 124, (x) => {                    // an obsidian bar of the arena gate, spiked, a crimson seam
+    fillP(x, [[9, 0], [15, 14], [14, 124], [4, 124], [3, 14]], '#1b1c23');
+    fillP(x, [[9, 0], [15, 14], [9, 18], [3, 14]], '#34353f');
+    fillP(x, [[11, 18], [14, 16], [13.5, 124], [11, 124]], '#121217');
+    withGlow(x, HOT_RED, 4, () => lineP(x, [[8.5, 22], [8.5, 118]], 1.2, '#c0283c'));
+    fillP(x, [[3, 92], [15, 92], [15, 97], [3, 97]], GOLD_A(0.7));
+  });
   A.core = makeTex(22, 30, drawCore); A.plate = makeTex(46, 30, drawPlate); A.halberd = makeTex(230, 50, drawHalberd);
   A.tiles = [11, 23, 37, 51].map(s => makeTex(TILE, TILE, drawTileBase(s)));
   A.runes = [11, 23, 37, 51].map(s => makeTex(TILE, TILE, drawTileRunes(s)));

@@ -30,7 +30,7 @@ canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 <script>
 'use strict';
 {
-const BUILD = '99e27e';
+const BUILD = '633ef4';
 // ============================================================ CONFIG (pure data)
 // Nullrite - all tuning lives here. Behaviour mirrors the Pythonista build.
 const K = 0.65;                 // 2.5D ground squash: screen_y = ground_y * K
@@ -180,8 +180,8 @@ const PICKUPS = [[[-430, -150], 'firebomb', 3], [[440, 330], 'firebomb', 3]];
 const PICKUP_RADIUS = 38;
 // chests (test room) and boss drops; each gives its items once per save
 const CHESTS = [
-  { id: 'chest_west', pos: [-610, 40], items: ['greatsword', 'ember_ring'] },
-  { id: 'chest_east', pos: [610, -40], items: ['spear', 'crimson_locket'] },
+  { id: 'chest_west', pos: [-400, -1470], items: ['greatsword', 'ember_ring'] },
+  { id: 'chest_east', pos: [400, -1470], items: ['spear', 'crimson_locket'] },
 ];
 const CHEST_REACH = 82, CHEST_RADIUS = 26, CHEST_OPEN_TIME = 0.5;
 const BOSS_DROPS = { id: 'boss_sentinel', items: ['sentinel_helm', 'sentinel_plate', 'sentinel_sigil', 'oath_ring'] };
@@ -195,7 +195,16 @@ const PLAYER_MAX_HP = 100, HURT_TIME = 0.32, HURT_IFRAMES = 0.65, FLASK_CHARGES 
 // ---- boss
 const BOSS_MAX_HP = 1400, BOSS_POISE = 100, BOSS_RADIUS = 52, BOSS_SPEED = 105;
 const POISE_REGEN = 14, POISE_DELAY = 3.0, STAGGER_TIME = 2.5, STAGGER_DMG_MULT = 1.5;
-const BOSS_START = [0, 170], PLAYER_START = [0, -300];
+const BOSS_START = [0, 170], PLAYER_START = [0, -300];      // PLAYER_START: where a fight begins (tests / startFight(true))
+// ---- the world: a shrine room (spawn) south, a path north, the boss arena (centred on 0,0)
+const ROOMS = { arena: [-768, -768, 768, 768], path: [-130, -1200, 130, -720], shrine: [-576, -1920, 576, -1152] };   // walkable (x0, y0, x1, y1)
+const PATH_FLOOR = [-130, -1152, 130, -768];                // the path's visible floor
+const SPAWN = [0, -1690], SHRINE = [0, -1480];          // the shrine stands north of the sigil, between the chests
+const BOSS_LAND = [0, -300];                             // where he comes down: close enough to see from the gate
+const GATE = { x0: -130, x1: 130, y: -768, close: 0.55, open: 1.6 };
+const FIGHT_TRIGGER_Y = -630;                              // walk this far into the arena and the gate seals
+const BOSS_ENTER = { fall: 0.75, kneel: 1.6, rise: 3.0, height: 760 };
+const RESPAWN_AT = 3.4;                                    // seconds after YOU DIED
 const RAD = Math.PI / 180;
 const BOSS_ATTACKS = {
   sweep: { windup: 0.85, track: 0.4, active: 0.22, recovery: 0.9, range: 250, half: 80 * RAD,
@@ -230,7 +239,8 @@ const CRIMSON = '#ff3048', RUNE_GOLD = '#b08a3e', RUNE_CRIMSON = '#d8243a';
 const SPARK_COLORS = ['#ffffff', '#ffe7c2', '#ffb070', '#ff3048', '#ff5a6a'];
 
 const S_IDLE = 'IDLE', S_MOVE = 'MOVE', S_WINDUP = 'WINDUP', S_ACTIVE = 'ACTIVE', S_RECOVERY = 'RECOVERY',
-      S_DODGE = 'DODGE', S_HURT = 'HURT', S_DEAD = 'DEAD', S_STALK = 'STALK', S_STAGGERED = 'STAGGERED', S_PHASE = 'PHASE';
+      S_DODGE = 'DODGE', S_HURT = 'HURT', S_DEAD = 'DEAD', S_STALK = 'STALK', S_STAGGERED = 'STAGGERED', S_PHASE = 'PHASE',
+      S_ABSENT = 'ABSENT', S_ENTER = 'ENTER';
 
 // 8-direction sprite views: five drawn, three mirrored
 const VIEWS = ['S', 'SE', 'E', 'NE', 'N'];
@@ -1325,6 +1335,21 @@ function poseBoss(b, dt, t) {
   } else if (st === S_RECOVERY && b.kind === 'lance') {
     const q = Tm / atk.recovery;
     if (q < 0.35) { bossLanceAt(T, [22, 26, 24], 18 - 6 * q, 0.3 - 0.4 * q, -0.45); rate = 9; } else rate = 3;
+  } else if (st === S_ENTER) {
+    const E = BOSS_ENTER;
+    if (Tm < E.fall) { bossSlamAt(T, 105 * RAD, 2, -0.08); rate = 10; }
+    else if (Tm < E.kneel) {                                                   // landed on one knee, head bowed
+      T.crouch = 26; T.lean = 0.3; T.twist = 0.05; T.headPitch = 0.42; T.roll = 0.03;
+      setv(T.fl, -4, 28, 0); setv(T.fr, 2, -28, 1);
+      setv(T.H, -42, 34, 72); setv(T.D, 0.03, 0.12, 1); setv(T.E, 0, 1, 0); T.gu = 72;
+      T.freeR = 1; setv(T.R, 24, 22, 42); T.lift = -18; rate = Tm < E.fall + 0.1 ? 26 : 8;
+    } else {                                                                   // rises and roars
+      const k = (Tm - E.kneel) / (E.rise - E.kneel), rise = Math.sin(Math.PI * Math.min(1, k * 1.15));
+      T.crouch = 3 - 6 * rise; T.lean = 0.05 - 0.24 * rise; T.headPitch = 0.05 - 0.45 * rise; T.roll = Math.sin(Tm * 30) * 0.02 * rise;
+      setv(T.fl, -6, 8, 0); setv(T.fr, 6, -8, 0);
+      setv(T.H, -50, 12, 100 + 70 * rise); setv(T.D, -0.08, 0.05, 1); T.gu = 100;
+      T.freeR = 1; setv(T.R, 46 + 40 * rise, 7 + 8 * rise, 66 + 62 * rise); T.spread = 22 * rise; T.lift = 8 * rise; rate = 5;
+    }
   } else if (st === S_STAGGERED) {
     const k = Tm / STAGGER_TIME;
     T.crouch = 25; T.lean = 0.32; T.twist = 0.1; T.headPitch = 0.4; T.roll = Math.sin(Tm * 9) * 0.05 * (1 - k) + 0.04;
@@ -1423,7 +1448,7 @@ function bossContacts(R, b) {
     else if (c.up && z < 6.5) { c.up = false; R.events.push({ type: 'foot', s: A.s, f: A.f, str: clamp(0.35 + vz / 260, 0.35, 1) }); R.kick(28 * clamp(0.35 + vz / 260, 0.35, 1), -18, 0); }
     c.z = z;
   }
-  const kneelOK = b.state === S_STAGGERED || (b.state === S_DEAD && b.dead_t < 0.8);       // only when he really goes down on a knee
+  const kneelOK = b.state === S_STAGGERED || (b.state === S_DEAD && b.dead_t < 0.8) || (b.state === S_ENTER && b.state_t < BOSS_ENTER.kneel);       // only when he really goes down on a knee
   for (const [key, Kn] of [['kL', J.kneeL], ['kR', J.kneeR]]) {
     const c = Cn[key];
     if (!kneelOK) { c.up = Kn.z > 16 || c.up; continue; }
@@ -1780,7 +1805,7 @@ class Player {
   constructor(game) { this.g = game; this.setWeapon('oathsword'); this.reset(); }
   setWeapon(key) { this.weaponKey = key; this.weapon = WEAPONS[key]; this.combo = -1; this.combo_expire_t = -1; }
   reset() {
-    [this.gx, this.gy] = PLAYER_START;
+    [this.gx, this.gy] = SPAWN;
     this.vx = this.vy = 0; this.facing = Math.PI / 2; this.state = S_IDLE; this.state_t = 0;
     this.applyLoadout();
     this.hp = this.maxHp; this.hp_lag = this.maxHp; this.hp_lag_hold = 0;
@@ -2139,7 +2164,7 @@ class Boss {
   constructor(game) { this.g = game; this.RADIUS = BOSS_RADIUS; this.rig = new BossRig(); this.reset(); }
   reset() {
     [this.gx, this.gy] = BOSS_START; this.rig.fresh = true; this.rig.resetWeight();
-    this.vx = this.vy = 0; this.facing = -Math.PI / 2; this.state = S_IDLE; this.state_t = 0; this.idle_time = 1.4;
+    this.vx = this.vy = 0; this.facing = -Math.PI / 2; this.state = S_ABSENT; this.state_t = 0; this.idle_time = 1.4;
     this.hp = BOSS_MAX_HP; this.hp_lag = BOSS_MAX_HP; this.hp_lag_hold = 0; this.poise = BOSS_POISE; this.poise_delay = 0;
     this.kind = null; this.atk = null; this.want = 0; this.attack_dir = this.facing; this.hit_done = false;
     this.phase = 1; this.followed = false;
@@ -2156,7 +2181,8 @@ class Boss {
     this.halX = 0; this.halY = 0; this.halZ = 5; this.halAlpha = 1;
     this.animate(0, 0);
   }
-  get alive() { return this.state !== S_DEAD; }
+  get alive() { return this.state !== S_DEAD && this.state !== S_ABSENT; }
+  get present() { return this.state !== S_ABSENT; }
   enter(s) { this.state = s; this.state_t = 0; }
   chooseAttack(dist) {
     let opts;
@@ -2192,8 +2218,18 @@ class Boss {
     return Math.max(0, best);
   }
   update(dt, t, player) {
+    if (this.state === S_ABSENT) return;
     this.state_t += dt;
     const dx = player.gx - this.gx, dy = player.gy - this.gy, dist = hypot(dx, dy), to_p = Math.atan2(dy, dx);
+    if (this.state === S_ENTER) {                       // crashes down from above, kneels, rises, roars
+      const T = this.state_t, E = BOSS_ENTER;
+      if (T < E.fall) this.elev = E.height * (1 - Math.pow(T / E.fall, 2));
+      else { if (this.elev > 0 || T - dt < E.fall) { this.elev = 0; this.g.onBossLand(this); } }
+      if (T > E.kneel) this.facing = approachAngle(this.facing, to_p, 2.5 * dt);
+      if (T >= E.kneel + 0.35 && T - dt < E.kneel + 0.35) { this.g.sfx('roar', 1.0); this.g.addShake(Math.PI / 2, 10); this.g.haptic('heavy', 0.8); }
+      if (T >= E.rise) { this.enter(S_IDLE); this.idle_time = 0.5; }
+      return;
+    }
     if (this.state !== S_STAGGERED && this.state !== S_DEAD && this.state !== S_PHASE) {
       if (this.poise_delay > 0) this.poise_delay -= dt; else this.poise = Math.min(BOSS_POISE, this.poise + POISE_REGEN * dt);
     }
@@ -2262,7 +2298,7 @@ class Boss {
     [this.hp_lag, this.hp_lag_hold] = lagBar(this.hp_lag, this.hp_lag_hold, this.hp, 260, dt);
   }
   takeHit(dmg, poiseDmg, angle, heavy, crit) {
-    if (this.state === S_PHASE) return 'immune';
+    if (this.state === S_PHASE || this.state === S_ENTER || this.state === S_ABSENT) return 'immune';
     const staggered = this.state === S_STAGGERED;
     const mult = crit ? 1 : (staggered ? STAGGER_DMG_MULT : 1);
     this.hp = Math.max(0, this.hp - dmg * mult); this.hp_lag_hold = 0.6;
@@ -2448,20 +2484,57 @@ class Game {
     this.proj = new Projectiles(this);
     this.pickups = PICKUPS.map(p => new Pickup(p[0], p[1], p[2]));
     this.chests = CHESTS.map(d => new Chest(d)); this.chestNear = null; this.loot = null;
+    this.pillars.push(Object.assign(new Pillar(SHRINE[0], SHRINE[1]), { shrine: true }));
+    this.fight = 'idle'; this.gate_t = 0; this.victory_t = 0; this.fade = 0;
     this.ritualFlash = 0;
     this.waves = [];                     // phase-2 slam shockwaves (fixed pool)
     for (let i = 0; i < 6; i++) this.waves.push({ live: false, x: 0, y: 0, r: 0, delay: 0, hit: false, alpha: 0, started: false, dust_t: 0 });
     this.resetRound();
   }
-  resetRound() {
-    this.player.reset(); this.boss.reset(); this.fx.clear(); this.proj.clear();
+  /** A fresh start at the shrine with the boss waiting (title screen, retry from the menu). */
+  resetRound() { this.fight = 'idle'; this.boss.reset(); this.respawn(true); this.fade = 0; }
+  /** Back to the shrine: after a death, or when retrying. The boss stays dead if you already beat him. */
+  respawn(resetBoss) {
+    if (resetBoss || this.fight !== 'won') { this.fight = 'idle'; this.boss.reset(); }
+    this.gate_t = 0; this.victory_t = this.fight === 'won' ? 99 : 0; this.fade = 1;
+    this.player.reset(); this.fx.clear(); this.proj.clear();
     for (const pk of this.pickups) pk.reset();
     for (const ch of this.chests) ch.reset(this.inv); this.chestNear = null; this.loot = null; this.bossLoot = [];
     this.buffer = null; this.hitstop = 0; this.shake_amp = 0; this.shake_t = 0; this.shake_dx = 1; this.shake_dy = 0; this.bump_y = 0; this.bump_v = 0;
     this.ox = 0; this.oy = 0; this.stamDeny = 0; this.toast_t = 0; this.toast_key = null;
     this.outcome = null; this.outcome_t = 0; this.hapticQueue = []; this.visceralReady = false;
-    this.phaseMix = 0; for (const w of this.waves) w.live = false;
+    this.phaseMix = this.fight === 'won' ? this.phaseMix : 0; for (const w of this.waves) w.live = false;
     [this.cam_x, this.cam_y] = this.cameraTarget();
+  }
+  retryBoss() { this.respawn(true); this.sfx('thud', 0.5); }
+  /** The gate seals and the Sentinel comes down. immediate: skip the entrance (tests, sheets). */
+  startFight(immediate) {
+    const b = this.boss; this.fight = 'active'; this.victory_t = 0;
+    if (immediate) {
+      [b.gx, b.gy] = BOSS_START; b.elev = 0; b.enter(S_IDLE); b.idle_time = 1.0; this.gate_t = 1;
+      [this.player.gx, this.player.gy] = PLAYER_START; [this.cam_x, this.cam_y] = this.cameraTarget(); return;
+    }
+    [b.gx, b.gy] = BOSS_LAND; b.facing = Math.atan2(this.player.gy - b.gy, this.player.gx - b.gx);
+    b.enter(S_ENTER); b.elev = BOSS_ENTER.height;
+    this.sfx('clank', 0.8); this.sfx('stomp', 0.8); this.addBump(3); this.haptic('medium', 0.6);
+  }
+  onBossLand(b) {                                     // the entrance: he hits the floor like the slam, harder
+    this.sfx('boom', 1.0); this.sfx('crunch', 0.6); this.addShake(Math.PI / 2, 18); this.addBump(16); this.ritualFlash = 1;
+    this.haptic('heavy', 1.0); this.hapticQueue.push([0.1, 'heavy', 0.9]);
+    this.fx.quake(b.gx, b.gy, 1.6); this.fx.slamImpact(b.gx, b.gy, 200); b.rig.kick(230, -240, 0.35);
+  }
+  /** Gate, fight trigger, victory and death timers. */
+  updateWorld(dt) {
+    const p = this.player, b = this.boss;
+    if (this.fight === 'idle' && b.state === S_ABSENT && p.alive && this.outcome === null && p.gy > FIGHT_TRIGGER_Y && Math.abs(p.gx) < ARENA_HALF) this.startFight(false);
+    const want = this.fight === 'active' ? 1 : (this.fight === 'won' && this.victory_t < 2.6 ? 1 : 0);
+    const prev = this.gate_t;
+    this.gate_t = want > this.gate_t ? Math.min(1, this.gate_t + dt / GATE.close) : Math.max(0, this.gate_t - dt / GATE.open);
+    if (prev >= 1 && this.gate_t < 1) { this.sfx('skid', 0.7); this.sfx('clank', 0.5); this.addBump(2); }
+    if (prev < 1 && this.gate_t >= 1 && this.fight === 'active') { this.sfx('boom', 0.6); this.addBump(5); this.addShake(Math.PI / 2, 5); }
+    if (this.fight === 'won') this.victory_t += dt;
+    if (this.fade > 0) this.fade = Math.max(0, this.fade - dt / 0.8);
+    if (this.outcome === 'death' && this.outcome_t >= RESPAWN_AT) this.respawn(false);
   }
   sfx(n, v) { this.out.sfx(n, v); }
   haptic(s, i) { this.out.haptic(s, i); }
@@ -2742,7 +2815,7 @@ class Game {
     this.bossLoot = this.inv.flags[BOSS_DROPS.id] ? [] : this.giveLoot(BOSS_DROPS.id, BOSS_DROPS.items); this.loot = null;
     this.sfx('boss_die', 1.0); this.haptic('heavy', 1.0);
     this.hapticQueue.push([0.18, 'heavy', 1.0]); this.hapticQueue.push([0.45, 'medium', 0.8]);
-    this.fx.deathBurst(b); this.addShake(Math.PI / 2, 20); this.hitstop = 0.12; this.setOutcome('victory');
+    this.fx.deathBurst(b); this.addShake(Math.PI / 2, 20); this.hitstop = 0.12; this.fight = 'won'; this.victory_t = 0;
     for (const w of this.waves) w.live = false;
   }
   bossSweepHits(b) {
@@ -2784,15 +2857,27 @@ class Game {
       this.pushOut(p, pil.gx, pil.gy, PLAYER_RADIUS + pil.RADIUS);
       if (b.elev < 30) this.pushOut(b, pil.gx, pil.gy, b.RADIUS + pil.RADIUS);
     }
-    let lim = ARENA_HALF - PLAYER_RADIUS - 6; p.gx = clamp(p.gx, -lim, lim); p.gy = clamp(p.gy, -lim, lim);
-    lim = ARENA_HALF - b.RADIUS - 4; b.gx = clamp(b.gx, -lim, lim); b.gy = clamp(b.gy, -lim, lim);
+    this.clampWalk(p, PLAYER_RADIUS + 6, this.fight === 'active' || this.gate_t > 0.5 ? [ROOMS.arena] : [ROOMS.arena, ROOMS.path, ROOMS.shrine]);   // the gate seals the arena
+    let lim = ARENA_HALF - b.RADIUS - 4; b.gx = clamp(b.gx, -lim, lim); b.gy = clamp(b.gy, -lim, lim);
+  }
+  /** Keep an entity inside the walkable rooms: the nearest point of the nearest room. */
+  clampWalk(e, r, rooms) {
+    let bx = e.gx, by = e.gy, bd = 1e18;
+    for (const R of rooms) {
+      const x = clamp(e.gx, R[0] + r, R[2] - r), y = clamp(e.gy, R[1] + r, R[3] - r), d = (x - e.gx) ** 2 + (y - e.gy) ** 2;
+      if (d < bd) { bd = d; bx = x; by = y; if (d === 0) break; }
+    }
+    e.gx = bx; e.gy = by;
   }
   cameraTarget() {
-    const p = this.player, b = this.boss, lean = 0.38, cap = 200;
+    const p = this.player, b = this.boss;
+    if (b.state === S_ENTER) return [p.gx + (b.gx - p.gx) * 0.8, b.gy - 60];      // the entrance: frame him
+    const cap = 200, lean = b.present && this.fight === 'active' ? 0.38 : 0;
     let dx = (b.gx - p.gx) * lean, dy = (b.gy - p.gy) * lean;
     const m = hypot(dx, dy); if (m > cap) { dx *= cap / m; dy *= cap / m; }
     return [p.gx + dx, p.gy + dy];
   }
+
   updateCamera(dt) {
     const [tx, ty] = this.cameraTarget(), k = Math.min(1, dt * 5);
     this.cam_x += (tx - this.cam_x) * k; this.cam_y += (ty - this.cam_y) * k;
@@ -2816,10 +2901,11 @@ class Game {
       if (h[0] <= 0) { this.haptic(h[1], h[2]); this.hapticQueue.splice(i, 1); }
     }
     p.move_dir = ctl.moveDir; p.move_mag = ctl.moveMag; p.sprint_req = ctl.sprint; p.aim_dir = ctl.aimDir;
-    p.lookX = b.gx; p.lookY = b.gy; p.lookOn = b.state !== S_DEAD && this.outcome === null;   // his eyes follow the boss
+    p.lookX = b.gx; p.lookY = b.gy; p.lookOn = b.alive && this.fight === 'active' && this.outcome === null;   // his eyes follow the boss
     p.charging = (ctl.heavyHeld >= CHARGE_START && p.alive) ? ctl.heavyHeld : 0;
     if (this.stamDeny > 0) this.stamDeny -= dt;
     if (this.outcome !== null) this.outcome_t += dt;
+    this.updateWorld(dt);
     if (this.hitstop > 0) { this.hitstop -= dt; this.updateCamera(dt); return; }   // freeze-frame
     this.updateVisceral();
     this.proj.update(dt);
@@ -3449,6 +3535,13 @@ function buildArt(scale) {
     fillP(x, [[0, 18], [60, 18], [57, 0], [3, 0]], '#060507');
     withGlow(x, HOT_RED, 8, () => fillP(x, [[12, 14], [48, 14], [44, 6], [16, 6]], 'rgba(255,90,60,0.55)'));
     withGlow(x, GLOW_RED, 6, () => fillOval(x, 22, 6, 16, 7, 'rgba(255,210,150,0.55)'));
+  });
+  A.gateBar = makeTex(18, 124, (x) => {                    // an obsidian bar of the arena gate, spiked, a crimson seam
+    fillP(x, [[9, 0], [15, 14], [14, 124], [4, 124], [3, 14]], '#1b1c23');
+    fillP(x, [[9, 0], [15, 14], [9, 18], [3, 14]], '#34353f');
+    fillP(x, [[11, 18], [14, 16], [13.5, 124], [11, 124]], '#121217');
+    withGlow(x, HOT_RED, 4, () => lineP(x, [[8.5, 22], [8.5, 118]], 1.2, '#c0283c'));
+    fillP(x, [[3, 92], [15, 92], [15, 97], [3, 97]], GOLD_A(0.7));
   });
   A.core = makeTex(22, 30, drawCore); A.plate = makeTex(46, 30, drawPlate); A.halberd = makeTex(230, 50, drawHalberd);
   A.tiles = [11, 23, 37, 51].map(s => makeTex(TILE, TILE, drawTileBase(s)));
@@ -5162,13 +5255,37 @@ class Renderer {
     // phase 2: runes shift from dull gold to pulsing crimson
     const goldA = (0.3 + 0.08 * Math.sin(t * 1.3)) * (1 - m), redA = (0.34 + 0.2 * Math.sin(t * 4.2)) * m;
     this.floorA = [goldA, redA, 0.25 + 0.18 * Math.sin(t * 2) + 0.5 * g.ritualFlash];
+    this.drawRoomFloor(g, ROOMS.shrine, t, true); this.drawRoomFloor(g, PATH_FLOOR, t, false);
     this.drawTiles(g, null);
-    const c = this.ctx, A = ARENA_HALF;
-    this.base(); c.globalAlpha = 0.7 + 0.3 * m * (0.5 + 0.5 * Math.sin(t * 4.2)); c.strokeStyle = m > 0.5 ? CRIMSON : '#8A2432'; c.lineWidth = 3 * Z;
-    c.beginPath();
-    c.moveTo(this.sx(-A), this.sy(-A * K)); c.lineTo(this.sx(A), this.sy(-A * K));
-    c.lineTo(this.sx(A), this.sy(A * K)); c.lineTo(this.sx(-A), this.sy(A * K)); c.closePath(); c.stroke();
+    const c = this.ctx, A = ARENA_HALF, G = GATE, S = ROOMS.shrine, P = PATH_FLOOR;
+    const line = (pts) => { c.beginPath(); c.moveTo(this.sx(pts[0][0]), this.sy(pts[0][1] * K)); for (let i = 1; i < pts.length; i++) c.lineTo(this.sx(pts[i][0]), this.sy(pts[i][1] * K)); c.stroke(); };
+    this.base(); c.lineWidth = 3 * Z; c.strokeStyle = '#5a2430'; c.globalAlpha = 0.75;
+    line([[G.x0, S[3]], [S[0], S[3]], [S[0], S[1]], [S[2], S[1]], [S[2], S[3]], [G.x1, S[3]]]);
+    line([[P[0], P[1]], [P[0], P[3]]]); line([[P[2], P[1]], [P[2], P[3]]]);
+    c.globalAlpha = 0.7 + 0.3 * m * (0.5 + 0.5 * Math.sin(t * 4.2)); c.strokeStyle = m > 0.5 ? CRIMSON : '#8A2432';
+    line([[G.x0, -A], [-A, -A], [-A, A], [A, A], [A, -A], [G.x1, -A]]);
     this.drawWaves(g);
+  }
+  /** Floor of a room outside the arena (clipped to its rectangle); the shrine room gets dim gold runes and a sigil at the spawn. */
+  drawRoomFloor(g, R, t, shrine) {
+    const c = this.ctx, Z = CAMERA_ZOOM, halfW = this.W / 2 / Z + TILE, halfH = this.H / 2 / (Z * K) + TILE;
+    if (R[2] < g.cam_x - halfW || R[0] > g.cam_x + halfW || R[3] < g.cam_y - halfH || R[1] > g.cam_y + halfH) return;
+    this.base(); c.save(); c.beginPath();
+    c.moveTo(this.sx(R[0]), this.sy(R[1] * K)); c.lineTo(this.sx(R[2]), this.sy(R[1] * K)); c.lineTo(this.sx(R[2]), this.sy(R[3] * K)); c.lineTo(this.sx(R[0]), this.sy(R[3] * K)); c.closePath(); c.clip();
+    const i0 = Math.floor((R[0] + ARENA_HALF) / TILE), i1 = Math.ceil((R[2] + ARENA_HALF) / TILE), j0 = Math.floor((R[1] + ARENA_HALF) / TILE), j1 = Math.ceil((R[3] + ARENA_HALF) / TILE);
+    const runeA = shrine ? 0.1 + 0.04 * Math.sin(t * 1.1) : 0;
+    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
+      const x = -ARENA_HALF + TILE / 2 + i * TILE, y = -ARENA_HALF + TILE / 2 + j * TILE;
+      if (Math.abs(x - g.cam_x) > halfW || Math.abs(y - g.cam_y) > halfH) continue;
+      const v = (((i * 73856093) ^ (j * 19349663)) >>> 0) % 4;
+      this.ground(ART.tiles[v], x, y, TILE + 0.8, TILE + 0.8);
+      if (runeA > 0) this.ground(ART.runes[v], x, y, TILE, TILE, { color: RUNE_GOLD, alpha: runeA, blend: 'add' });
+    }
+    c.restore();
+    if (shrine) {                                            // the sigil you wake on
+      this.ground(ART.ritual, SPAWN[0], SPAWN[1], 230, 230, { alpha: 0.7 });
+      this.ground(ART.ritual, SPAWN[0], SPAWN[1], 230, 230, { color: RUNE_GOLD, alpha: 0.18 + 0.08 * Math.sin(t * 1.6), blend: 'add' });
+    }
   }
   /** Floor tiles + runes + ritual circle. ring = [cx, cy, rIn, rOut] limits it to tiles touching that annulus. */
   drawTiles(g, ring) {
@@ -5222,7 +5339,8 @@ class Renderer {
     for (const pil of g.pillars) list.push([-pil.gy, () => this.drawPillar(pil, t)]);
     for (const pk of g.pickups) if (!pk.taken) list.push([-pk.gy, () => this.drawPickup(pk, t)]);
     for (const ch of g.chests) list.push([-ch.gy, () => this.drawChest(ch, t)]);
-    list.push([-g.boss.gy, () => this.drawBoss(g.boss)]);
+    if (g.boss.present) list.push([-g.boss.gy, () => this.drawBoss(g.boss)]);
+    list.push([-GATE.y - 0.1, () => this.drawGate(g, t)]);
     list.push([-g.player.gy, () => this.drawPlayer(g.player)]);
     for (const bm of g.proj.bombs) if (bm.live) list.push([-bm.gy + 0.5, () => this.drawBomb(bm, t)]);
     for (const q of this.ghosts) if (q.live) list.push([-q.gy - 0.5, () => this.drawGhost(q, g.t)]);
@@ -5233,7 +5351,22 @@ class Renderer {
     this.entityFrame(pil.gx, pil.gy);
     this.local(ART.shadow, 0, 0, 110, 66);
     this.local(ART.obelisk, 0, 0, 70, 157, { ax: 0.5, ay: 0.03 });
-    this.local(ART.glow, 0, 95, 56, 56, { color: CRIMSON, alpha: 0.45 + 0.2 * Math.sin(t * 2.2 + pil.phase), blend: 'add' });
+    const col = pil.shrine ? RUNE_GOLD : CRIMSON;
+    this.local(ART.glow, 0, 95, pil.shrine ? 80 : 56, pil.shrine ? 80 : 56, { color: col, alpha: 0.45 + 0.2 * Math.sin(t * 2.2 + pil.phase), blend: 'add' });
+  }
+  /** The arena gate: obsidian bars that shoot up out of the floor when the fight starts, a crimson haze between them. */
+  drawGate(g, t) {
+    const k = g.gate_t; if (k <= 0.001) return;
+    const c = this.ctx, e = 1 - Math.pow(1 - k, 3), Hb = 118, n = 7, G = GATE, w = G.x1 - G.x0;
+    this.entityFrame(0, G.y);
+    c.save(); c.beginPath(); c.rect(-400, -400, 800, 400); c.clip();            // only what is above the floor shows
+    this.local(ART.glow, 0, 40, w * 1.5, 120, { color: CRIMSON, alpha: 0.4 * e * (0.8 + 0.2 * Math.sin(t * 3)), blend: 'add' });
+    for (let i = 0; i < n; i++) {
+      const x = G.x0 + w * (i + 0.5) / n, stagger = 1 - 0.18 * Math.abs(i - (n - 1) / 2) / ((n - 1) / 2);
+      this.local(ART.gateBar, x, -(1 - e) * Hb * stagger - 4, 18, Hb * stagger + 6, { ax: 0.5, ay: 0 });
+    }
+    c.restore();
+    if (k < 1) this.local(ART.shadow, 0, 0, w * 1.1, 30, { alpha: 0.5 * e });
   }
   /** Chest: body, then the lid swinging up on its back hinge (top face while closed, inner face once past upright). */
   drawChest(ch, t) {
@@ -5541,14 +5674,16 @@ class Renderer {
     if (ui.menu && ui.menu.hasUnseen()) { this.base(); c.fillStyle = CRIMSON; c.beginPath(); c.arc(SX + 170, H - cy - 9, 3.2, 0, TAU); c.fill(); }
     ui.chip = { x: SX, y: cy, w: 172 };
     if (SHOW_FPS) this.text('FPS ' + ui.fps, SX + 4, top - 88, 9, 'rgba(201,180,138,0.6)', 'left');
-    // boss bar
+    // boss bar (only while the fight is on)
     const bx = W / 2, by = HUD.SAFE_BOTTOM - 6;
+    if (g.fight === 'active' && b.present) {
     this.serif('THE OBSIDIAN SENTINEL', bx, by + 17, 11, '#d9c9a0');
     this.bar(bx - 156, by, 304, 8, b.hp / BOSS_MAX_HP, b.hp_lag / BOSS_MAX_HP, '#b3202f', 'rgba(242,230,208,0.55)');
     this.base(); c.fillStyle = '#1a1712'; c.fillRect(bx - 152, H - by + 9, 304, 3);
     const stag = b.state === S_STAGGERED;
     c.fillStyle = stag ? (((t * 10) | 0) % 2 === 0 ? '#ffffff' : '#d8a640') : '#d8a640';
     c.fillRect(bx - 152, H - by + 9, 304 * (stag ? 1 : clamp(b.poise / BOSS_POISE, 0, 1)), 3);
+    }
     // controls
     const st = ui.stick;
     this.hudImg(ART.stickBase, st.cx_vis, st.cy_vis, 132, 132, { alpha: st.baseAlpha });
@@ -5577,6 +5712,16 @@ class Renderer {
       ui.prompt = { x: px - pw / 2, y: py - ph / 2, w: pw, h: ph };
     }
     if (g.loot) this.drawLoot(g.loot.items, W / 2, H / 2 + 70, clamp(g.loot.t / 0.5, 0, 1) * clamp((3.4 - g.loot.t) / 0.25, 0, 1));
+    // victory: a banner over the fight, then you carry on (the gate opens behind it)
+    if (g.fight === 'won' && g.victory_t < 7) {
+      const vt = g.victory_t, a = clamp((vt - 1.2) / 0.7, 0, 1) * clamp((7 - vt) / 0.8, 0, 1);
+      if (a > 0) {
+        this.base(); c.globalAlpha = 0.6 * a; c.fillStyle = '#000'; c.fillRect(0, H / 2 - 75, W, 110); c.globalAlpha = 1;
+        const loot = g.bossLoot && g.bossLoot.length, vx = loot ? W * 0.31 : W / 2;
+        this.serif('VICTORY', vx, H / 2 + 30, 50, '#d9b45c', a); this.serif('THE OBSIDIAN SENTINEL HAS FALLEN', vx, H / 2 - 12, 13, '#d9c9a0', a, false);
+        if (loot) this.drawLoot(g.bossLoot, W * 0.73, H / 2 + 58, a);
+      }
+    }
   }
 
   /** 'Obtained' banner with each item's icon and name (y-up centre). */
@@ -5595,27 +5740,16 @@ class Renderer {
     c.globalAlpha = 1;
   }
   drawOverlay(g, ui) {
-    const lvl = g.overlayLevel();
-    if (lvl <= 0) return;
-    const c = this.ctx, W = this.W, H = this.H, died = g.outcome === 'death';
-    this.base(); c.globalAlpha = 0.45 * lvl; c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
-    c.globalAlpha = 0.7 * lvl; c.fillRect(0, H / 2 - 20 - 55, W, 110);
-    if (died) this.serif('YOU DIED', W / 2, H / 2 + 26, 50, '#b3202f', lvl);
-    else {
-      const loot = g.bossLoot && g.bossLoot.length, vx = loot ? W * 0.31 : W / 2;
-      this.serif('VICTORY', vx, H / 2 + 30, 50, '#d9b45c', lvl); this.serif('THE OBSIDIAN SENTINEL HAS FALLEN', vx, H / 2 - 12, 13, '#d9c9a0', lvl, false);
-      if (loot) this.drawLoot(g.bossLoot, W * 0.73, H / 2 + 58, lvl);
+    const c = this.ctx, W = this.W, H = this.H, lvl = g.outcome === 'death' ? g.overlayLevel() : 0;
+    if (lvl > 0) {
+      this.base(); c.globalAlpha = 0.45 * lvl; c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+      c.globalAlpha = 0.7 * lvl; c.fillRect(0, H / 2 - 20 - 55, W, 110);
+      this.serif('YOU DIED', W / 2, H / 2 + 26, 50, '#b3202f', lvl);
+      const k = clamp((g.outcome_t - (RESPAWN_AT - 0.7)) / 0.7, 0, 1);            // fade out before waking at the shrine
+      if (k > 0) { this.base(); c.globalAlpha = k; c.fillStyle = '#000'; c.fillRect(0, 0, W, H); }
     }
-    const ra = clamp((lvl - 0.5) * 2, 0, 1);
-    if (ra > 0) {
-      const rx = W / 2, ry = H / 2 - 78;
-      this.base(); c.globalAlpha = ra;
-      c.fillStyle = 'rgba(8,8,11,0.9)'; rrectPath(c, rx - 93, H - ry - 21, 186, 42, 8); c.fill();
-      c.save(); c.shadowColor = 'rgba(230,31,51,0.8)'; c.shadowBlur = 8; c.strokeStyle = '#8A2432'; c.lineWidth = 2;
-      rrectPath(c, rx - 92, H - ry - 20, 184, 40, 8); c.stroke(); c.restore();
-      this.text('TAP TO RETRY', rx, ry, 13, '#f2e6d0', 'center', 'bold', ra);
-      ui.retry = { x: rx, y: ry };
-    }
+    if (g.fade > 0) { this.base(); c.globalAlpha = g.fade; c.fillStyle = '#000'; c.fillRect(0, 0, W, H); }
+    this.base();
   }
 
   drawTitle(t, player) {
@@ -5689,9 +5823,9 @@ function drawItemIcon(c, name, cx, cy, size, col, alpha) {
 }
 
 class EquipMenu {
-  constructor(game) { this.g = game; this.open = false; this.slot = 'right'; this.focus = null; this.msg = ''; this.msg_t = 0; this.hold = null; this.rects = []; }
+  constructor(game) { this.g = game; this.open = false; this.tab = 'equip'; this.slot = 'right'; this.focus = null; this.msg = ''; this.msg_t = 0; this.hold = null; this.rects = []; this.confirm = 0; }
   toggle() { if (this.open) this.close(); else this.show(); }
-  show() { this.open = true; this.pick(this.slot); }
+  show() { this.open = true; this.confirm = 0; this.pick(this.slot); }
   close() { this.open = false; this.hold = null; }
   pick(slot) {
     const inv = this.g.inv; this.slot = slot; this.focus = inv.eq[slot] || null;
@@ -5703,6 +5837,7 @@ class EquipMenu {
   say(m) { this.msg = m; this.msg_t = 1.6; }
   update(dt) {
     if (this.msg_t > 0) this.msg_t -= dt;
+    if (this.confirm > 0) this.confirm -= dt;
     if (this.hold && this.g.t - this.hold.t0 >= 1.2) {                  // reset progress (held)
       const inv = this.g.inv; inv.reset(); inv.flags = {}; inv.save(); this.g.player.applyLoadout(); this.hold = null; this.pick('right');
       this.say('PROGRESS RESET'); this.g.sfx('thud', 0.6);
@@ -5713,6 +5848,11 @@ class EquipMenu {
     for (const r of this.rects) {
       if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h) continue;
       if (r.kind === 'close') { this.close(); this.g.sfx('ready', 0.25); return; }
+      if (r.kind === 'tab') { this.tab = r.tab; this.confirm = 0; this.g.sfx('ready', 0.2); return; }
+      if (r.kind === 'retry') {
+        if (this.confirm <= 0) { this.confirm = 3; this.g.sfx('ready', 0.2); return; }      // tap twice: it ends the current fight
+        this.confirm = 0; this.close(); this.g.retryBoss(); return;
+      }
       if (r.kind === 'slot') { this.pick(r.slot); this.g.sfx('ready', 0.2); return; }
       if (r.kind === 'reset') { this.hold = { id, t0: this.g.t }; return; }
       if (r.kind === 'item') {
@@ -5733,13 +5873,21 @@ class EquipMenu {
     R.base(); this.rects = [];
     c.fillStyle = 'rgba(3,3,5,0.9)'; c.fillRect(0, 0, W, H);
     const sx = HUD.SAFE_X, top = HUD.TOP + 10, bot = H - 12;
-    // header + close
-    this.serif(c, 'EQUIPMENT', sx, top + 14, 17, MENU_COL.gold, 'left');
+    // header: tabs + close
+    let tx = sx;
+    for (const [tab, label] of [['equip', 'EQUIPMENT'], ['system', 'SYSTEM']]) {
+      const on = this.tab === tab; c.font = `bold ${on ? 17 : 13}px Georgia, serif`; const tw = c.measureText(label).width;
+      this.serif(c, label, tx, top + 14, on ? 17 : 13, on ? MENU_COL.gold : MENU_COL.dim, 'left');
+      if (on) { c.fillStyle = MENU_COL.goldD; c.fillRect(tx, top + 26, tw, 1.2); }
+      this.rects.push({ kind: 'tab', tab, x: tx - 6, y: top - 6, w: tw + 12, h: 36 }); tx += tw + 26;
+    }
     const cx = W - sx - 18, cy = top + 14;
     c.strokeStyle = MENU_COL.goldD; c.lineWidth = 1; c.beginPath(); c.arc(cx, cy, 15, 0, TAU); c.stroke();
     c.strokeStyle = MENU_COL.text; c.lineWidth = 1.6; c.beginPath(); c.moveTo(cx - 5, cy - 5); c.lineTo(cx + 5, cy + 5); c.moveTo(cx + 5, cy - 5); c.lineTo(cx - 5, cy + 5); c.stroke();
     this.rects.push({ kind: 'close', x: cx - 24, y: cy - 22, w: 48, h: 44 });
-    const y0 = top + 34, ts = Math.min(52, Math.floor((bot - y0 - 26 - 4 * 5) / 5)), gap = 5;
+    const y0 = top + 34;
+    if (this.tab === 'system') { this.drawSystem(c, sx, y0, W - 2 * sx, bot); return; }
+    const ts = Math.min(52, Math.floor((bot - y0 - 4 * 5) / 5)), gap = 5;
     // ---- column A: slots (2 x 5)
     MENU_SLOTS.forEach(([slot, label, glyph], i) => {
       const col = i % 2, row = (i / 2) | 0, x = sx + col * (ts + gap), y = y0 + row * (ts + gap), sel = slot === this.slot;
@@ -5752,12 +5900,6 @@ class EquipMenu {
       if (this.unseenIn(slot)) { c.fillStyle = MENU_COL.crimson; c.beginPath(); c.arc(x + ts - 6, y + 6, 3, 0, TAU); c.fill(); }
       this.rects.push({ kind: 'slot', slot, x, y, w: ts, h: ts });
     });
-    // reset (hold)
-    const ry = y0 + 5 * (ts + gap) + 4, rw = 2 * ts + gap;
-    const hk = this.hold ? clamp((this.g.t - this.hold.t0) / 1.2, 0, 1) : 0;
-    c.fillStyle = 'rgba(60,20,26,0.5)'; c.fillRect(sx, ry, rw * hk, 16);
-    this.text(c, this.hold ? 'KEEP HOLDING...' : 'HOLD: RESET PROGRESS', sx + rw / 2, ry + 9, 7, this.hold ? MENU_COL.crimson : '#5d564c', 'center');
-    this.rects.push({ kind: 'reset', x: sx, y: ry - 4, w: rw, h: 24 });
     // ---- column B: items for this slot
     const bx = sx + 2 * ts + gap + 14, bw = Math.min(230, (W - 2 * sx) * 0.32), by = y0;
     this.text(c, SLOT_TITLE[this.slot], bx, by + 6, 9, MENU_COL.gold, 'left');
@@ -5787,6 +5929,29 @@ class EquipMenu {
       c.globalAlpha = clamp(this.msg_t / 0.3, 0, 1);
       this.serif(c, this.msg, W / 2, bot - totH - 16, 12, '#ffb070', 'center'); c.globalAlpha = 1;
     }
+  }
+  /** SYSTEM tab: retry the boss (back to the shrine, boss revived), reset progress (held). */
+  drawSystem(c, x, y, w, bot) {
+    const g = this.g, bw = Math.min(380, w * 0.55), bh = 58, bx = x;
+    const state = g.fight === 'won' ? 'DEFEATED' : g.fight === 'active' ? 'FIGHTING' : 'AWAITS YOU';
+    this.text(c, 'THE OBSIDIAN SENTINEL', bx, y + 8, 9, MENU_COL.dim, 'left');
+    this.text(c, state, bx + bw, y + 8, 9, g.fight === 'won' ? MENU_COL.up : MENU_COL.gold, 'right');
+    let yy = y + 22;
+    this.panel(c, bx, yy, bw, bh, this.confirm > 0);
+    this.serif(c, this.confirm > 0 ? 'TAP AGAIN TO RETRY' : 'RETRY THE SENTINEL', bx + 14, yy + 20, 14, this.confirm > 0 ? MENU_COL.gold : MENU_COL.text, 'left');
+    this.text(c, 'Revive the boss and wake at the shrine.', bx + 14, yy + 40, 8, MENU_COL.dim, 'left');
+    this.rects.push({ kind: 'retry', x: bx, y: yy, w: bw, h: bh });
+    yy += bh + 12;
+    const hk = this.hold ? clamp((g.t - this.hold.t0) / 1.2, 0, 1) : 0;
+    this.panel(c, bx, yy, bw, bh, false);
+    c.fillStyle = 'rgba(90,24,34,0.55)'; c.fillRect(bx + 1, yy + 1, (bw - 2) * hk, bh - 2);
+    this.serif(c, this.hold ? 'KEEP HOLDING...' : 'RESET PROGRESS', bx + 14, yy + 20, 14, this.hold ? MENU_COL.crimson : MENU_COL.text, 'left');
+    this.text(c, 'Hold to wipe your items and start over.', bx + 14, yy + 40, 8, MENU_COL.dim, 'left');
+    this.rects.push({ kind: 'reset', x: bx, y: yy, w: bw, h: bh });
+    // stats beside it
+    const st = g.player.stats, sx2 = bx + bw + 18, sw = x + w - sx2;
+    if (sw > 150) this.totals(c, sx2, y + 22, sw, 74, st);
+    if (this.msg_t > 0) { c.globalAlpha = clamp(this.msg_t / 0.3, 0, 1); this.serif(c, this.msg, x + w / 2, bot - 10, 12, '#ffb070', 'center'); c.globalAlpha = 1; }
   }
   detail(c, x, y, w, h) {
     const id = this.focus, inv = this.g.inv, d = id && ITEM_DB[id];
@@ -5947,11 +6112,7 @@ class Controls {
   touchStart(id, x, y) {
     const g = this.g;
     if (this.menu && this.menu.open) { this.menu.touchStart(id, x, this.H - y); return; }
-    if (g.outcome !== null) {
-      const r = this.ui.retry;
-      if (r && g.overlayLevel() >= 0.6 && Math.abs(x - r.x) < 140 && Math.abs(y - r.y) < 50) { g.resetRound(); this.releaseAll(); }
-      return;
-    }
+    if (g.outcome !== null) return;                     // YOU DIED: you wake at the shrine on your own
     let best = null, bd = 1e9;
     for (const b of this.buttons) { const d = b.dist(x, y); if (b.id === null && d <= b.r * 1.3 && d < bd) { best = b; bd = d; } }
     if (best) {
@@ -6079,12 +6240,12 @@ function frame(now) {
     renderer.draw(game, controls.ui, game.t);
     if (game.outcome !== null && menu.open) menu.close();
     if (menu.open) { menu.update(raw); menu.draw(renderer); }
-    sound.setDrone(game.outcome === null, game.boss.phase);
+    sound.setDrone(game.fight === 'active' && game.outcome === null, game.boss.phase);
   }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__nullrite = { game, controls, renderer, sound, menu, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); } };
+window.__nullrite = { game, controls, renderer, sound, menu, C: { BOSS_ATTACKS, BOSS_MAX_HP, PLAYER_MAX_HP, Renderer, FLASK_MOVE, GUN_MOVE, GUN_MOVE_READY, THROW_MOVE, STAGGER_TIME, PHASE_TIME, S: { S_IDLE, S_MOVE, S_WINDUP, S_ACTIVE, S_RECOVERY, S_DODGE, S_HURT, S_DEAD, S_STALK, S_STAGGERED, S_PHASE } }, start() { screen = 'play'; game.resetRound(); game.startFight(true); } };
 
 }
 </script>

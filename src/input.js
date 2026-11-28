@@ -90,11 +90,7 @@ class Controls {
   touchStart(id, x, y) {
     const g = this.g;
     if (this.menu && this.menu.open) { this.menu.touchStart(id, x, this.H - y); return; }
-    if (g.outcome !== null) {
-      const r = this.ui.retry;
-      if (r && g.overlayLevel() >= 0.6 && Math.abs(x - r.x) < 140 && Math.abs(y - r.y) < 50) { g.resetRound(); this.releaseAll(); }
-      return;
-    }
+    if (g.outcome !== null) return;                     // YOU DIED: you wake at the shrine on your own
     let best = null, bd = 1e9;
     for (const b of this.buttons) { const d = b.dist(x, y); if (b.id === null && d <= b.r * 1.3 && d < bd) { best = b; bd = d; } }
     if (best) {
